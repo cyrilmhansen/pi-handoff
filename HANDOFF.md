@@ -41,6 +41,11 @@
       guide** — how to install and use context-guard in long-running projects, using the
       Digital Research PL/I-80 reverse-engineering project as the case study.
       Documentation/skill only; no Phase 2 renewal code.
+- [ ] NOTE: after checkpoint `g1-09c93f8608af` was attested, AGENTS.md was edited
+      (Phase 2 header + operator controls). Source hash of that checkpoint is therefore
+      stale on `learnings/agents`-adjacent state — refresh + re-attest with `/handoff`
+      and `/handoff ready` at the START of the next session (or after its first docs
+      change), before relying on `renewAuthorization()`.
 - [ ] Human review of the Phase 1b+1c consolidation (code + docs + LEARNINGS classifications).
 - [ ] Phase 2 renewal — NOT implemented (contract: PROTOCOL §6); gate: real-session
       checkpoint/recovery verification, plus deciding on LEARNINGS P-4/P-5 proposals.

@@ -1,8 +1,15 @@
 # AGENTS.md — handoff prototype
 
-Project: Pi 1.4.0 context-guard (Phases 1, 1b, 1c). Experimental prototype. Next planned
-milestone: **Phase 1d — Pi Handoff skill + long-project integration guide** (case study:
-Digital Research PL/I-80 reverse engineering). Not started; documentation-only scope.
+Project: Pi 1.4.0 context-guard. **Phase 2 (automatic session renewal) is the current
+milestone — in progress**: increment A (Pi API audit + design) is done and committed;
+renewal code is NOT yet implemented. Earlier: Phases 1/1b/1c complete; Phase 1d (skill +
+long-project guide) deferred behind Phase 2.
+
+Renewal status this milestone: **NO automatic renewal has run yet.** Operator controls
+once implemented (`/handoff renew`): trigger = `/handoff renew` in the session UI or via
+RPC `prompt`; stop = `/handoff renew stop` (disables further auto-renewals for the run);
+cancel any pending switch = `session_before_switch` `{cancel:true}` (guard's stop flag).
+Before then nothing switches sessions.
 
 Every fresh session:
 
