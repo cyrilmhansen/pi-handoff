@@ -14,7 +14,8 @@ Revocation fix (observed L4->L0 inconsistency, LEARNINGS A-18): implemented and
 committed this session; suite 108/109 (1 gated skip), real-runtime e2e 23/23.
 Renewal model-trigger path identified (A-19/P-8): guard tool -> fire-and-forget
 `pi.sendUserMessage("/handoff renew go", {expandPromptTemplates:true})`; NOT yet
-implemented.
+implemented. `renewal.ts` decision module committed (all gates smoke-verified; config
+wiring + formal tests + index.ts B-wiring remain; nothing switches sessions yet).
 
 ## Completed
 
@@ -111,13 +112,13 @@ constraints: HANDOFF.md "Next action" + LEARNINGS A-17/P-6.
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 2
-checkpoint-id: g2-19e146f00f01
-checkpoint-kind: manual
-content-delta: new
-readiness: attested
-guard-level: 2
-checkpointed: 2026-10-29T10:30:41.620Z
+checkpoint-generation: 3
+checkpoint-id: g3-3b09f416d0e1
+checkpoint-kind: auto
+content-delta: none
+readiness: unattested
+guard-level: 3
+checkpointed: 2026-10-29T10:31:42.928Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: 0b141e26d9665a3e8a32989126a1414cbca30cfbff9b153aa1dc6e0a244e645f
 source-handoff: d1b768746ed3c38c99a556b2a8ff0a9b92aebcd753cd5722316b7d4c4f92ad5a
@@ -178,7 +179,4 @@ Concrete next steps for the following session, in order:
 **Reserve decision (task §6, open):** config still uses `"generationReserve": "model"`
 (65536 ⇒ enforced closing at ~150k used). A fixed 20000 would extend sessions to ~195k
 used (LEARNINGS P-7, NOT adopted). First working renewal > threshold tuning.
-readiness-by: session:01a18713-0257-728d-a259-9ab1c5662cf7
-readiness-at: 2026-10-29T10:30:41.623Z
-readiness-checkpoint: g2-19e146f00f01
 <!-- guard:end checkpoint -->

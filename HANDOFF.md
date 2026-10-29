@@ -77,7 +77,13 @@ Concrete next steps for the following session, in order:
 1. `node --test test/ 2>&1 | tail` → expect **103 tests, 102 pass, 0 fail, 1 skipped**;
    `git log --oneline -3` → expect a "Phase 2 increment A" commit (SHA recorded in
    PROGRESS.md "Current phase") on top of `39a2da9`.
-2. **Increment A code**: implement the renewal decision as a pure deterministic module
+1b. **Increment A code — PARTIAL (committed this session)**: `renewal.ts` exists
+   (decideRenewal, RenewalState parse/serialize, buildRecoveryPrompt, DEFAULT_RENEWAL
+   disabled-by-default) with all decision paths smoke-verified manually (see commit
+   message); NOT yet wired: (a) config.ts must parse/merge `renewal` via mergeRenewal
+   + env CONTEXT_GUARD_AUTO_RENEW; (b) formal `test/renewal.test.ts` (RN1-RN8 mirroring
+   the smoke checks); (c) index.ts increment B below. Suite remained 108/109 green.
+2. **Increment A code (rest)**: config wiring + renewal tests, then
    (extend `core.ts` or add `renewal.ts`): config keys `autoRenew` (default **false**),
    `renewal.maxRenewals` (cap), `renewal.recoveryPrompt` (default deterministic text
    naming AGENTS.md/GOAL.md/HANDOFF.md/PROGRESS.md); decision function
@@ -234,13 +240,13 @@ P1–P5 (real child processes; P5 skips unless `GUARD_E2E=1`).
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 2
-checkpoint-id: g2-19e146f00f01
-checkpoint-kind: manual
-content-delta: new
-readiness: attested
-status: checkpoint (guard level 2, remaining ~17000, session 01a18713-0257-728d-a259-9ab1c5662cf7)
-checkpointed: 2026-10-29T10:30:41.620Z
+checkpoint-generation: 3
+checkpoint-id: g3-3b09f416d0e1
+checkpoint-kind: auto
+content-delta: none
+readiness: unattested
+status: checkpoint (guard level 3, remaining ~7761, session 01a18713-0257-728d-a259-9ab1c5662cf7)
+checkpointed: 2026-10-29T10:31:42.928Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: 0b141e26d9665a3e8a32989126a1414cbca30cfbff9b153aa1dc6e0a244e645f
 source-handoff: d1b768746ed3c38c99a556b2a8ff0a9b92aebcd753cd5722316b7d4c4f92ad5a
@@ -248,9 +254,6 @@ source-learnings: a0a68b471ff18dbf448d9d9289ef78ed74fdd6c429dc5f98c7f69b702d2c17
 source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 
 
-readiness-by: session:01a18713-0257-728d-a259-9ab1c5662cf7
-readiness-at: 2026-10-29T10:30:41.623Z
-readiness-checkpoint: g2-19e146f00f01
 ### Last verified state
 Revocation fix committed (a42d223; prev 6da98d6 design, fb7cab8, 6ea1d64). Suite 108/109 (1 gated skip), real-runtime e2e 23/23. Renewal code NOT yet implemented (increment A code next per HANDOFF).
 
@@ -283,7 +286,13 @@ Concrete next steps for the following session, in order:
 1. `node --test test/ 2>&1 | tail` → expect **103 tests, 102 pass, 0 fail, 1 skipped**;
    `git log --oneline -3` → expect a "Phase 2 increment A" commit (SHA recorded in
    PROGRESS.md "Current phase") on top of `39a2da9`.
-2. **Increment A code**: implement the renewal decision as a pure deterministic module
+1b. **Increment A code — PARTIAL (committed this session)**: `renewal.ts` exists
+   (decideRenewal, RenewalState parse/serialize, buildRecoveryPrompt, DEFAULT_RENEWAL
+   disabled-by-default) with all decision paths smoke-verified manually (see commit
+   message); NOT yet wired: (a) config.ts must parse/merge `renewal` via mergeRenewal
+   + env CONTEXT_GUARD_AUTO_RENEW; (b) formal `test/renewal.test.ts` (RN1-RN8 mirroring
+   the smoke checks); (c) index.ts increment B below. Suite remained 108/109 green.
+2. **Increment A code (rest)**: config wiring + renewal tests, then
    (extend `core.ts` or add `renewal.ts`): config keys `autoRenew` (default **false**),
    `renewal.maxRenewals` (cap), `renewal.recoveryPrompt` (default deterministic text
    naming AGENTS.md/GOAL.md/HANDOFF.md/PROGRESS.md); decision function
