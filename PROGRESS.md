@@ -127,47 +127,36 @@ operator approval, never agent initiative).
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 9
-checkpoint-id: g9-1655aaba5cf2
+checkpoint-generation: 10
+checkpoint-id: g10-1e7a8ed85b78
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
 guard-level: 0
-checkpointed: 2026-10-29T14:45:33.715Z
+checkpointed: 2026-10-29T15:13:37.963Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 083cf0c14a81263006fb63f72701ed1c3fc9c7decdec2e4cb384205d9b7cd505
-source-handoff: 1e99be1f38057b0f550f24210da2c0a4caa08c70db8c26a7bee75c585705b357
-source-learnings: 1b30baa67114f9d39d73ad926ec838bcf12e3cf90ef236758281d8abb3aed3a8
+source-progress: a9260cd606ed9b6129196ac1938a52de7a4e3de44cd3a6f4580448e5f1eb57e1
+source-handoff: f0a8eb66f2f9c08fc4b462672e315dfa794f1239d9ee8c063399e888f80d88db
+source-learnings: d9f5081486a8ea96d4e6da5076e5cf560b5b9a3ff60052d25d12c60237f4edb5
 source-config: 0b1e162bdbf7ec9946afab3d1dd8b0fa35b4e3972ba77214f68c9a55276fe606
-next-action: **Phase 2 (increments A+B+C) AND Phase 1d are COMPLETE. Nothing in the guard's code
-changed in the Phase 1d increment — docs, skill, and one new zero-inference probe
-script.** Phase 1d delivered: `.agents/skills/pi-handoff/` (operating skill +
-commands/config reference + bootstrap procedure), `docs/long-project-guide.md`
-(long-project integration guide, PL/I-80 case study as blueprint only — pli80 was
-inspected read-only and NOT modified), `scripts/check-skill-discovery.mjs` (real-
-runtime skill discovery probe; found + documented the trust-gating of project skills,
-LEARNINGS A-25).
+next-action: **Documentation consolidation is COMPLETE. Exact next action: operator review of this
+consolidation, then — separately — explicitly authorized `drpli` integration.**
 
-Concrete next steps, in order:
+For the reviewing session:
 
-1. `node --test test/` → expect **132 tests, 131 pass, 0 fail, 1 skipped**;
-   zero-inference e2e `node scripts/e2e-rpc-two-process.mjs` → 27/27;
-   skill probe `node scripts/check-skill-discovery.mjs` → 8/8; real-inference renewal
-   e2e `node scripts/e2e-renew.mjs` (spends inference) → 20/20 — re-run the latter only
-   after a change to the renewal wiring in index.ts.
-2. **Human review** of increments A–C + Phase 1d docs (code + guide + LEARNINGS
-   classifications; P-7's ~195k closing point is still NOT live-observed — the renewal
-   experiment triggered with synthetic pressure).
-3. Operator decision: set `renewal.autoRenew: true` in `handoff.config.json` as the
-   project default (model-initiated renewal then works WITHOUT the env switch) — NOT
-   done here; config stays OFF until the operator says so. Likewise: applying the
-   pli80 blueprint (guide §7) is a separate, explicitly-approved operator action.
-4. Optional follow-ups: P-5 real two-process concurrency proof; live token-accounting
-   sanity walk-through; "config-changed-since-session-start" notice (A-22).
-5. Commit after every increment (local only, never push). Refresh + attest the
-   checkpoint AFTER committing; commit the managed-block refresh separately when it
-   dirties the tree.
-readiness-by: session:01a1881f-91b1-71c8-9606-aabc3647d0eb
-readiness-at: 2026-10-29T14:45:33.815Z
-readiness-checkpoint: g9-1655aaba5cf2
+1. `git log --oneline 06fbc71..HEAD` — inspect the consolidation commits; read README,
+   HANDOFF, PROGRESS, PROTOCOL, `.agents/skills/pi-handoff/`, `docs/long-project-guide.md`.
+2. Re-run the zero-inference gate: `node --test test/` → **131 pass / 1 skip**;
+   `node scripts/e2e-rpc-two-process.mjs` → **27/27**;
+   `node scripts/check-skill-discovery.mjs` → **8/8**. Do NOT re-run
+   `scripts/e2e-renew.mjs` (spends inference; nothing touched renewal wiring).
+3. Outstanding operator decisions: `renewal.autoRenew` default (stays OFF), and whether
+   to authorize the `drpli` integration (guide §7 + `references/bootstrap.md` are the
+   templates; applying them anywhere requires explicit approval).
+4. Commit ritual: commit first, then `/handoff` + `/handoff ready`; commit the
+   managed-block refresh separately if it dirties the tree. Never push — the operator
+   publishes.
+readiness-by: session:01a18839-447a-726e-a2d2-86bd4a32750f
+readiness-at: 2026-10-29T15:13:38.064Z
+readiness-checkpoint: g10-1e7a8ed85b78
 <!-- guard:end checkpoint -->
