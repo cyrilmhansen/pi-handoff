@@ -26,10 +26,11 @@ estimate, so thresholds are advisory budgets, not guarantees.
 
 Configuration: `handoff.config.json` (`thresholds`, `enforceClosing`, `closingAllowlist`,
 `generationReserve`, `safetyReserve`, `protectGoal`, `maxConsecutiveUnknown`, `stateDir`,
-`readOnly`, `maxSessionStates`).
+`readOnly`, `maxSessionStates`, `renewal` — Phase 2 policy block, see §6).
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<n>`, `CONTEXT_GUARD_READONLY=1`,
-`CONTEXT_GUARD_STATE_DIR=<path>`; CLI flags `--guard-synthetic <n>`, `--guard-readonly <1>`.
+`CONTEXT_GUARD_STATE_DIR=<path>`, `CONTEXT_GUARD_AUTO_RENEW=1|0` (force-enable/disable
+the renewal policy for this process); CLI flags `--guard-synthetic <n>`, `--guard-readonly <1>`.
 
 Alert semantics:
 - One alert per threshold crossing per session (even if headroom later returns).
@@ -196,20 +197,36 @@ Agents may investigate beyond the immediate objective when justified: time avail
 ends as a `Proposed` entry with evidence/value/cost, or a `Falsified` entry. Scope creep
 into a general orchestration framework is out of contract.
 
-## 6. Renewal contract (Phase 2 — future, not yet active)
+## 6. Renewal contract (Phase 2 — increment A implemented: decision module + config + durable chain state; the session switch itself is NOT yet active)
 
-When checkpoint + recovery tests pass in real sessions, a fresh-session renewal may be
-added with this contract:
+Renewal policy lives in `renewal.ts` (pure) + `handoff.config.json` `renewal`
+(`enabled` default **false**, `autoRenew` default **false**, `maxRenewals` default 2,
+`recoveryPrompt` override). Chain state (`chainId`, `renewalsDone`,
+`renewedFromCheckpointId`, `stopped`) persists at `<stateDir>/renewal-state.json`: it survives
+session replacement and process restart, bounds the chain, makes each checkpoint seed
+at most one successor (idempotence), and carries the durable operator stop.
+`decideRenewal()` refuses with a named reason in precedence order
+(stop > read-only > disabled > auto-disabled > pending > capped > not-authorized >
+already-renewed); the authorization input is `renewAuthorization()` (current ∧
+identity-consistent ∧ attested). `buildRecoveryPrompt()` is deterministic and names
+ONLY durable files (AGENTS/PROTOCOL/GOAL/HANDOFF/PROGRESS/LEARNINGS + the test command):
+no transcript replay, no LLM summarization, no compaction.
 
-- Triggered explicitly (`/handoff --renew`) or at enforced level 4 after a successful
-  checkpoint — never while a tool call is in flight; the guard waits via `waitForIdle()`.
+The switch itself, when wired (increment B), must follow this contract:
+
+- Triggered explicitly (`/handoff renew`, operator command context) — never while a
+  tool call is in flight; the guard waits via `waitForIdle()`. A model-initiated path
+  (P-8) may only DISPATCH the command fire-and-forget (deadlock rule, A-19).
 - New session receives ONLY: AGENTS.md (auto context file) + GOAL.md + latest HANDOFF.md
-  + PROGRESS.md. The transcript is not carried over; no lossy compaction is used.
+  + PROGRESS.md + the deterministic recovery message. The transcript is not carried
+  over; no lossy compaction is used.
 - Implementation must use Pi's verified replacement path
-  (`ctx.newSession({parentSession, withSession})` / `switchSession`); the old extension
-  context is invalid after replacement, so only plain data crosses the boundary.
-- Renewal must be cancellable and must append an audit entry naming the checkpoint hash
-  it restored from.
+  (`ctx.newSession({parentSession, withSession})`); the old extension context is invalid
+  after replacement, so only plain data crosses the boundary (A-17.5).
+- Renewal must be cancellable (`/handoff renew stop` → `session_before_switch`
+  `{cancel:true}` for GUARD-pending switches only) and must append an audit entry
+  naming the checkpoint id it transitioned from; the successor records the lineage
+  (`previousSessionFile`) in the durable renewal state.
 
 ## 7. Invariants
 

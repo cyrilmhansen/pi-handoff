@@ -48,6 +48,12 @@ export interface RenewalState {
   renewedFromCheckpointId: string | null;
   /** Session id of the last renewal's successor, recorded by that successor at session_start. */
   lastSuccessorSessionId: string | null;
+  /**
+   * Operator stop (`/handoff renew stop`) — durable so it survives BOTH session
+   * replacement and process restarts: a chain cannot resurrect renewals by rolling
+   * into a fresh session. Cleared only by the explicit `/handoff renew resume`.
+   */
+  stopped: boolean;
   updatedAt: number | null;
 }
 
@@ -57,6 +63,7 @@ export const INITIAL_RENEWAL_STATE: RenewalState = {
   renewalsDone: 0,
   renewedFromCheckpointId: null,
   lastSuccessorSessionId: null,
+  stopped: false,
   updatedAt: null,
 };
 
@@ -72,6 +79,8 @@ export function parseRenewalState(raw: string | undefined): { state: RenewalStat
         renewalsDone: typeof p.renewalsDone === "number" && Number.isFinite(p.renewalsDone) && p.renewalsDone >= 0 ? Math.floor(p.renewalsDone) : 0,
         renewedFromCheckpointId: typeof p.renewedFromCheckpointId === "string" ? p.renewedFromCheckpointId : null,
         lastSuccessorSessionId: typeof p.lastSuccessorSessionId === "string" ? p.lastSuccessorSessionId : null,
+        // absent in files written before the stop field existed: not stopped
+        stopped: p.stopped === true,
         updatedAt: typeof p.updatedAt === "number" && Number.isFinite(p.updatedAt) ? p.updatedAt : null,
       },
       corrupt: false,

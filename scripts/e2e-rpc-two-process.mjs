@@ -131,14 +131,25 @@ function startRpc({ dir, agentDir, env, label }) {
 }
 
 // LEARNINGS A-9: RPC commands dispatched before session_start complete hit an
-// uninitialized extension. Wait for the guard's own session_start notification.
+// uninitialized extension. Poll /guard status until the guard ANSWERS with its report
+// ("not initialized" is the pre-session_start answer; "context-guard status" proves
+// session_start ran). This must not depend on any incidental startup notification:
+// with a current checkpoint and no repairs to report, a session_start may notify nothing.
 async function awaitReady(c) {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 90_000;
+  let n = 0;
   for (;;) {
-    if (c.uiTexts().some((t) => /context-guard/.test(t))) return true;
+    if (c.uiTexts().some((t) => /context-guard status/.test(t))) return true;
     if (c.child.exitCode != null) throw new Error(`${c.label}: pi exited early (code ${c.child.exitCode}):\n${c.stderr.join("")}`);
-    if (Date.now() > deadline) throw new Error(`${c.label}: no context-guard notification within 60s; stderr:\n${c.stderr.join("")}`);
-    await new Promise((r) => setTimeout(r, 50));
+    if (Date.now() > deadline) throw new Error(`${c.label}: guard never answered /guard status within 90s; stderr:\n${c.stderr.join("")}`);
+    if (n++ % 8 === 0) {
+      try {
+        c.send({ id: `${c.label}-probe-${n}`, type: "prompt", message: "/guard status" });
+      } catch {
+        /* stdin closing */
+      }
+    }
+    await new Promise((r) => setTimeout(r, 250));
   }
 }
 
@@ -160,7 +171,7 @@ try {
   const a = startRpc({ dir: tree, agentDir: agentA, label: "A" });
   const b = startRpc({ dir: tree, agentDir: agentB, label: "B" });
   const [readyA, readyB] = [await awaitReady(a), await awaitReady(b)];
-  check("A/B: guard loaded in real pi 1.4.0 (session_start fired)", readyA && readyB);
+  check("A/B: guard loaded and initialized in real pi 1.4.0 (session_start done, /guard status answered)", readyA && readyB);
 
   const stA = await a.command({ id: "a-state", type: "get_state" });
   const stB = await b.command({ id: "b-state", type: "get_state" });

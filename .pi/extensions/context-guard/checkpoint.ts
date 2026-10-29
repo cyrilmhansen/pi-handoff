@@ -11,6 +11,7 @@ import fsDefault from "node:fs";
 import pathDefault from "node:path";
 
 import type { GuardFiles } from "./config.ts";
+import { parseRenewalState, serializeRenewalState, type RenewalState } from "./renewal.ts";
 
 export interface FsOps {
   readFile(path: string): string | undefined;
@@ -254,6 +255,35 @@ function parseState(raw: string): PersistedGuardState {
     throw new Error("schema");
   }
   return parsed;
+}
+
+/* ------------------------------------------------------------------ */
+/* Renewal chain state (Phase 2): ONE durable file per state dir.      */
+/* Unlike per-session guard state this MUST survive session            */
+/* replacement and process restarts — the renewal cap, the             */
+/* idempotence key and the operator stop live here (LEARNINGS A-17.4). */
+/* ------------------------------------------------------------------ */
+
+export const RENEWAL_STATE_FILE = "renewal-state.json";
+
+export function renewalStatePath(stateDir: string): string {
+  return joinPath(stateDir, RENEWAL_STATE_FILE);
+}
+
+/** Read the durable renewal chain state. Never throws; corruption is reported, initial state returned. */
+export function loadRenewalState(fs: FsOps, stateDir: string): { state: RenewalState; corrupt: boolean } {
+  return parseRenewalState(fs.readFile(renewalStatePath(stateDir)));
+}
+
+/** Atomic write (FsOps.writeFile is temp+rename on the local fs). */
+export function saveRenewalState(fs: FsOps, stateDir: string, state: RenewalState): { ok: boolean; error?: string } {
+  try {
+    fs.mkdirRecursive(stateDir);
+    fs.writeFile(renewalStatePath(stateDir), serializeRenewalState(state));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 function cleanTmpFiles(fs: FsOps, dir: string, dryRun = false): string[] {

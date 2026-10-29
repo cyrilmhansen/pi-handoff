@@ -4,6 +4,7 @@
  */
 
 import type { ThresholdsInput } from "./core.ts";
+import { DEFAULT_RENEWAL, mergeRenewal, type RenewalConfig } from "./renewal.ts";
 
 export interface GuardFiles {
   goal: string;
@@ -39,6 +40,12 @@ export interface GuardConfig {
   files: GuardFiles;
   /** Fixed remaining-token figure used by synthetic test mode. */
   syntheticRemaining: number | null;
+  /**
+   * Phase 2 renewal policy (see renewal.ts). Disabled by default: NOTHING switches
+   * sessions until `renewal.enabled` is true, and model-initiated renewal additionally
+   * requires `renewal.autoRenew`.
+   */
+  renewal: RenewalConfig;
 }
 
 export const DEFAULT_CONFIG: GuardConfig = {
@@ -56,6 +63,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
   maxSessionStates: 0,
   files: { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" },
   syntheticRemaining: null,
+  renewal: { ...DEFAULT_RENEWAL },
 };
 
 export interface MiniFs {
@@ -75,7 +83,7 @@ function isNonNegativeInt(v: unknown): v is number {
 
 export function mergeConfig(base: GuardConfig, override: Json | null | undefined): GuardConfig {
   if (!override || typeof override !== "object") return base;
-  const next: GuardConfig = { ...base, files: { ...base.files }, thresholds: { ...base.thresholds }, closingAllowlist: [...base.closingAllowlist] };
+  const next: GuardConfig = { ...base, files: { ...base.files }, thresholds: { ...base.thresholds }, closingAllowlist: [...base.closingAllowlist], renewal: { ...base.renewal } };
   if (typeof override.enabled === "boolean") next.enabled = override.enabled;
   const th = override.thresholds;
   if (th && typeof th === "object") {
@@ -103,6 +111,7 @@ export function mergeConfig(base: GuardConfig, override: Json | null | undefined
       if (typeof f[key] === "string" && (f[key] as string).length > 0) next.files[key] = f[key] as string;
     }
   }
+  next.renewal = mergeRenewal(next.renewal, override.renewal);
   return next;
 }
 
@@ -135,6 +144,13 @@ export function loadConfig(
   if (sim != null) {
     const n = Number(sim);
     if (Number.isFinite(n)) merged = { ...merged, syntheticRemaining: Math.floor(n) };
+  }
+  // Renewal kill switch / experiment switch: "1" enables renewal AND the model-initiated
+  // path for this process; "0" forces both off regardless of the config file.
+  if (env.CONTEXT_GUARD_AUTO_RENEW === "1") {
+    merged = { ...merged, renewal: { ...merged.renewal, enabled: true, autoRenew: true } };
+  } else if (env.CONTEXT_GUARD_AUTO_RENEW === "0") {
+    merged = { ...merged, renewal: { ...merged.renewal, enabled: false, autoRenew: false } };
   }
   return merged;
 }

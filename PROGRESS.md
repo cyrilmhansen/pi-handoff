@@ -2,20 +2,20 @@
 
 ## Current phase
 
-Phase 2 (minimal automatic session renewal) — IN PROGRESS. Session 01a18713 completed
-**increment A (design)**: verified Pi 1.4.0 replacement semantics (LEARNINGS A-17),
-renewal design (P-6), reserve policy (P-7), open questions O-1/O-2/O-3. Test suite
-verified green at baseline `39a2da9` (102/103, 1 gated skip). NO renewal code exists yet:
-state machine + tests are the next increment (see HANDOFF "Next action").
-Increment A design commit: `6da98d6` (on baseline `39a2da9`); suite green 102/103 at
-both points; this session runs real Qwen/Sushi inference under the guard.
+Phase 2 (minimal automatic session renewal) — IN PROGRESS. **Increment A is COMPLETE**
+(renewal session): `renewal.ts` decision module + durable chain state + config wiring
+(`renewal` block via mergeRenewal, env CONTEXT_GUARD_AUTO_RENEW) + chain-state
+persistence (`loadRenewalState`/`saveRenewalState` -> `<stateDir>/renewal-state.json`,
+survives session replacement AND process restart) + formal `test/renewal.test.ts`
+RN1-RN10: disabled-by-default, readiness gate (renewAuthorization), idempotence per
+checkpoint id, cap, trigger gating, gate precedence (stop > read-only > enabled >
+autoRenew > pending > cap > auth > idempotence), durability round-trips, recovery-prompt
+determinism. Suite 118/119 (1 gated skip), real-runtime e2e 23/23.
 
-Revocation fix (observed L4->L0 inconsistency, LEARNINGS A-18): implemented and
-committed this session; suite 108/109 (1 gated skip), real-runtime e2e 23/23.
-Renewal model-trigger path identified (A-19/P-8): guard tool -> fire-and-forget
-`pi.sendUserMessage("/handoff renew go", {expandPromptTemplates:true})`; NOT yet
-implemented. `renewal.ts` decision module committed (all gates smoke-verified; config
-wiring + formal tests + index.ts B-wiring remain; nothing switches sessions yet).
+Earlier this milestone: revocation fix (A-18) + renewal model-trigger path (A-19/P-8)
+source-verified; increment-A design audit (A-17). **NOTHING SWITCHES SESSIONS YET**:
+`/handoff renew` wiring (increment B) and the real A->B->C Qwen experiment
+(increment C) are the remaining Phase 2 work — see HANDOFF "Next action".
 
 ## Completed
 
@@ -54,6 +54,9 @@ Phase 1b (this session):
 
 ## Pending
 
+- [ ] Phase 2 increment B: `/handoff renew` switch wiring + `handoff_renew` tool bridge.
+- [ ] Phase 2 increment C: real-inference A -> B -> C renewal experiment + evidence.
+
 - [ ] Human review of Phase 1b consolidation.
 - [ ] Phase 2 renewal — deliberately NOT started (see PROTOCOL §6).
 - [ ] Live interactive-session walkthrough of `/guard simulate` on a real Sushi model
@@ -86,6 +89,10 @@ Phase 1c (completion session):
 
 ## Verified evidence
 
+- Phase 2 increment A (renewal session): `node --test test/` -> 118 pass / 0 fail /
+  1 skipped (RN1-RN10 renewal suite added); `node scripts/e2e-rpc-two-process.mjs` ->
+  23/23 on the CURRENT extension (module load proven in real Pi 1.4.0 per A-15).
+
 - `node --test test/` -> 55 pass, 0 fail (Node v26.12.1).
 - Real Pi 1.4.0 RPC (isolated PI_CODING_AGENT_DIR, zero inference): session_start staleness
   warning on the live HANDOFF.md legacy block; `/guard status` reports `checkpoint stale`;
@@ -104,21 +111,22 @@ Phase 1c (completion session):
 
 ## Next action
 
-Implement Phase 2 increment A CODE: pure renewal decision module + config keys
-(`autoRenew` default false, `renewal.maxRenewals`, `renewal.recoveryPrompt`) + mock
-tests (`test/renewal.test.ts`), commit; then `/handoff renew` wiring (increment B),
-then the 3-session real-Qwen RPC experiment (increment C). Details and exact API
-constraints: HANDOFF.md "Next action" + LEARNINGS A-17/P-6.
+Priority 2: experimental reserve (`generationReserve: 20000` in handoff.config.json,
+documented as policy change: enforced closing ~150k -> ~195k used at the declared 220k
+window; thresholds unchanged) + the project `renewal` config block; then increment B
+(`/handoff renew` + `handoff_renew` tool + operator stop/resume + identity banner),
+then increment C (real-Qwen A->B->C experiment). Exact API constraints: HANDOFF.md
+"Next action" + LEARNINGS A-17/A-19/P-6/P-8.
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 4
-checkpoint-id: g4-ae11fe680edf
-checkpoint-kind: manual
-content-delta: new
-readiness: attested
-guard-level: 3
-checkpointed: 2026-10-29T10:32:47.699Z
+checkpoint-generation: 5
+checkpoint-id: g5-16c8440d5756
+checkpoint-kind: auto
+content-delta: none
+readiness: unattested
+guard-level: 4
+checkpointed: 2026-10-29T10:32:47.719Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: f802b5f6871aa8a5cc8d15ca1eabef5c13eae9b0a8ddf127679d685f8ec06f12
 source-handoff: e79a9dd7eade5fc12a6fff30aa3e89e985078bc35e860a3f113e59f09fa4ccc5
@@ -185,7 +193,4 @@ Concrete next steps for the following session, in order:
 **Reserve decision (task §6, open):** config still uses `"generationReserve": "model"`
 (65536 ⇒ enforced closing at ~150k used). A fixed 20000 would extend sessions to ~195k
 used (LEARNINGS P-7, NOT adopted). First working renewal > threshold tuning.
-readiness-by: session:01a18713-0257-728d-a259-9ab1c5662cf7
-readiness-at: 2026-10-29T10:32:47.701Z
-readiness-checkpoint: g4-ae11fe680edf
 <!-- guard:end checkpoint -->

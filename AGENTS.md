@@ -1,9 +1,10 @@
 # AGENTS.md — handoff prototype
 
 Project: Pi 1.4.0 context-guard. **Phase 2 (automatic session renewal) is the current
-milestone — in progress**: increment A (Pi API audit + design) is done and committed;
-renewal code is NOT yet implemented. Earlier: Phases 1/1b/1c complete; Phase 1d (skill +
-long-project guide) deferred behind Phase 2.
+milestone — in progress**: increment A (renewal decision module, config wiring, durable
+chain state, tests RN1–RN10) is done and committed; the session-switch wiring
+(increment B) is NOT yet implemented — nothing switches sessions yet. Earlier:
+Phases 1/1b/1c complete; Phase 1d (skill + long-project guide) deferred behind Phase 2.
 
 Renewal status this milestone: **NO automatic renewal has run yet.** Operator controls
 once implemented (`/handoff renew`): trigger = `/handoff renew` in the session UI or via
