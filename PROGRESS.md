@@ -12,6 +12,14 @@ checkpoint id, cap, trigger gating, gate precedence (stop > read-only > enabled 
 autoRenew > pending > cap > auth > idempotence), durability round-trips, recovery-prompt
 determinism. Suite 118/119 (1 gated skip), real-runtime e2e 23/23.
 
+**Priority 2 DONE (experimental reserve):** handoff.config.json now uses
+`generationReserve: 20000` (thresholds unchanged) + a `renewal` block (enabled for this
+project's experiments, autoRenew OFF until proven, maxRenewals 2) and `handoff_renew` in
+closingAllowlist. Budget verified through computeBudget + ContextPressureMachine:
+crossings at used >= 170k/180k/190k/195k(L4) with the declared 220k window — nominal
+closing moved from ~150k to ~195k (LEARNINGS P-7 adopted experimentally, project-local;
+global Pi/Sushi config untouched).
+
 Earlier this milestone: revocation fix (A-18) + renewal model-trigger path (A-19/P-8)
 source-verified; increment-A design audit (A-17). **NOTHING SWITCHES SESSIONS YET**:
 `/handoff renew` wiring (increment B) and the real A->B->C Qwen experiment

@@ -6,14 +6,19 @@
     "handoff": 10000,
     "closing": 5000
   },
-  "generationReserve": "model",
+  "generationReserve": 20000,
   "safetyReserve": 0,
   "enforceClosing": true,
-  "closingAllowlist": ["write", "edit", "read"],
+  "closingAllowlist": ["write", "edit", "read", "handoff_renew"],
   "protectGoal": true,
   "autoCheckpointAtHandoffLevel": true,
   "maxConsecutiveUnknown": 3,
   "stateDir": ".pi-guard",
+  "renewal": {
+    "enabled": true,
+    "autoRenew": false,
+    "maxRenewals": 2
+  },
   "files": {
     "goal": "GOAL.md",
     "progress": "PROGRESS.md",

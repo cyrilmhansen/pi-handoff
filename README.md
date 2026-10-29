@@ -93,14 +93,37 @@ Two things this reserve is **not**:
 
 `/guard status` therefore prints every component (raw remaining, reserve **and its
 source**, usable remaining, reserve fraction, provenance, inconsistencies) and flags a
-reserve above 25 % of the window. A fixed reserve is available via
-`"generationReserve": 20000` — **not adopted here**; the project keeps `"model"`
-(20 k would only move the closing point from ~150 k to ~195 k used).
+reserve above 25 % of the window.
+
+**Experimental policy change (Phase 2, adopted for this project):** this project now uses
+`"generationReserve": 20000` (LEARNINGS P-7, adopted experimentally for renewal work).
+With the declared 220 000 window and default thresholds this moves nominal closing from
+≈150 k to ≈195 k estimated tokens used — level crossings at used ≥ 170 000 (L1),
+180 000 (L2), 190 000 (L3), **195 000 (L4 enforced)** — verified arithmetically through
+`computeBudget` + `ContextPressureMachine` (220000 − 20000 − 5000 = 195000). This is a
+BUDGET change only: it does NOT modify global Pi or Sushi settings and does NOT cap
+output; per A-12 Pi still clamps `max_tokens` per request, so a generation that outruns
+the reserve is provider-truncated, the estimate grows, and the guard escalates. Trade-off
+accepted for Phase 2: longer productive window per session before renewal, at the cost of
+less headroom between the L4 alert and the true window edge.
 
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<tokens>`, `CONTEXT_GUARD_READONLY=1`,
-`CONTEXT_GUARD_STATE_DIR=<path>` (may point outside the project).
+`CONTEXT_GUARD_STATE_DIR=<path>` (may point outside the project),
+`CONTEXT_GUARD_AUTO_RENEW=1|0` (force-enable/disable the renewal policy for one process).
 CLI flags: `--guard-synthetic <n>`, `--guard-readonly 1`.
+
+## Renewal (Phase 2 — increment A implemented; the switch itself lands in increment B)
+
+`handoff.config.json` may carry a `renewal` block: `enabled` (default **false** — nothing
+switches sessions unless you say so), `autoRenew` (default **false** — model-initiated
+renewal needs this ON), `maxRenewals` (hard cap per chain, default 2), `recoveryPrompt`
+(optional override of the deterministic recovery instruction). Chain state persists at
+`<stateDir>/renewal-state.json` and survives session replacement and process restarts;
+`/handoff renew stop` writes a DURABLE stop flag that successor sessions inherit.
+Renewal requires the full Phase 1c gate: current checkpoint ∧ consistent identity ∧
+attested readiness (`renewAuthorization()`) ∧ below cap ∧ checkpoint not already used
+(idempotence). See PROTOCOL §6.
 
 ## Manually triggering each threshold (synthetic mode — no token spend)
 
