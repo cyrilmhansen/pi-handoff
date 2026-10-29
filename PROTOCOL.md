@@ -236,9 +236,14 @@ The switch (increments B+C, implemented; proven live A→B→C with real inferen
 - Triggered explicitly (`/handoff renew`, operator command context) — never while a
   tool call is in flight; the guard waits via `waitForIdle()`. A model-initiated path
   (P-8) may only DISPATCH the command fire-and-forget (deadlock rule, A-19).
-- New session receives ONLY: AGENTS.md (auto context file) + GOAL.md + latest HANDOFF.md
-  + PROGRESS.md + the deterministic recovery message. The transcript is not carried
-  over; no lossy compaction is used.
+- The successor starts with a **fresh, empty transcript**. What crosses the boundary is
+  only: Pi's own project context (AGENTS.md auto-loaded as a context file), the
+  runtime-derived identity banner, and the deterministic recovery instruction (a custom
+  message carrying predecessor notes when given) that NAMES the six durable files
+  (AGENTS/PROTOCOL/GOAL/HANDOFF/PROGRESS/LEARNINGS) plus the test command. The files'
+  **contents are not transferred** — the successor reads them itself afterwards (proven
+  in A-23: the successor's first action was reading all six). The predecessor transcript
+  is not carried over; no lossy compaction is used.
 - Implementation must use Pi's verified replacement path
   (`ctx.newSession({parentSession, withSession})`); the old extension context is invalid
   after replacement, so only plain data crosses the boundary (A-17.5).
@@ -252,7 +257,14 @@ The switch (increments B+C, implemented; proven live A→B→C with real inferen
 - No automatic compaction; no `ctx.compact()` calls.
 - Stable system prompt: the guard never returns `systemPrompt` overrides and never uses
   `context_with_system`; transcript changes are append-only deltas (cache-friendly).
-- No third-party installs; no writes outside this project directory by the guard.
+- No third-party installs. The guard's own writes stay inside this project directory,
+  with exactly one sanctioned exception: its runtime state (per-session files + renewal
+  chain state) persists under `stateDir` — `.pi-guard/` inside the tree by default, but
+  deliberately OUTSIDE it when `stateDir` / `CONTEXT_GUARD_STATE_DIR` names an external
+  path (required for zero-write audit mode; containment is realpath-checked, §2.3).
+  Nothing else is ever written outside the tree by the guard. Separately, **Pi itself**
+  persists session transcripts under `$PI_CODING_AGENT_DIR` — that is Pi's storage, not
+  guard activity, and it continues even in read-only audit sessions (§2.3).
 - The unit suite (`node --test test/`) runs with mocked Pi events and synthetic budgets
   only — zero inference. Real-runtime verification uses the zero-inference scripts
   (`scripts/e2e-rpc-two-process.mjs`, `scripts/check-skill-discovery.mjs`). The ONLY
