@@ -1,0 +1,9 @@
+{
+  "name": "handoff-phase1",
+  "private": true,
+  "type": "module",
+  "description": "Pi 1.4.0 context-pressure guard and durable handoff prototype (no runtime dependencies)",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

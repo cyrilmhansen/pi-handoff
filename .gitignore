@@ -1,0 +1,8 @@
+# Runtime state and local artifacts
+.pi-guard/
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+*.bak
