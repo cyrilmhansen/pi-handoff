@@ -45,11 +45,16 @@ const check = (name, ok, detail = "") => {
 };
 
 // ---- isolated full clone (history preserved, nothing of the real tree is mutated) ----
-const clone = fs.mkdtempSync(path.join(os.tmpdir(), "guard-renew-"));
+// git clone refuses a pre-existing (non-empty) dir: make a fresh parent with mkdtemp,
+// clone into <parent>/work so the clone path is stable for cleanup.
+const parent = fs.mkdtempSync(path.join(os.tmpdir(), "guard-renew-"));
+const clone = path.join(parent, "work");
 if (process.env.GUARD_E2E_KEEP === "1") console.log(`clone dir: ${clone}`);
 const gitInit = spawn("git", ["clone", "--quiet", REPO, clone], { stdio: "inherit" });
-await new Promise((r) => gitInit.once("exit", r));
-if (gitInit.code !== 0) throw new Error("git clone failed");
+// .code is only populated once the exit event fires WITH its code; `child.code` can be
+// undefined at that point depending on stdio mode — capture the event argument instead.
+const gitCode = await new Promise((r) => gitInit.once("exit", (code) => r(code)));
+if (gitCode !== 0) throw new Error(`git clone failed (exit ${gitCode})`);
 const EXT = path.join(clone, ".pi/extensions/context-guard/index.ts");
 
 /** Minimal RPC client (same protocol as e2e-rpc-two-process.mjs). */
@@ -132,9 +137,19 @@ try {
 
   // ---- synthetic pressure (O-3): the GUARD tells the model renewal is available ----
   await c.command({ id: "sim", type: "prompt", message: "/guard simulate 9000" });
-  await new Promise((r) => setTimeout(r, 700)); // alert append happens at turn end/command
-  const hintText = c.uiTexts().join("\n");
-  check("C1b: guard surfaced the RENEWAL AVAILABLE guidance", /RENEWAL AVAILABLE/.test(hintText), hintText.split("\n").find((l) => /RENEWAL AVAILABLE/.test(l))?.slice(0, 160) ?? "(none — alert may be pending until next settle)");
+  // The guidance is delivered to the MODEL as a custom_message (pi.sendMessage,
+  // triggerTurn:false), not via ui.notify — poll A's transcript for it.
+  let hintLine = "";
+  for (let i = 0; i < 20 && !hintLine; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      hintLine = fs
+        .readFileSync(idA.sessionFile, "utf8")
+        .split("\n")
+        .find((l) => l.includes("RENEWAL AVAILABLE")) ?? "";
+    } catch {}
+  }
+  check("C1b: guard surfaced the RENEWAL AVAILABLE guidance (to the model, via custom_message)", /"customType":"context-guard"/.test(hintLine) && /RENEWAL AVAILABLE/.test(hintLine), hintLine.slice(0, 160));
 
   // ---- hop 1: model-initiated renewal via the tool (P-8) ----
   const notes1 = "BOUNDED RENEWAL EXPERIMENT — OVERRIDE the Next action: this is increment-C hop-1 validation, not new work. Recovery sequence ONLY: (1) read AGENTS.md, PROTOCOL.md, GOAL.md, HANDOFF.md, PROGRESS.md, LEARNINGS.md; (2) run node --test test/; (3) append ONE line to LEARNINGS.md Accepted section: '- [X-1] renewal successor session <your session id> recovered from durable files; suite <N> passing at hop 1.'; (4) git add -A && git commit -m \"e2e-renew: successor B real work\"; (5) reply DONE and STOP. Do NOT start new implementation.";
@@ -166,7 +181,14 @@ try {
   });
   const msgsB = fs.readFileSync(idB.sessionFile, "utf8");
   check("C1f: successor received the identity banner + recovery instruction BEFORE its first inference", /context-guard-identity/.test(msgsB) && /context-guard-recovery/.test(msgsB), `file ${path.basename(idB.sessionFile)}`);
-  check("C1g: transcript NOT replayed (A's marker absent from B)", !msgsB.includes(marker), `marker ${marker} not in B`);
+  // Transcript-replay check: A's marker may legitimately reach B through the DURABLE
+  // files (if A recorded it in LEARNINGS/HANDOFF and B read them in tool results);
+  // a replay would show it in USER-role transcript entries copied from A.
+  const userTextsB = msgsB
+    .split("\n")
+    .filter((l) => l.includes('"role":"user"'))
+    .join("\n");
+  check("C1g: transcript NOT replayed (A's marker absent from B's user-role entries)", !userTextsB.includes(marker), `marker ${marker} in user entries: ${userTextsB.includes(marker)}; durable-file mentions: ${(msgsB.match(/MARKER-/g) ?? []).length}`);
   check("C1h: lineage recorded (parentSession = A's session file)", JSON.parse(msgsB.split("\n")[0]).parentSession === idA.sessionFile, JSON.parse(msgsB.split("\n")[0]).parentSession ?? "(none)");
   const rs1 = JSON.parse(fs.readFileSync(path.join(clone, ".pi-guard", "renewal-state.json"), "utf8"));
   check("C1i: durable chain state advanced durably BEFORE/AT the switch (1/2)", rs1.renewalsDone === 1 && rs1.chainId === `chain:${idA.sessionId}` && Boolean(rs1.renewedFromCheckpointId), JSON.stringify(rs1).slice(0, 200));
@@ -215,7 +237,7 @@ try {
   check("e2e-renew driver completed without throwing", false, err instanceof Error ? err.stack ?? err.message : String(err));
   log(`partial hops observed: ${JSON.stringify(hops)}`);
 } finally {
-  if (process.env.GUARD_E2E_KEEP !== "1") fs.rmSync(clone, { recursive: true, force: true });
+  if (process.env.GUARD_E2E_KEEP !== "1") fs.rmSync(parent, { recursive: true, force: true });
   else console.log(`kept clone: ${clone}`);
 }
 const failed = results.filter((r) => !r.ok);
