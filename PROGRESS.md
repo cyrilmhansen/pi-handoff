@@ -127,13 +127,13 @@ operator approval, never agent initiative).
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 10
-checkpoint-id: g10-1e7a8ed85b78
+checkpoint-generation: 11
+checkpoint-id: g11-69cf72e56bdd
 checkpoint-kind: manual
-content-delta: new
+content-delta: none
 readiness: attested
 guard-level: 0
-checkpointed: 2026-10-29T15:13:37.963Z
+checkpointed: 2026-10-29T15:23:52.744Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: a9260cd606ed9b6129196ac1938a52de7a4e3de44cd3a6f4580448e5f1eb57e1
 source-handoff: f0a8eb66f2f9c08fc4b462672e315dfa794f1239d9ee8c063399e888f80d88db
@@ -156,7 +156,7 @@ For the reviewing session:
 4. Commit ritual: commit first, then `/handoff` + `/handoff ready`; commit the
    managed-block refresh separately if it dirties the tree. Never push — the operator
    publishes.
-readiness-by: session:01a18839-447a-726e-a2d2-86bd4a32750f
-readiness-at: 2026-10-29T15:13:38.064Z
-readiness-checkpoint: g10-1e7a8ed85b78
+readiness-by: session:01a18842-a65e-7045-8cb0-5e63c293eb3a
+readiness-at: 2026-10-29T15:23:52.846Z
+readiness-checkpoint: g11-69cf72e56bdd
 <!-- guard:end checkpoint -->

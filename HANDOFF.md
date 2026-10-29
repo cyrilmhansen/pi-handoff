@@ -144,13 +144,13 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 10
-checkpoint-id: g10-1e7a8ed85b78
+checkpoint-generation: 11
+checkpoint-id: g11-69cf72e56bdd
 checkpoint-kind: manual
-content-delta: new
+content-delta: none
 readiness: attested
-status: checkpoint (guard level 0, remaining ~199902, session 01a18839-447a-726e-a2d2-86bd4a32750f)
-checkpointed: 2026-10-29T15:13:37.963Z
+status: checkpoint (guard level 0, remaining ~199902, session 01a18842-a65e-7045-8cb0-5e63c293eb3a)
+checkpointed: 2026-10-29T15:23:52.744Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: a9260cd606ed9b6129196ac1938a52de7a4e3de44cd3a6f4580448e5f1eb57e1
 source-handoff: f0a8eb66f2f9c08fc4b462672e315dfa794f1239d9ee8c063399e888f80d88db
@@ -158,11 +158,11 @@ source-learnings: d9f5081486a8ea96d4e6da5076e5cf560b5b9a3ff60052d25d12c60237f4ed
 source-config: 0b1e162bdbf7ec9946afab3d1dd8b0fa35b4e3972ba77214f68c9a55276fe606
 
 
-readiness-by: session:01a18839-447a-726e-a2d2-86bd4a32750f
-readiness-at: 2026-10-29T15:13:38.064Z
-readiness-checkpoint: g10-1e7a8ed85b78
+readiness-by: session:01a18842-a65e-7045-8cb0-5e63c293eb3a
+readiness-at: 2026-10-29T15:23:52.846Z
+readiness-checkpoint: g11-69cf72e56bdd
 ### Last verified state
-guard level 0; checkpoint requested (documentation consolidation complete (0b3d850): CURRENT vs HISTORICAL vs DEFERRED reconciled across README/PROTOCOL/AGENTS/HANDOFF/PROGRESS/LEARNINGS/skill/guide; schema v3 current; live-proof scope per A-23; baselines 131/132+27/27+8/8; next action = operator review then separately authorized drpli integration)
+guard level 0; checkpoint requested (PROTOCOL s6/s7 precision corrections committed (d545eb0): successor receives fresh transcript + project context + banner + recovery prompt NAMING six durable files (contents read by the successor, not transferred); outside-tree writes = external stateDir exception + Pi transcript storage noted)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -198,5 +198,5 @@ For the reviewing session:
    publishes.
 
 ### Guard notes
-documentation consolidation complete (0b3d850): CURRENT vs HISTORICAL vs DEFERRED reconciled across README/PROTOCOL/AGENTS/HANDOFF/PROGRESS/LEARNINGS/skill/guide; schema v3 current; live-proof scope per A-23; baselines 131/132+27/27+8/8; next action = operator review then separately authorized drpli integration
+PROTOCOL s6/s7 precision corrections committed (d545eb0): successor receives fresh transcript + project context + banner + recovery prompt NAMING six durable files (contents read by the successor, not transferred); outside-tree writes = external stateDir exception + Pi transcript storage noted
 <!-- guard:end checkpoint -->
