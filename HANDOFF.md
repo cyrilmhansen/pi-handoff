@@ -234,25 +234,25 @@ P1–P5 (real child processes; P5 skips unless `GUARD_E2E=1`).
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 1
-checkpoint-id: g1-09c93f8608af
+checkpoint-generation: 2
+checkpoint-id: g2-19e146f00f01
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-status: checkpoint (guard level 4, remaining ~5000, session 01a18713-0257-728d-a259-9ab1c5662cf7)
-checkpointed: 2026-10-29T10:05:26.255Z
+status: checkpoint (guard level 2, remaining ~17000, session 01a18713-0257-728d-a259-9ab1c5662cf7)
+checkpointed: 2026-10-29T10:30:41.620Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: be99fc199e77471db2a579a43ebc85c2de423e4ace6299229d2b21912d4ed84a
-source-handoff: 269b4e826ad159120442923fd9776541b2cbde575eb88f9a04a4544a8d8513cc
-source-learnings: 452d4d4254d5f628e97c321649fcb4a4bca3c7fd575c5a5811a03bb31785e5b4
+source-progress: 0b141e26d9665a3e8a32989126a1414cbca30cfbff9b153aa1dc6e0a244e645f
+source-handoff: d1b768746ed3c38c99a556b2a8ff0a9b92aebcd753cd5722316b7d4c4f92ad5a
+source-learnings: a0a68b471ff18dbf448d9d9289ef78ed74fdd6c429dc5f98c7f69b702d2c17fb
 source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 
 
 readiness-by: session:01a18713-0257-728d-a259-9ab1c5662cf7
-readiness-at: 2026-10-29T10:05:26.260Z
-readiness-checkpoint: g1-09c93f8608af
+readiness-at: 2026-10-29T10:30:41.623Z
+readiness-checkpoint: g2-19e146f00f01
 ### Last verified state
-Phase 2 increment A (design) committed at 6da98d6; suite 102/103 (1 gated skip); Pi renewal API verified (LEARNINGS A-17); renewal code NOT yet written.
+Revocation fix committed (a42d223; prev 6da98d6 design, fb7cab8, 6ea1d64). Suite 108/109 (1 gated skip), real-runtime e2e 23/23. Renewal code NOT yet implemented (increment A code next per HANDOFF).
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.md.
@@ -326,5 +326,5 @@ Concrete next steps for the following session, in order:
 used (LEARNINGS P-7, NOT adopted). First working renewal > threshold tuning.
 
 ### Guard notes
-Phase 2 renewal milestone: API audit done; next = renewal state machine + tests (HANDOFF Next action step 2).
+Phase 2: A-18 revocation fix landed; A-19/P-8 identify the model-triggered renewal bridge; next = renewal decision module + tests, then /handoff renew + tool wiring.
 <!-- guard:end checkpoint -->

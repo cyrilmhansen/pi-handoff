@@ -111,23 +111,26 @@ constraints: HANDOFF.md "Next action" + LEARNINGS A-17/P-6.
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 1
-checkpoint-id: g1-09c93f8608af
+checkpoint-generation: 2
+checkpoint-id: g2-19e146f00f01
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-guard-level: 4
-checkpointed: 2026-10-29T10:05:26.255Z
+guard-level: 2
+checkpointed: 2026-10-29T10:30:41.620Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: be99fc199e77471db2a579a43ebc85c2de423e4ace6299229d2b21912d4ed84a
-source-handoff: 269b4e826ad159120442923fd9776541b2cbde575eb88f9a04a4544a8d8513cc
-source-learnings: 452d4d4254d5f628e97c321649fcb4a4bca3c7fd575c5a5811a03bb31785e5b4
+source-progress: 0b141e26d9665a3e8a32989126a1414cbca30cfbff9b153aa1dc6e0a244e645f
+source-handoff: d1b768746ed3c38c99a556b2a8ff0a9b92aebcd753cd5722316b7d4c4f92ad5a
+source-learnings: a0a68b471ff18dbf448d9d9289ef78ed74fdd6c429dc5f98c7f69b702d2c17fb
 source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 next-action: **Phase 2 IN PROGRESS (session 01a18713, real Qwen/Sushi inference). No renewal code
 written yet; durable docs updated (LEARNINGS A-17 verified Pi API facts, P-6 renewal
 design, P-7 reserve policy, O-1/O-2/O-3 open questions). Increment A (API audit +
 design) is DONE and being committed with this handoff; the renewal state machine code,
 tests and wiring are NOT yet written.**
+
+Revocation fix LANDED (A-18/A-19/P-8 in LEARNINGS; `test/revoke.test.ts`): alerts
+stay spent, one revocation notice per level, gate follows live level.
 
 Concrete next steps for the following session, in order:
 
@@ -153,6 +156,13 @@ Concrete next steps for the following session, in order:
    Record renewal lineage (`previousSessionFile` arrives on the successor's
    session_start event; persist it + parent session id per P-4); extend `/guard status`
    with renewal state. NEVER use the old ctx after newSession (invalidated — A-17.5).
+3b. **Model trigger (A-19/P-8)**: register tool `handoff_renew` (gates+checkpoint+attest
+   synchronously, then `void pi.sendUserMessage("/handoff renew go",
+   {expandPromptTemplates:true})` — NEVER await it inside execute: waitForIdle would
+   deadlock on the tool's own result). Add the tool name to closingAllowlist in
+   handoff.config.json so renewal is possible during enforced closing. Operator stop:
+   `/handoff renew stop` sets a flag honored by the pending dispatch and by
+   `session_before_switch` (cancel ONLY guard-pending switches, never human ones).
 4. **Increment C**: real-Pi experiment — new `scripts/e2e-renew.mjs` (or extend the
    two-process script): RPC session with real Qwen/Sushi turn(s), drive to renewal
    (real pressure if affordable, else `/guard simulate 4900` + agent-invoked
@@ -169,6 +179,6 @@ Concrete next steps for the following session, in order:
 (65536 ⇒ enforced closing at ~150k used). A fixed 20000 would extend sessions to ~195k
 used (LEARNINGS P-7, NOT adopted). First working renewal > threshold tuning.
 readiness-by: session:01a18713-0257-728d-a259-9ab1c5662cf7
-readiness-at: 2026-10-29T10:05:26.260Z
-readiness-checkpoint: g1-09c93f8608af
+readiness-at: 2026-10-29T10:30:41.623Z
+readiness-checkpoint: g2-19e146f00f01
 <!-- guard:end checkpoint -->
