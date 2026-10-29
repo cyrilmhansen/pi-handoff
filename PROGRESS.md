@@ -4,8 +4,8 @@
 
 Phase 1c — recovery + completion (transactional checkpoint identity, audit-mode
 non-mutation, budget observability, readiness gate). Implemented and verified in the
-repair session (extensions disabled); **documentation (README/PROTOCOL) and the local
-commit remain**. Session renewal (Phase 2) is still NOT implemented.
+repair session (extensions disabled); README/PROTOCOL/PROGRESS/LEARNINGS/HANDOFF
+updated and committed locally as `3cc2f31` (tree clean, nothing pushed). Session renewal (Phase 2) is still NOT implemented.
 
 ## Completed
 
@@ -94,9 +94,11 @@ Phase 1c (completion session):
 
 ## Next action
 
-Document Phase 1c in README (new "Generation reserve" section; 55→103 tests; schema v2→v3)
-and PROTOCOL §1/§2.1/§2.2/§2.3, then `git add` the intended files and commit locally
-(never push). Full details: HANDOFF.md "Next action".
+STOP for human review of Phases 1b+1c (commit `3cc2f31`, 102/103 tests + 23/23 real-Pi e2e
+checks). Then either Phase 1d (Pi Handoff skill + long-project integration guide; PL/I-80
+case study; documentation only) or Phase 2 scoping behind `renewAuthorization()`.
+Optional open item: `GUARD_E2E_LLM=1 node scripts/e2e-rpc-two-process.mjs` for live
+alert-delivery evidence. Details: HANDOFF.md "Next action".
 
 
 <!-- guard:begin checkpoint -->

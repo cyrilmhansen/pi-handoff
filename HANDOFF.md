@@ -34,8 +34,8 @@
       containment and GOAL protection, detailed budget status, `/handoff ready`,
       `renewAuthorization`, pruning disabled by default, auto-checkpoint prose
       preservation — all implemented, 102/103 tests + 23/23 real-runtime e2e checks.
-- [ ] README + PROTOCOL documentation of Phase 1c (see Next action step 3).
-- [ ] Local commit of the completed milestone (never push).
+- [x] README + PROTOCOL documentation of Phase 1c.
+- [x] Local commit of the completed milestone (`3cc2f31`; never pushed).
 - [ ] Live real-model turn for alert delivery (opt-in `GUARD_E2E_LLM=1`; aborted attempt).
 - [ ] **Phase 1d (planned, NOT started): Pi Handoff skill + long-project integration
       guide** — how to install and use context-guard in long-running projects, using the
@@ -51,15 +51,16 @@
 
 ## Next action
 
-**Phase 1c is functionally COMPLETE and verified; the remaining work is documentation +
-the local commit.** Do NOT reset the tree. Exact next steps, in order:
+**Phase 1c is COMPLETE and committed locally: `3cc2f31` (parent `b2ccdac`). Tree clean,
+nothing pushed.** Remaining work: human review, then Phase 1d (skill + long-project guide,
+PL/I-80 case study — documentation only) or Phase 2 scoping. Exact next steps:
 
 1. `node --test test/ 2>&1 | grep -E "^(ℹ (tests|pass|fail|skipped)|✖ )"` → expect
    **103 tests, 102 pass, 0 fail, 1 skipped** (P5 = the gated real-Pi e2e).
 2. `node scripts/e2e-rpc-two-process.mjs` → expect **23/23 PASS** (real pi 1.4.0,
    two concurrent normal processes + two audit processes, isolated `PI_CODING_AGENT_DIR`,
    zero inference). It takes ~2 minutes; run with `GUARD_E2E_KEEP=1` to keep artifacts.
-3. Documentation (the only unfinished items): README — add a `## Generation reserve`
+3. (done) Documentation: README `## Generation reserve`
    section stating `usable = contextWindow − used − max(modelMaxTokens, safetyReserve)`,
    the 150k consequence for Sushi (220000 − used − 65536 ⇒ level 4 at used ≥ 149464),
    that a policy reserve is NOT an output cap, and that Pi 1.4.0 clamps
@@ -72,7 +73,7 @@ the local commit.** Do NOT reset the tree. Exact next steps, in order:
    `learningsHash` in the state file), §2.3 (audit mode: inspection-only state load +
    `repairsSuppressed` reporting; external stateDir means the tree's stale `.pi-guard` is
    never inspected — no repair is claimed or performed).
-4. Then commit locally (`git add` only: the 4 extension files, the 6 test files,
+4. (done) Committed locally (`git add` only: the 4 extension files, the 6 test files,
    `scripts/`, README/PROTOCOL/PROGRESS/LEARNINGS/HANDOFF/AGENTS if changed; never push).
 5. Optional, NOT done yet: `GUARD_E2E_LLM=1 node scripts/e2e-rpc-two-process.mjs` spends
    two minimal real turns to prove live alert delivery/non-interruption (A-2/A-13 are
