@@ -51,34 +51,51 @@
 
 ## Next action
 
-**Phase 1c is COMPLETE and committed locally: `3cc2f31` (parent `b2ccdac`). Tree clean,
-nothing pushed.** Remaining work: human review, then Phase 1d (skill + long-project guide,
-PL/I-80 case study — documentation only) or Phase 2 scoping. Exact next steps:
+**Phase 2 IN PROGRESS (session 01a18713, real Qwen/Sushi inference). No renewal code
+written yet; durable docs updated (LEARNINGS A-17 verified Pi API facts, P-6 renewal
+design, P-7 reserve policy, O-1/O-2/O-3 open questions). Increment A (API audit +
+design) is DONE and being committed with this handoff; the renewal state machine code,
+tests and wiring are NOT yet written.**
 
-1. `node --test test/ 2>&1 | grep -E "^(ℹ (tests|pass|fail|skipped)|✖ )"` → expect
-   **103 tests, 102 pass, 0 fail, 1 skipped** (P5 = the gated real-Pi e2e).
-2. `node scripts/e2e-rpc-two-process.mjs` → expect **23/23 PASS** (real pi 1.4.0,
-   two concurrent normal processes + two audit processes, isolated `PI_CODING_AGENT_DIR`,
-   zero inference). It takes ~2 minutes; run with `GUARD_E2E_KEEP=1` to keep artifacts.
-3. (done) Documentation: README `## Generation reserve`
-   section stating `usable = contextWindow − used − max(modelMaxTokens, safetyReserve)`,
-   the 150k consequence for Sushi (220000 − used − 65536 ⇒ level 4 at used ≥ 149464),
-   that a policy reserve is NOT an output cap, and that Pi 1.4.0 clamps
-   `max_tokens = min(model.maxTokens, contextWindow − estimate − 4096)`
-   (pi-ai `clampMaxTokensToContext`, LEARNINGS A-12); update README's "55 tests" and
-   "schema v2" mentions to 103 tests / schema v3 + identity + `/handoff ready`.
-   PROTOCOL §1 (budget accounting + reserve source reporting), §2.1 (schema v3 identity,
-   content-delta, auto-checkpoint prose preservation, readiness vs currency,
-   `renewAuthorization`), §2.2 (pruning disabled by default, `checkpointId`/`handoffReady`/
-   `learningsHash` in the state file), §2.3 (audit mode: inspection-only state load +
-   `repairsSuppressed` reporting; external stateDir means the tree's stale `.pi-guard` is
-   never inspected — no repair is claimed or performed).
-4. (done) Committed locally (`git add` only: the 4 extension files, the 6 test files,
-   `scripts/`, README/PROTOCOL/PROGRESS/LEARNINGS/HANDOFF/AGENTS if changed; never push).
-5. Optional, NOT done yet: `GUARD_E2E_LLM=1 node scripts/e2e-rpc-two-process.mjs` spends
-   two minimal real turns to prove live alert delivery/non-interruption (A-2/A-13 are
-   currently source-verified + mock-tested only). The attempt in session 01a18701 was
-   aborted; leave it as a documented limitation if you do not run it.
+Concrete next steps for the following session, in order:
+
+1. `node --test test/ 2>&1 | tail` → expect **103 tests, 102 pass, 0 fail, 1 skipped**;
+   `git log --oneline -3` → expect a "Phase 2 increment A" commit (SHA recorded in
+   PROGRESS.md "Current phase") on top of `39a2da9`.
+2. **Increment A code**: implement the renewal decision as a pure deterministic module
+   (extend `core.ts` or add `renewal.ts`): config keys `autoRenew` (default **false**),
+   `renewal.maxRenewals` (cap), `renewal.recoveryPrompt` (default deterministic text
+   naming AGENTS.md/GOAL.md/HANDOFF.md/PROGRESS.md); decision function
+   `decideRenewal({config, auth: renewAuthorization(checkpoint), renewalsDone,
+   checkpointId, renewedFrom})` → `renew | blocked:<reason> | disabled | capped |
+   already-renewed`. Mock tests first (`test/renewal.test.ts`): disabled-by-default,
+   readiness gate blocks, idempotence per checkpoint-id, cap respected.
+3. **Increment B**: wire `/handoff renew` (plus an operator stop: `/handoff renew stop`)
+   in index.ts per LEARNINGS P-6 / A-17 exactly: `ctx.waitForIdle()` → gate on
+   `renewAuthorization()` → final checkpoint + attestation → `ctx.newSession({
+   parentSession: <current session file>, withSession })` → inside `withSession(nctx)`
+   send the recovery instruction via `nctx.sendMessage(..., {triggerTurn:true})`.
+   O-1: the idle path AWAITS `_startRun` (agent-session.js sendCustomMessage), so
+   awaiting the send inside withSession blocks the command until the successor's first
+   turn completes — decide fire-and-track vs await empirically in the real runtime.
+   Record renewal lineage (`previousSessionFile` arrives on the successor's
+   session_start event; persist it + parent session id per P-4); extend `/guard status`
+   with renewal state. NEVER use the old ctx after newSession (invalidated — A-17.5).
+4. **Increment C**: real-Pi experiment — new `scripts/e2e-renew.mjs` (or extend the
+   two-process script): RPC session with real Qwen/Sushi turn(s), drive to renewal
+   (real pressure if affordable, else `/guard simulate 4900` + agent-invoked
+   `/handoff renew`), verify: distinct session ids, fresh context, zero compaction,
+   successor resumes work from durable files; chain A→B→C (3 sessions, maxRenewals=2).
+   Record measurements honestly (tokens before renewal, latency, init overhead,
+   increments completed). If genuine inference cannot be exercised, SAY SO — do not
+   claim autonomous renewal.
+5. Commit after every increment (local only, never push). Refresh + attest the
+   checkpoint AFTER committing, then commit the managed-block refresh separately if it
+   dirties the tree (avoids the freshness↔commit circularity warned about in the task).
+
+**Reserve decision (task §6, open):** config still uses `"generationReserve": "model"`
+(65536 ⇒ enforced closing at ~150k used). A fixed 20000 would extend sessions to ~195k
+used (LEARNINGS P-7, NOT adopted). First working renewal > threshold tuning.
 
 ## Phase 1c — what was verified in this session (repair session, extensions disabled)
 
@@ -208,18 +225,20 @@ source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 guard level 4; checkpoint requested (auto at level 4)
 
 ### Unfinished operations
-- [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.md.
-- [x] Deterministic state machine (`core.ts`), config loader, crash-safe checkpoint module,
-- [x] Reproduced both audit defects deterministically: (A) the legacy schema-v1 managed
-- [x] Checkpoint schema v2: managed blocks embed sha256 fingerprints of source state
-- [x] Recovery precedence fixed: manual prose always wins; the checkpoint block supplies
-- [x] Per-session runtime state `sessions/<sessionId>.json` (version 2) + newest-wins
-- [x] Read-only audit mode (`readOnly` / `CONTEXT_GUARD_READONLY=1` / `--guard-readonly`):
-- [x] Tests extended: 55/55 pass (`test/freshness.test.ts`, `test/sessions.test.ts`,
-- [ ] Human review of Phase 1b consolidation.
-- [ ] Phase 2 renewal — deliberately NOT started (see PROTOCOL §6).
-- [ ] Live interactive-session walkthrough of `/guard simulate` on a real Sushi model
-- [ ] Real multi-process concurrency test of per-session state (NOT done; serial mocks only).
+
+- [ ] **Phase 2 IN PROGRESS** — increment A (Pi API audit + design) DONE (LEARNINGS
+      A-17/P-6/P-7, committed this session); renewal state-machine code, `/handoff renew`
+      wiring, and the 3-session real-Qwen experiment NOT yet implemented. Start at the
+      "Next action" section, step 2. `autoRenew` does not exist yet in config.ts; no
+      current code switches sessions.
+- [ ] Human review of the Phase 1b+1c consolidation (code + docs + LEARNINGS classifications).
+- [ ] Live real-model turn for alert delivery (opt-in `GUARD_E2E_LLM=1`; aborted attempt).
+- [ ] Phase 1d (planned, NOT started): Pi Handoff skill + long-project integration guide
+      (PL/I-80 case study). Documentation-only; deferred behind Phase 2.
+- [ ] Live interactive-session walkthrough of `/guard simulate` with a real Sushi model
+      (token-accounting sanity check; do not spend tokens hunting thresholds).
+- [ ] Real multi-process concurrency test of per-session state isolation (P-5) — the
+      current tests are serial; do not claim concurrency is proven.
 
 ### Next action
 STOP for human review. If accepted: run a live interactive session (`pi -e

@@ -2,10 +2,11 @@
 
 ## Current phase
 
-Phase 1c — recovery + completion (transactional checkpoint identity, audit-mode
-non-mutation, budget observability, readiness gate). Implemented and verified in the
-repair session (extensions disabled); README/PROTOCOL/PROGRESS/LEARNINGS/HANDOFF
-updated and committed locally as `3cc2f31` (tree clean, nothing pushed). Session renewal (Phase 2) is still NOT implemented.
+Phase 2 (minimal automatic session renewal) — IN PROGRESS. Session 01a18713 completed
+**increment A (design)**: verified Pi 1.4.0 replacement semantics (LEARNINGS A-17),
+renewal design (P-6), reserve policy (P-7), open questions O-1/O-2/O-3. Test suite
+verified green at baseline `39a2da9` (102/103, 1 gated skip). NO renewal code exists yet:
+state machine + tests are the next increment (see HANDOFF "Next action").
 
 ## Completed
 
@@ -94,12 +95,11 @@ Phase 1c (completion session):
 
 ## Next action
 
-STOP for human review of Phases 1b+1c (commit `3cc2f31`, 102/103 tests + 23/23 real-Pi e2e
-checks). Then either Phase 1d (Pi Handoff skill + long-project integration guide; PL/I-80
-case study; documentation only) or Phase 2 scoping behind `renewAuthorization()`.
-Optional open item: `GUARD_E2E_LLM=1 node scripts/e2e-rpc-two-process.mjs` for live
-alert-delivery evidence. Details: HANDOFF.md "Next action".
-
+Implement Phase 2 increment A CODE: pure renewal decision module + config keys
+(`autoRenew` default false, `renewal.maxRenewals`, `renewal.recoveryPrompt`) + mock
+tests (`test/renewal.test.ts`), commit; then `/handoff renew` wiring (increment B),
+then the 3-session real-Qwen RPC experiment (increment C). Details and exact API
+constraints: HANDOFF.md "Next action" + LEARNINGS A-17/P-6.
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
