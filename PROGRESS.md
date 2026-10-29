@@ -10,6 +10,12 @@ state machine + tests are the next increment (see HANDOFF "Next action").
 Increment A design commit: `6da98d6` (on baseline `39a2da9`); suite green 102/103 at
 both points; this session runs real Qwen/Sushi inference under the guard.
 
+Revocation fix (observed L4->L0 inconsistency, LEARNINGS A-18): implemented and
+committed this session; suite 108/109 (1 gated skip), real-runtime e2e 23/23.
+Renewal model-trigger path identified (A-19/P-8): guard tool -> fire-and-forget
+`pi.sendUserMessage("/handoff renew go", {expandPromptTemplates:true})`; NOT yet
+implemented.
+
 ## Completed
 
 Phase 1 (original):

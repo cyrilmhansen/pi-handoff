@@ -27,6 +27,7 @@ import {
   ContextPressureMachine,
   type GuardLevel,
   type BudgetBreakdown,
+  type Measurement,
   type Transition,
 } from "./core.ts";
 import { DEFAULT_CONFIG, loadConfig, type GuardConfig } from "./config.ts";
@@ -196,7 +197,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       `  raw remaining: ${m.rawRemaining == null ? "unknown" : Math.floor(m.rawRemaining)} (window - used, no reserve subtracted)`,
       `  generation reserve: ${m.reserve.selected}${m.reserveFraction == null ? "" : ` = ${(m.reserveFraction * 100).toFixed(1)}% of the window`} (source: ${RESERVE_LABEL[m.reserve.source] ?? m.reserve.source}; safetyReserve ${m.reserve.safetyReserve})`,
       `  usable remaining: ${m.usableRemaining == null ? "unknown" : Math.floor(m.usableRemaining)} = window - used - reserve`,
-      `  guard level: ${s.currentLevel}${s.currentLevel >= 4 && g.config.enforceClosing ? ` (ENFORCED closing: only ${g.config.closingAllowlist.join(", ")} run)` : ""}; alerts spent [${s.alertedLevels.join(", ")}]; evaluations ${s.evaluations}${s.degraded ? "; DEGRADED (measurements unavailable)" : ""}`,
+      `  guard level: ${s.currentLevel}${s.currentLevel >= 4 && g.config.enforceClosing ? ` (ENFORCED closing: only ${g.config.closingAllowlist.join(", ")} run)` : ""}; alerts spent [${s.alertedLevels.join(", ")}]; revoked notices [${(s.revokedLevels ?? []).join(", ")}]; evaluations ${s.evaluations}${s.degraded ? "; DEGRADED (measurements unavailable)" : ""}`,
       `  next threshold: ${nextText}`,
       `  measurement: ${m.status}${m.reason ? ` (${m.reason})` : ""}`,
       `  provenance: ${m.provenance ?? "unknown"}`,
@@ -317,7 +318,22 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return result;
   }
 
-  /** Evaluate pressure, alert once per crossing, checkpoint at level >= 3. */
+  /** Compact measurement summary for audit entries: values + provenance, before/after. */
+  function measurementBrief(m: Measurement | null): Record<string, unknown> | null {
+    if (!m) return null;
+    return {
+      status: m.status,
+      remaining: m.remaining,
+      tokensUsed: m.tokensUsed,
+      contextWindow: m.contextWindow,
+      rawRemaining: m.rawRemaining ?? null,
+      reserve: m.reservedForGeneration,
+      reserveSource: m.reserveSource ?? null,
+      provenance: m.provenance ?? "unknown",
+    };
+  }
+
+  /** Evaluate pressure, alert once per crossing, notify once per revocation, checkpoint at level >= 3. */
   function evaluate(ctx: ExtensionContext, boundary: "turn_end" | "command" | "settled"): Transition | undefined {
     if (!g || !g.config.enabled) return undefined;
     const transition = g.machine.evaluate(measure(ctx));
@@ -343,6 +359,46 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     }
     if (transition.degraded && transition.crossed.length === 0) {
       notify(ctx, "context-guard: context measurement unavailable for several evaluations; holding last known pressure level.", "warning");
+    }
+    // Revocation: a fresh VALID measurement lifted a previously alerted (possibly
+    // enforced) threshold. The historical alert stays in the transcript for audit;
+    // this message tells model AND operator that closing guidance is no longer
+    // current policy. Measurements + provenance before/after are recorded.
+    const revocationText = g.machine.formatRevocation(transition);
+    if (revocationText) {
+      pi.sendMessage(
+        {
+          customType: CUSTOM_TYPE,
+          content: revocationText,
+          display: true,
+          details: {
+            revoked: transition.revoked.map((t) => ({ level: t.level, label: t.label, kind: t.kind })),
+            levelFrom: transition.previousLevel,
+            levelTo: transition.level,
+            before: transition.previousMeasurement,
+            after: transition.measurement,
+            boundary,
+          },
+        },
+        { triggerTurn: false },
+      );
+      try {
+        pi.appendEntry(CUSTOM_TYPE, {
+          revokedLevels: transition.revoked.map((t) => t.level),
+          levelFrom: transition.previousLevel,
+          levelTo: transition.level,
+          before: measurementBrief(transition.previousMeasurement),
+          after: measurementBrief(transition.measurement),
+          boundary,
+        });
+      } catch {
+        /* audit entry is best-effort */
+      }
+      notify(
+        ctx,
+        `context-guard: level ${transition.previousLevel} -> ${transition.level}; closing REVOKED by fresh measurement (${transition.revoked.map((t) => t.label).join(", ")} no longer current policy).`,
+        "info",
+      );
     }
     checkGoalDrift(ctx);
     if (g.config.autoCheckpointAtHandoffLevel && transition.level >= 3 && g.lastCheckpointLevel < transition.level) {

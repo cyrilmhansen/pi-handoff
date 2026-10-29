@@ -346,6 +346,15 @@ export interface Transition {
   level: GuardLevel;
   /** Thresholds newly crossed on this evaluation (never alerted before in this session). */
   crossed: Threshold[];
+  /**
+   * Thresholds whose alert was delivered earlier in this session but whose condition
+   * a NEW VALID measurement no longer satisfies (remaining rose back above the
+   * threshold). Their guidance is now HISTORICAL: enforcement follows `level`, not
+   * history. One revocation notice per level per session (re-arms if re-crossed).
+   */
+  revoked: Threshold[];
+  /** The last valid measurement before this one (null if none); revocation context. */
+  previousMeasurement: Measurement | null;
   /** True when the measurement was unusable; level is then held (fail-safe). */
   unknown: boolean;
   /** True once unknownStreak >= maxConsecutiveUnknown. */
@@ -358,6 +367,8 @@ export interface Transition {
 export interface MachineSnapshot {
   currentLevel: GuardLevel;
   alertedLevels: GuardLevel[];
+  /** Levels whose closing/advisory alert has already been REVOKED (notice sent once). */
+  revokedLevels?: GuardLevel[];
   unknownStreak: number;
   degraded: boolean;
   lastRemaining: number | null;
@@ -369,9 +380,11 @@ export class ContextPressureMachine {
   private maxUnknown: number;
   private level: GuardLevel = 0;
   private alerted = new Set<GuardLevel>();
+  private revokedNotified = new Set<GuardLevel>();
   private unknownStreak = 0;
   private degraded = false;
   private lastRemaining: number | null = null;
+  private lastMeasurement: Measurement | null = null;
   private evaluations = 0;
 
   constructor(thresholds: Threshold[], maxUnknown = 3) {
@@ -408,6 +421,8 @@ export class ContextPressureMachine {
         previousLevel,
         level: this.level,
         crossed: [],
+        revoked: [],
+        previousMeasurement: this.lastMeasurement,
         unknown: true,
         degraded: this.degraded,
         enforcementActive: this.level >= 4,
@@ -417,17 +432,36 @@ export class ContextPressureMachine {
 
     this.unknownStreak = 0;
     this.degraded = false;
+    const previousMeasurement = this.lastMeasurement;
     this.lastRemaining = measurement.remaining;
+    this.lastMeasurement = { ...measurement };
 
     const crossed: Threshold[] = [];
+    const satisfied = new Set<GuardLevel>();
     let newLevel: GuardLevel = 0;
     for (const t of this.thresholds) {
       if (measurement.remaining <= t.remainingBelow) {
+        satisfied.add(t.level);
         newLevel = t.level;
         if (!this.alerted.has(t.level)) {
           this.alerted.add(t.level);
           crossed.push(t);
         }
+      }
+    }
+    // A previously alerted threshold the current valid measurement no longer satisfies
+    // is REVOKED: its guidance becomes historical, not current policy. Alerts stay
+    // spent (one alert per crossing per session, PROTOCOL §1); enforcement is live via
+    // `level` (re-escalation re-gates tools even without a new alert).
+    const revoked: Threshold[] = [];
+    for (const t of this.thresholds) {
+      if (satisfied.has(t.level)) {
+        this.revokedNotified.delete(t.level); // a future drop can revoke again
+        continue;
+      }
+      if (this.alerted.has(t.level) && !this.revokedNotified.has(t.level)) {
+        this.revokedNotified.add(t.level);
+        revoked.push(t);
       }
     }
     this.level = newLevel;
@@ -436,6 +470,8 @@ export class ContextPressureMachine {
       previousLevel,
       level: newLevel,
       crossed,
+      revoked,
+      previousMeasurement,
       unknown: false,
       degraded: false,
       enforcementActive: newLevel >= 4,
@@ -453,10 +489,38 @@ export class ContextPressureMachine {
           `(${transition.crossed.map((t) => t.label).join(", ")}).`,
       );
     }
-    for (const t of transition.crossed) lines.push(t.guidance);
+    for (const t of this.thresholds.filter((x) => transition.crossed.some((c) => c.level === x.level))) lines.push(t.guidance);
     if (transition.measurement.remaining != null) {
       lines.push(`[remaining budget: ~${Math.max(0, Math.floor(transition.measurement.remaining))} tokens]`);
     }
+    return lines.join("\n");
+  }
+
+  /**
+   * Policy-update text for a REVOKED threshold: distinguishes historical instructions
+   * (the earlier alert remains in the transcript for audit) from current policy, and
+   * records the measurements and provenance before/after the transition. Returns
+   * undefined when nothing was revoked.
+   */
+  formatRevocation(transition: Transition): string | undefined {
+    if (transition.revoked.length === 0) return undefined;
+    const names = transition.revoked.map((t) => `level ${t.level} "${t.label}" (${t.kind})`);
+    const enforced = transition.revoked.some((t) => t.kind === "enforced");
+    const fmt = (m: Measurement | null): string =>
+      m == null
+        ? "previous measurement not captured by this session instance"
+        : `remaining ~${m.remaining == null ? "?" : Math.max(0, Math.floor(m.remaining))}, used ${m.tokensUsed ?? "?"}, window ${m.contextWindow ?? "?"}, reserve ${m.reservedForGeneration}, provenance ${m.provenance ?? "unknown"}, status ${m.status}`;
+    const lines = [
+      `CONTEXT GUARD POLICY UPDATE (measurement recovered): ${names.join(", ")} ${names.length > 1 ? "are" : "is"} REVOKED — ` +
+        (enforced
+          ? "the enforced closing phase is NO LONGER ACTIVE; tools outside the allowlist are permitted again. " +
+            "The earlier closing instruction above is HISTORICAL, not current policy; do not rush or truncate work because of it. "
+          : "the earlier guidance is no longer current policy. ") +
+        "Pi 1.4.0 context numbers are estimates and may move in BOTH directions when a provider-reported usage projection replaces a heuristic projection (LEARNINGS A-1); this correction is based on a fresh valid measurement, provenance below.",
+      `  before: ${fmt(transition.previousMeasurement)}`,
+      `  after:  ${fmt(transition.measurement)}`,
+      `  level ${transition.previousLevel} -> ${transition.level}. Historical alerts are retained in this transcript for audit and will not repeat; if pressure returns, enforcement follows the live level again (tool gate reports it).`,
+    ];
     return lines.join("\n");
   }
 
@@ -464,6 +528,7 @@ export class ContextPressureMachine {
     return {
       currentLevel: this.level,
       alertedLevels: [...this.alerted].sort((a, b) => a - b),
+      revokedLevels: [...this.revokedNotified].sort((a, b) => a - b),
       unknownStreak: this.unknownStreak,
       degraded: this.degraded,
       lastRemaining: this.lastRemaining,
@@ -476,6 +541,9 @@ export class ContextPressureMachine {
     const validLevels = new Set(thresholds.map((t) => t.level));
     for (const level of snapshot.alertedLevels ?? []) {
       if (validLevels.has(level as GuardLevel)) machine.alerted.add(level as GuardLevel);
+    }
+    for (const level of snapshot.revokedLevels ?? []) {
+      if (validLevels.has(level as GuardLevel)) machine.revokedNotified.add(level as GuardLevel);
     }
     machine.level = validLevels.has(snapshot.currentLevel) ? snapshot.currentLevel : 0;
     machine.unknownStreak = Number.isFinite(snapshot.unknownStreak) && snapshot.unknownStreak >= 0 ? snapshot.unknownStreak : 0;

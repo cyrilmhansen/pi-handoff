@@ -2,6 +2,13 @@
 
 ## Recovery instructions
 
+0. **Session 01a18713 ended at enforced level 4 (real Qwen pressure ~155k used / 220k
+   window; reserve "model"=65536 ⇒ usable <5k). Last commit `6ea1d64`; tree clean; suite
+   102/103 green at that commit; checkpoint g1-09c93f8608af is STALE (docs changed after
+   attestation) — refresh + re-attest FIRST (HANDOFF "Next action" step 1), then start
+   increment A code at step 2. Closing scratch notes: `.pi-guard/close-notes.md`**
+   (git-ignored; the essentials are already in HANDOFF/PROGRESS/LEARNINGS + commit msgs).
+
 1. Read `AGENTS.md`, then this file, then `PROGRESS.md`, then `GOAL.md`/`LEARNINGS.md`.
    Do not replay transcripts.
 2. `GOAL.md` is the stable objective; never rewrite it silently (guard blocks write/edit).
@@ -62,6 +69,9 @@ design, P-7 reserve policy, O-1/O-2/O-3 open questions). Increment A (API audit 
 design) is DONE and being committed with this handoff; the renewal state machine code,
 tests and wiring are NOT yet written.**
 
+Revocation fix LANDED (A-18/A-19/P-8 in LEARNINGS; `test/revoke.test.ts`): alerts
+stay spent, one revocation notice per level, gate follows live level.
+
 Concrete next steps for the following session, in order:
 
 1. `node --test test/ 2>&1 | tail` → expect **103 tests, 102 pass, 0 fail, 1 skipped**;
@@ -86,6 +96,13 @@ Concrete next steps for the following session, in order:
    Record renewal lineage (`previousSessionFile` arrives on the successor's
    session_start event; persist it + parent session id per P-4); extend `/guard status`
    with renewal state. NEVER use the old ctx after newSession (invalidated — A-17.5).
+3b. **Model trigger (A-19/P-8)**: register tool `handoff_renew` (gates+checkpoint+attest
+   synchronously, then `void pi.sendUserMessage("/handoff renew go",
+   {expandPromptTemplates:true})` — NEVER await it inside execute: waitForIdle would
+   deadlock on the tool's own result). Add the tool name to closingAllowlist in
+   handoff.config.json so renewal is possible during enforced closing. Operator stop:
+   `/handoff renew stop` sets a flag honored by the pending dispatch and by
+   `session_before_switch` (cancel ONLY guard-pending switches, never human ones).
 4. **Increment C**: real-Pi experiment — new `scripts/e2e-renew.mjs` (or extend the
    two-process script): RPC session with real Qwen/Sushi turn(s), drive to renewal
    (real pressure if affordable, else `/guard simulate 4900` + agent-invoked
@@ -258,6 +275,9 @@ design, P-7 reserve policy, O-1/O-2/O-3 open questions). Increment A (API audit 
 design) is DONE and being committed with this handoff; the renewal state machine code,
 tests and wiring are NOT yet written.**
 
+Revocation fix LANDED (A-18/A-19/P-8 in LEARNINGS; `test/revoke.test.ts`): alerts
+stay spent, one revocation notice per level, gate follows live level.
+
 Concrete next steps for the following session, in order:
 
 1. `node --test test/ 2>&1 | tail` → expect **103 tests, 102 pass, 0 fail, 1 skipped**;
@@ -282,6 +302,13 @@ Concrete next steps for the following session, in order:
    Record renewal lineage (`previousSessionFile` arrives on the successor's
    session_start event; persist it + parent session id per P-4); extend `/guard status`
    with renewal state. NEVER use the old ctx after newSession (invalidated — A-17.5).
+3b. **Model trigger (A-19/P-8)**: register tool `handoff_renew` (gates+checkpoint+attest
+   synchronously, then `void pi.sendUserMessage("/handoff renew go",
+   {expandPromptTemplates:true})` — NEVER await it inside execute: waitForIdle would
+   deadlock on the tool's own result). Add the tool name to closingAllowlist in
+   handoff.config.json so renewal is possible during enforced closing. Operator stop:
+   `/handoff renew stop` sets a flag honored by the pending dispatch and by
+   `session_before_switch` (cancel ONLY guard-pending switches, never human ones).
 4. **Increment C**: real-Pi experiment — new `scripts/e2e-renew.mjs` (or extend the
    two-process script): RPC session with real Qwen/Sushi turn(s), drive to renewal
    (real pressure if affordable, else `/guard simulate 4900` + agent-invoked
