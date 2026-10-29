@@ -197,7 +197,7 @@ Agents may investigate beyond the immediate objective when justified: time avail
 ends as a `Proposed` entry with evidence/value/cost, or a `Falsified` entry. Scope creep
 into a general orchestration framework is out of contract.
 
-## 6. Renewal contract (Phase 2 — increment A implemented: decision module + config + durable chain state; the session switch itself is NOT yet active)
+## 6. Renewal contract (Phase 2 — IMPLEMENTED and live-proven: increments A+B+C, LEARNINGS A-23)
 
 Renewal policy lives in `renewal.ts` (pure) + `handoff.config.json` `renewal`
 (`enabled` default **false**, `autoRenew` default **false**, `maxRenewals` default 2,
@@ -212,7 +212,7 @@ identity-consistent ∧ attested). `buildRecoveryPrompt()` is deterministic and 
 ONLY durable files (AGENTS/PROTOCOL/GOAL/HANDOFF/PROGRESS/LEARNINGS + the test command):
 no transcript replay, no LLM summarization, no compaction.
 
-The switch itself, when wired (increment B), must follow this contract:
+The switch (increments B+C, implemented; proven live A→B→C with real inference) follows this contract:
 
 - Triggered explicitly (`/handoff renew`, operator command context) — never while a
   tool call is in flight; the guard waits via `waitForIdle()`. A model-initiated path

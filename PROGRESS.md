@@ -27,8 +27,18 @@ stop/resume, `session_before_switch` cancels ONLY guard-pending switches, succes
 lineage recording (P-4), renewal line in `/guard status`, runtime-derived identity
 banner (operator + model, no invented values). Adapter tests RB1-RB13 (suite
 131/132, 1 gated skip) + real-runtime e2e 27/27 (renewal status/stop/attempt/resume,
-no switch without inference). **The live A->B->C real-inference demo (increment C) is
-what remains before renewal can be called proven.**
+no switch without inference). **Increment C is COMPLETE (real-inference A→B→C proven):**
+`scripts/e2e-renew.mjs` on a full git clone with REAL sushi/Qwen inference and
+CONTEXT_GUARD_AUTO_RENEW=1 — hop 1 MODEL-initiated via `handoff_renew` (P-8 live,
+no deadlock), hop 2 operator `/handoff renew`, 3rd attempt refused (cap 2/2).
+Three distinct sessions, fresh successor contexts (messageCount=3), first successor
+action = read all six durable files, identity banner + recovery before first inference,
+zero transcript replay (user-role scan), zero compaction, durable chain 2/2
+(g9→g10), both successors committed real work (suite 131 passing; LEARNINGS X-1/X-2).
+20/20 checks (run 1 18/20 — both fails were driver bugs, see A-24; fixed, rerun clean).
+**Renewal is now PROVEN live (LEARNINGS A-23).** `renewal.autoRenew` stays false in
+handoff.config.json (the experiment drives it via the env switch); enabling it by
+default is an operator decision.
 
 ## Completed
 
@@ -69,10 +79,12 @@ Phase 1b (this session):
 
 - [x] Phase 2 increment B: `/handoff renew` switch wiring + `handoff_renew` tool bridge
   (RB1-RB13; operator surface proven in real RPC; the switch itself awaits increment C).
-- [ ] Phase 2 increment C: real-inference A -> B -> C renewal experiment + evidence.
+- [x] Phase 2 increment C: real-inference A -> B -> C renewal experiment + evidence
+  (20/20 checks, LEARNINGS A-23; driver fixed in A-24).
 
 - [ ] Human review of Phase 1b consolidation.
-- [ ] Phase 2 renewal — deliberately NOT started (see PROTOCOL §6).
+- [ ] Phase 2 — auto-renew-by-default decision (config `autoRenew` stays OFF; env switch
+      proven live) + operator UX polish (Phase 1d skill/guide deferred behind this).
 - [ ] Live interactive-session walkthrough of `/guard simulate` on a real Sushi model
   (RPC no-model verification done; real token-accounting observation still open).
 - [ ] Real multi-process concurrency test of per-session state (NOT done; serial mocks only).

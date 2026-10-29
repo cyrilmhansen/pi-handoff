@@ -113,7 +113,7 @@ Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_AUTO_RENEW=1|0` (force-enable/disable the renewal policy for one process).
 CLI flags: `--guard-synthetic <n>`, `--guard-readonly 1`.
 
-## Renewal (Phase 2 — increment A implemented; the switch itself lands in increment B)
+## Renewal (Phase 2 — complete; proven live with real inference A→B→C)
 
 `handoff.config.json` may carry a `renewal` block: `enabled` (default **false** — nothing
 switches sessions unless you say so), `autoRenew` (default **false** — model-initiated
@@ -124,6 +124,20 @@ renewal needs this ON), `maxRenewals` (hard cap per chain, default 2), `recovery
 Renewal requires the full Phase 1c gate: current checkpoint ∧ consistent identity ∧
 attested readiness (`renewAuthorization()`) ∧ below cap ∧ checkpoint not already used
 (idempotence). See PROTOCOL §6.
+
+Two triggers, both implemented and live-verified (LEARNINGS A-23):
+
+- `/handoff renew [notes]` — operator command; safe boundary first (`waitForIdle`), then
+  refresh + attest the checkpoint, persist chain state BEFORE the switch, then
+  `ctx.newSession({parentSession, withSession})`.
+- `handoff_renew` tool — model-initiated. Its `execute()` gates, refreshes and attests
+  synchronously, then fire-and-forgets `/handoff renew go` and returns; the switch happens
+  when the turn settles (awaiting idle inside the tool would deadlock on its own result).
+
+The successor starts with a **fresh context**: identity banner + deterministic recovery
+instruction (durable files only), no transcript replay, no compaction. Verify the whole
+chain yourself with `node scripts/e2e-renew.mjs` (spends real inference on an isolated git
+clone; `GUARD_E2E_KEEP=1` keeps the clone for forensics).
 
 ## Manually triggering each threshold (synthetic mode — no token spend)
 
@@ -279,10 +293,13 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
 - Pi 1.4.0 gives no exact tokenizer: `getContextUsage().tokens` mixes provider-reported
   usage with a chars/4 estimate; thresholds are approximate. Synthetic tests exercise the
   state machine only and **do not prove real context usage is accurate**.
-- No Phase 2 behavior: unattended/recursive agent launching is NOT implemented; automatic
-  session switching is NOT enabled; the working session is never replaced. `/handoff`
-  checkpoints but leaves the human to start/switch the fresh session (`pi --new`, then the
-  AGENTS.md/HANDOFF.md recovery ritual).
+- **Renewal (Phase 2) is implemented and proven live** (A→B→C with real inference,
+  LEARNINGS A-23), but it is **off by default**: `renewal.enabled` and `renewal.autoRenew`
+  gate it, and `autoRenew` is deliberately false in this project's config — the
+  increment-C experiments enabled it per-process with `CONTEXT_GUARD_AUTO_RENEW=1`.
+  Enabling it as the project default is an operator decision. Unattended/recursive agent
+  *launching* (spawning new pi processes) is still NOT implemented: renewal replaces the
+  session inside the running process only.
 - Alerts are transcript appends; Pi exposes no "inject without a message" channel, so each
   alert permanently adds one small custom message (bounded: ≤ 4 per session).
 - Enforcement blocks *new* tool calls only after crossing; a running long tool call cannot
@@ -300,7 +317,11 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
   `/reload` or a new session is required for changes to take effect (old and new writers
   coexist via the newest-wins migration rule).
 
-## Phase 2 feasibility
+## Phase 2 feasibility (settled)
+
+Renewal was built on the primitives listed below and verified in a real session
+(LEARNINGS A-23): Pi 1.4.0 provides `waitForIdle`, `newSession` with `parentSession` +
+`withSession(ReplacedSessionContext)`, and `session_before_switch` cancellation.
 
 Safe to add renewal **after** real-session checkpoint/recovery verification passes:
 Pi 1.4.0 provides the needed primitives (`waitForIdle`, `newSession` with

@@ -1,16 +1,19 @@
 # AGENTS.md — handoff prototype
 
-Project: Pi 1.4.0 context-guard. **Phase 2 (automatic session renewal) is the current
-milestone — in progress**: increment A (renewal decision module, config wiring, durable
-chain state, tests RN1–RN10) is done and committed; the session-switch wiring
-(increment B) is NOT yet implemented — nothing switches sessions yet. Earlier:
-Phases 1/1b/1c complete; Phase 1d (skill + long-project guide) deferred behind Phase 2.
+Project: Pi 1.4.0 context-guard. **Phase 2 (automatic session renewal) is COMPLETE:
+increments A (decision module + wiring + chain state + RN tests), B (switch wiring:
+`/handoff renew`, `handoff_renew` bridge, stop/resume, lineage, identity banner) and
+C (real-inference A→B→C experiment proven — 20/20, LEARNINGS A-23) are committed.
+Phase 1d (skill + long-project guide) remains deferred.**
 
-Renewal status this milestone: **NO automatic renewal has run yet.** Operator controls
-once implemented (`/handoff renew`): trigger = `/handoff renew` in the session UI or via
-RPC `prompt`; stop = `/handoff renew stop` (disables further auto-renewals for the run);
-cancel any pending switch = `session_before_switch` `{cancel:true}` (guard's stop flag).
-Before then nothing switches sessions.
+Renewal status: **PROVEN LIVE (2026-10-29, `scripts/e2e-renew.mjs`, real sushi/Qwen
+inference): model-initiated hop via the `handoff_renew` tool works with no deadlock;
+operator hop `/handoff renew` works; cap (maxRenewals=2) enforced; zero transcript
+replay, zero compaction.** Model-initiated renewal requires `renewal.autoRenew: true`
+(project config keeps it false; experiments enable it with
+CONTEXT_GUARD_AUTO_RENEW=1 — enabling by default is an operator decision). Stop =
+`/handoff renew stop` (durable); pending guard switches cancel via
+`session_before_switch`.
 
 Every fresh session:
 
@@ -31,8 +34,9 @@ Every fresh session:
    instruction alone does NOT make a session read-only (trusted project extensions write).
 
 Hard scope limits: do not modify `pli80`, Rune CI, the global Pi install, or
-compaction settings. Phase 2 (automatic session renewal) is not implemented — the readiness
-gate exists (`/handoff ready`, `renewAuthorization()`) but nothing switches sessions.
-After editing the extension, ALWAYS load it in the real runtime (`pi --mode rpc -e
-.pi/extensions/context-guard/index.ts` or `node scripts/e2e-rpc-two-process.mjs`): mock
-tests do not catch module-load errors (LEARNINGS A-9, A-15).
+compaction settings. After editing the extension, ALWAYS load it in the real runtime
+(`pi --mode rpc -e .pi/extensions/context-guard/index.ts` or `node
+scripts/e2e-rpc-two-process.mjs`); after ANY change to the renewal wiring in index.ts,
+also re-run `node scripts/e2e-renew.mjs` (spends real inference — it is the only live
+proof of the switch path, LEARNINGS A-23). Mock tests do not catch module-load errors
+(LEARNINGS A-9, A-15).

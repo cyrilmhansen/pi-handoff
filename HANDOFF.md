@@ -2,11 +2,13 @@
 
 ## Recovery instructions
 
-0. **Phase 2 renewal: increment A (pure module + config wiring + durable chain state +
-   tests RN1–RN10) is COMPLETE and committed this session. Suite 118/119 (1 gated skip),
-   real-runtime e2e 23/23. Nothing switches sessions YET — `/handoff renew` wiring
-   (increment B) and the A→B→C experiment (increment C) are next. Checkpoint freshness:
-   run `/handoff verify`; refresh + re-attest after docs changes.**
+0. **Phase 2 renewal: INCREMENTS A, B AND C ARE COMPLETE AND COMMITTED. The first REAL
+   automatic session switch is proven (LEARNINGS A-23): A→B→C with live sushi/Qwen
+   inference, model-initiated hop 1 (`handoff_renew` tool + `/handoff renew go` bridge,
+   no deadlock), operator hop 2, cap enforced, zero replay, zero compaction.
+   Renewal stays env-gated per experiment (CONTEXT_GUARD_AUTO_RENEW=1); project config
+   keeps `autoRenew: false` — enabling it by default is an operator decision.
+   Checkpoint freshness: run `/handoff verify`; refresh + re-attest after docs changes.**
 
 1. Read `AGENTS.md`, then this file, then `PROGRESS.md`, then `GOAL.md`/`LEARNINGS.md`.
    Do not replay transcripts.
@@ -47,14 +49,15 @@
       guide** — how to install and use context-guard in long-running projects, using the
       Digital Research PL/I-80 reverse-engineering project as the case study.
       Documentation/skill only; no Phase 2 renewal code.
-- [ ] NOTE: after checkpoint `g1-09c93f8608af` was attested, AGENTS.md was edited
-      (Phase 2 header + operator controls). Source hash of that checkpoint is therefore
-      stale on `learnings/agents`-adjacent state — refresh + re-attest with `/handoff`
-      and `/handoff ready` at the START of the next session (or after its first docs
-      change), before relying on `renewAuthorization()`.
+- [x] Phase 2 increments A+B+C — COMPLETE: renewal contract implemented (PROTOCOL §6),
+      switch proven live with real inference A→B→C (LEARNINGS A-23), 20/20 checks.
+      P-4 was implemented as the durable chain state + attestation binding; P-5
+      (multi-process concurrency) remains UNPROVEN — do not claim it.
+- [ ] NOTE: after checkpoint attestation, AGENTS.md/PROGRESS/LEARNINGS/HANDOFF were
+      edited again (increment-C documentation). Refresh + re-attest with `/handoff`
+      and `/handoff ready` after this docs commit, before relying on
+      `renewAuthorization()` in the next session.
 - [ ] Human review of the Phase 1b+1c consolidation (code + docs + LEARNINGS classifications).
-- [ ] Phase 2 renewal — NOT implemented (contract: PROTOCOL §6); gate: real-session
-      checkpoint/recovery verification, plus deciding on LEARNINGS P-4/P-5 proposals.
 - [ ] Live interactive-session walkthrough of `/guard simulate` with a real Sushi model
       (token-accounting sanity check; do not spend tokens hunting thresholds).
 - [ ] Real multi-process concurrency test of per-session state isolation (P-5) — the
@@ -62,57 +65,44 @@
 
 ## Next action
 
-**Phase 2 IN PROGRESS (renewal session, real Qwen/Sushi inference). Increments A AND B
-are DONE and committed (B: `/handoff renew`, `handoff_renew` bridge, stop/resume,
-lineage, identity banner, RB1-RB13, e2e 27/27): `renewal.ts` (decideRenewal + durable RenewalState incl. operator
-stop + deterministic buildRecoveryPrompt), config wiring (`renewal` block +
-CONTEXT_GUARD_AUTO_RENEW env), chain-state persistence in checkpoint.ts
-(`load/saveRenewalState` at `<stateDir>/renewal-state.json` — survives session
-replacement AND restart), formal `test/renewal.test.ts` RN1–RN10 (disabled-by-default,
-readiness gate, idempotence, cap, gate precedence, durability, prompt determinism).
-Suite 118/119; real e2e 23/23 (harness probe fixed, LEARNINGS A-20). STILL NOT
-IMPLEMENTED: the actual session switch (increment B) and the A→B→C experiment
-(increment C). Nothing switches sessions yet.**
+**Phase 2 COMPLETE (increments A+B+C). The renewal switch is PROVEN LIVE — LEARNINGS
+A-23 (experiment evidence) and A-24 (driver bug class). P-6 and P-8 are ACCEPTED;
+O-1 settled (fire-and-track: newSession returned while the successor's first turn ran).**
+This session: fixed `scripts/e2e-renew.mjs` (clone into `<parent>/work`; read the exit
+event's code argument; check the custom_message in the transcript, not ui.notify; scope
+the replay check to user-role entries) and ran the real-inference A→B→C experiment on a
+full clone with CONTEXT_GUARD_AUTO_RENEW=1, twice: run 1 → 18/20 (both fails were
+driver checkers, manually disproven); run 2 → **20/20** — hop 1 MODEL-initiated via
+`handoff_renew` (P-8 live, no deadlock), hop 2 operator `/handoff renew`, 3rd attempt
+refused (cap 2/2, C kept running), three distinct session ids, lineage parentSession,
+messageCount=3 successors whose first action read ALL six durable files, banner +
+recovery before first inference, zero replay/compaction, durable chain 1/2→2/2
+(g9-61eed787a6bb → g10-c1eb40a08a44), both successors committed real work (95ff109,
+40770f6; suite 131 recorded in their LEARNINGS X-1/X-2).
 
 Concrete next steps, in order:
 
-1. `node --test test/` → expect **119 tests, 118 pass, 0 fail, 1 skipped**; e2e
-   `node scripts/e2e-rpc-two-process.mjs` → 23/23.
-2. **Priority 2 (reserve)**: set `handoff.config.json` `"generationReserve": 20000`
-   (experimental LEARNINGS P-7: with the declared 220k window this moves enforced
-   closing from ~150k to ~195k used; thresholds unchanged), verify the budget math,
-   document, add the `renewal` block (enabled for THIS project's experiments; defaults
-   stay OFF), add `handoff_renew` to closingAllowlist, commit.
-3. ~~Increment B (the switch)~~ **DONE this session** (wired per P-6/A-17; details below kept for review):
-   module-scope pending + stop markers (jiti module cache survives replacement, A-17.4;
-   closures per factory invocation do NOT); handler = waitForIdle → refresh+attest
-   checkpoint → renewAuthorization → decideRenewal → persist chain state BEFORE the
-   switch (crash-safe) → `ctx.newSession({parentSession, withSession})` → inside
-   withSession send the recovery prompt FIRE-AND-TRACK (`void
-   nctx.sendMessage(...,{triggerTurn:true}).catch(...)`) — awaiting blocks newSession
-   until the successor's first turn completes (settle O-1 live); report ONLY via nctx
-   (old ctx invalidated, A-17.5). Successor records lineage at session_start
-   (`previousSessionFile` + pending marker). Operator stop `/handoff renew stop`
-   (durable `stopped` field) + `/handoff renew resume`; `session_before_switch` returns
-   `{cancel:true}` ONLY while the guard has a pending renewal AND stop is set — never
-   cancels human switches. `/guard status` renewal line. Runtime-derived identity
-   banner at session_start (pi version via process.argv[1]→package.json walk; model
-   provider/id from ctx.model; project from cwd; session id from sessionManager) —
-   operator notify + model custom message (triggerTurn:false) + appendEntry audit.
-   Model trigger (P-8): register tool `handoff_renew` — gates+checkpoint+attest
-   synchronously, then `pi.sendUserMessage("/handoff renew go",
-   {expandPromptTemplates:true})` — NEVER await anything that waits for idle inside
-   execute (deadlock on own tool result; pi's API-level sendUserMessage is void/fire-
-   and-forget by contract). Add tool name to closingAllowlist so L4 closing can renew.
-4. **Increment C**: real-Qwen RPC experiment (`scripts/e2e-renew.mjs`): drive session A
-   to renewal (synthetic pressure acceptable for triggering; the model's continuation
-   must be REAL inference), verify A→B→C: three distinct session ids, two transitions,
-   fresh contexts, recovery from durable files, meaningful work after renewal, zero
-   compaction/transcript replay, cap (maxRenewals=2) respected, git history preserved.
-   Record measurements honestly; if real inference cannot be exercised, SAY SO.
+1. `node --test test/` → expect **132 tests, 131 pass, 0 fail, 1 skipped**; zero-inference
+   e2e `node scripts/e2e-rpc-two-process.mjs` → 27/27; real-inference renewal e2e
+   `node scripts/e2e-renew.mjs` (spends inference; GUARD_E2E_KEEP=1 keeps the clone)
+   → 20/20. Re-run the latter after ANY change to the renewal wiring in index.ts.
+2. Human review of increments A–C (code + docs + LEARNINGS classifications; P-7's ~195k
+   closing point is still NOT live-observed — the experiment triggered with synthetic
+   pressure).
+3. Operator decision: set `renewal.autoRenew: true` in `handoff.config.json` as the
+   project default (model-initiated renewal then works WITHOUT the env switch) — NOT
+   done here; config stays OFF until the operator says so.
+4. Optional follow-ups (not blocking Phase 2): Phase 1d skill + long-project guide;
+   P-5 real two-process concurrency proof; live token-accounting sanity walk-through;
+   "config-changed-since-session-start" notice (A-22).
 5. Commit after every increment (local only, never push). Refresh + attest the
    checkpoint AFTER committing; commit the managed-block refresh separately when it
    dirties the tree.
+
+(For increment-B implementation details see the commit message of `11b59b9` and
+PROTOCOL §6; the wiring was unchanged by increment C — only the driver script was.)
+
+<!-- increment-C history kept short on purpose; full detail in git + LEARNINGS -->
 
 ## Phase 1c — what was verified in this session (repair session, extensions disabled)
 
