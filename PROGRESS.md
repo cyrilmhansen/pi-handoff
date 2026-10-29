@@ -2,8 +2,10 @@
 
 ## Current phase
 
-Phase 1b — recovery-audit consolidation (checkpoint freshness, session isolation, audit
-mode). Session renewal (Phase 2) is still NOT implemented.
+Phase 1c — recovery + completion (transactional checkpoint identity, audit-mode
+non-mutation, budget observability, readiness gate). Implemented and verified in the
+repair session (extensions disabled); **documentation (README/PROTOCOL) and the local
+commit remain**. Session renewal (Phase 2) is still NOT implemented.
 
 ## Completed
 
@@ -48,6 +50,30 @@ Phase 1b (this session):
   (RPC no-model verification done; real token-accounting observation still open).
 - [ ] Real multi-process concurrency test of per-session state (NOT done; serial mocks only).
 
+Phase 1c (completion session):
+- [x] Diagnosed and fixed the extension load failure (`ParseError: Export
+  'computeMeasurement' is not defined`, index.ts:560) — re-exported from `./core.ts`
+  instead of through a removed import; verified in real Pi 1.4.0 RPC.
+- [x] `writeCheckpoint` stamps ONE transactional identity (schema 3: generation, id, kind,
+      content-delta, readiness) into BOTH managed blocks; interrupted/mixed/obsolete
+      generations now validate as stale+partial, never current.
+- [x] Automatic checkpoints preserve the previous substantive `Last verified state` /
+      `Guard notes` (Phase 1b information-loss bug) and record `content-delta`.
+- [x] `evaluateHandoffReadiness()` + `attestHandoff()` (blocking: checkpoint-current,
+      identity-consistent, next-action-recorded, durable-files-valid; warnings:
+      content-delta, learnings-updated); readiness is bound to the checkpoint id and is
+      separate from technical currency; `renewAuthorization()` is the Phase 2 gate.
+- [x] Audit mode is genuinely non-mutating on the REAL filesystem: `loadGuardState(…,
+      {readOnly:true})` inspects only and reports `repairsSuppressed`; stateDir containment
+      via realpath-aware `isInsideTree`; GOAL protection via realpath + `isLexicallyInside`.
+- [x] `/guard status` full budget report (model, window+source, estimated used, raw
+      remaining, reserve+source+fraction, usable remaining, level, next threshold/alert,
+      measurement, provenance, inconsistencies, identity/readiness/renewal authorization).
+- [x] Pruning disabled by default (`maxSessionStates: 0`, 1h age floor when opted in);
+      `checkpointId`, `handoffReady`, `learningsHash` persisted in the v2 state file.
+- [x] Four harness/fixture defects fixed (plumbing only, assertions untouched — A-14);
+      new `test/readiness.test.ts` RD1–RD5 adapter tests.
+
 ## Verified evidence
 
 - `node --test test/` -> 55 pass, 0 fail (Node v26.12.1).
@@ -68,18 +94,19 @@ Phase 1b (this session):
 
 ## Next action
 
-Finish docs (README/LEARNINGS/HANDOFF), regenerate the project's managed checkpoint blocks
-with schema v2 (last write), re-run `node --test test/`, then stop for human review.
+Document Phase 1c in README (new "Generation reserve" section; 55→103 tests; schema v2→v3)
+and PROTOCOL §1/§2.1/§2.2/§2.3, then `git add` the intended files and commit locally
+(never push). Full details: HANDOFF.md "Next action".
 
 
 <!-- guard:begin checkpoint -->
-checkpoint-schema: 2
-guard-level: 3
-checkpointed: 2026-10-29T07:19:50.811Z
+checkpoint-schema: 3
+guard-level: 4
+checkpointed: 2026-10-29T08:39:30.368Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: e1193cecb8be053b96e6d27f77fdac8b2a73e48a7ae54cddadc72c9c0e811a27
-source-handoff: eb1d64b632ec075bf3ad887a8278d42e9a6db778ca96b825f0009d24ddac8f5f
-source-learnings: 32fc639828d55aed054d3ebd9e55712b4787794cbe2350b28d4f9ee7930c0846
+source-handoff: fcfbee5c407702629bf0e8917526a61a36bab65a9724718ac31d79085e7df700
+source-learnings: e2b1cc565934e001cb75c6499b5d5271f172bdf51535780d59d99004ee3588f9
 source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 next-action: STOP for human review. If accepted: run a live interactive session (`pi -e
 .pi/extensions/context-guard/index.ts`, observe `/guard status` remaining values under

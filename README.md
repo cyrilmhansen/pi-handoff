@@ -15,8 +15,9 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
   index.ts       extension adapter (events, commands, enforcement) — pi imported type-only
   core.ts        deterministic threshold state machine (pure)
   config.ts      defaults + JSON/env config merging (pure)
-  checkpoint.ts  atomic writes, managed sections (schema v2 + source hashes), freshness
-                 validation, per-session state, v1 migration, audit dry-runs
+  checkpoint.ts  atomic writes, managed sections (schema v3: transactional identity +
+                 source hashes), freshness/readiness validation, per-session state, v1
+                 migration, inspection-only audit loads, dry runs
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
 GOAL.md PROGRESS.md LEARNINGS.md HANDOFF.md   durable working memory
@@ -41,7 +42,8 @@ sibling modules. Pi loads it through `jiti` (verified).
 ## Run tests
 
 ```bash
-node --test test/          # 55 tests, no inference, no installs
+node --test test/          # 103 tests (1 skipped: gated real-Pi e2e), no inference, no installs
+node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (23 checks)
 ```
 
 Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use mocks of
@@ -61,7 +63,39 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 | `maxConsecutiveUnknown` | `3` | evaluations without a usable measurement before "degraded" |
 | `stateDir` | `.pi-guard` | persisted guard state (atomic per-session `sessions/<id>.json`) |
 | `readOnly` | `false` | audit mode: zero writes to the project tree (dry-run checkpoints) |
-| `maxSessionStates` | `10` | retention cap for per-session runtime state files |
+| `maxSessionStates` | `0` | retention cap for per-session state files; `0` disables pruning (deleting a file that may belong to a live process is unsafe without OS liveness data) |
+
+## Generation reserve
+
+`remaining` is measured as **usable** context, not raw context:
+
+```
+usable = contextWindow − estimatedTokensUsed − reserve
+reserve = max(generationReserveResolved, safetyReserve)
+generationReserveResolved = ctx.model.maxTokens when generationReserve === "model"
+```
+
+With Sushi's declared `contextWindow=220000` / `maxTokens=65536` and the default
+`"generationReserve": "model"`, usable = `220000 − used − 65536`, so level 1 fires at
+used ≥ 124 464, level 3 at ≥ 144 464 and enforced level 4 at ≥ **149 464 (~150k, not
+220k)** — observed live and reproduced arithmetically (`test/budget.test.ts` B1,
+LEARNINGS A-11).
+
+Two things this reserve is **not**:
+
+- it is not an output cap. It is a policy budget for the *next* completion. Pi 1.4.0
+  already bounds output per request: `pi-ai`'s `clampMaxTokensToContext()` sets
+  `max_tokens = min(model.maxTokens, contextWindow − estimateContextTokens(context).tokens − 4096)`
+  before every request, so an over-long generation is truncated by the provider
+  (`stopReason: "length"`) rather than overflowing the window (LEARNINGS A-12);
+- it is not exact accounting. `getContextUsage().tokens` is an estimate (last trustworthy
+  assistant usage + chars/4 for trailing messages), so thresholds are advisory budgets.
+
+`/guard status` therefore prints every component (raw remaining, reserve **and its
+source**, usable remaining, reserve fraction, provenance, inconsistencies) and flags a
+reserve above 25 % of the window. A fixed reserve is available via
+`"generationReserve": 20000` — **not adopted here**; the project keeps `"model"`
+(20 k would only move the closing point from ~150 k to ~195 k used).
 
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<tokens>`, `CONTEXT_GUARD_READONLY=1`,
@@ -96,14 +130,26 @@ Two independent checks, both read-only, both reported and never thrown:
    sha256 fingerprints of the relevant source state — GOAL.md and LEARNINGS.md whole;
    the *manual prose* of PROGRESS.md and HANDOFF.md (their managed blocks stripped before
    hashing, so no block ever hashes itself → non-circular); plus `handoff.config.json`.
+   Schema **v3** additionally stamps one transactional identity into both blocks
+   (`checkpoint-generation`, `checkpoint-id`, `checkpoint-kind`, `content-delta`,
+   `readiness`), so an interrupted two-file write, an obsolete generation or a forged id
+   is detected even when every source hash still matches (Phase 1c repro: a second
+   checkpoint over unchanged source state validated as `current` before the fix).
    Result is exactly one of:
    - `missing` — no managed block in HANDOFF.md;
    - `corrupt` — block present but invalid (no `checkpointed:` timestamp, unknown
      `checkpoint-schema`, missing/garbage source hashes);
    - `stale` — structurally valid, but a fingerprint differs from the files now (names
-     the changed sources), or the block is an unversioned legacy v1 block (`legacy: true`,
-     freshness unverifiable);
-   - `current` — all hashes match and the PROGRESS.md twin block is in sync.
+     the changed sources), a legacy unversioned v1 block (`legacy: true`), a schema-v2
+     block without transactional identity (`legacyIdentity: true`), or a partial/
+     inconsistent generation (`partial: true`: mixed ids/generations, missing twin,
+     disagreeing readiness);
+   - `current` — all hashes match, both blocks share one `checkpoint-id`, and the
+     PROGRESS.md twin is in sync. `content-delta` (`initial|none|new`) says whether the
+     checkpoint captured anything new; `readiness` (`attested|unattested|invalid`) says
+     whether it is a *complete* handoff. These are separate axes: a fresh, valid block can
+     still be semantically empty, and only `renewAuthorization()` combines them into the
+     Phase 2 renewal gate (`current` ∧ identity-consistent ∧ attested).
 
 Recovery precedence: manual prose wins; the checkpoint block's next action is used only
 when there is no manual `## Next action` **and** the block is `current`; a stale block is
@@ -123,8 +169,14 @@ exactly this problem in the audit; (3) *a genuinely immutable snapshot* — only
 `CONTEXT_GUARD_READONLY=1` (or `--guard-readonly 1`, or `"readOnly": true`) ⇒ zero writes
 inside the audited tree: monitoring, alerts, threshold enforcement and GOAL protection
 stay active; auto-checkpoints are suppressed with a notification and `/handoff` runs as a
-reported dry run. Ephemeral state may still persist when `CONTEXT_GUARD_STATE_DIR` points
-outside the tree. Pi's own session transcript always lives under `$PI_CODING_AGENT_DIR`,
+reported dry run (attestation included: `/handoff ready` says so and writes nothing).
+Ephemeral state may still persist when `CONTEXT_GUARD_STATE_DIR` points outside the tree.
+In audit mode the runtime-state load is **inspection only** (`inspectGuardState`): no
+quarantine of corrupt files, no v1 migration, no temp-file cleanup, and nothing is claimed
+about state the guard does not own — with an external stateDir the tree's stale
+`.pi-guard/` is never inspected; with an in-tree stateDir the guard reports each repair it
+suppressed (`LEARNINGS A-10`, proven on a real filesystem by `test/audit-tree.test.ts`
+A1/A2/A4/A5 and by `scripts/e2e-rpc-two-process.mjs`). Pi's own session transcript always lives under `$PI_CODING_AGENT_DIR`,
 not the project tree.
 
 Verified live in real Pi 1.4.0 RPC mode against a temp copy of this project: the tree was

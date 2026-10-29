@@ -1,6 +1,8 @@
 # AGENTS.md — handoff prototype
 
-Project: Pi 1.4.0 context-guard (Phase 1/1b). Experimental prototype.
+Project: Pi 1.4.0 context-guard (Phases 1, 1b, 1c). Experimental prototype. Next planned
+milestone: **Phase 1d — Pi Handoff skill + long-project integration guide** (case study:
+Digital Research PL/I-80 reverse engineering). Not started; documentation-only scope.
 
 Every fresh session:
 
@@ -10,6 +12,8 @@ Every fresh session:
    (missing/corrupt/stale/current) at `session_start` and via `/handoff verify`.
 2. Verify with `node --test test/` before touching code.
 3. Never rewrite `GOAL.md`; propose goal changes in `LEARNINGS.md` (Proposed) instead.
+   The guard never writes `LEARNINGS.md`, and every threshold level tells the agent to keep
+   discoveries there (accepted / proposed / falsified).
 4. Keep evidence for anything you claim; classify it (accepted / proposed / falsified).
 5. Initiative is allowed: investigate and propose beyond the objective, but record
    evidence, expected value and cost in `LEARNINGS.md`, and do not adopt proposals as
@@ -19,4 +23,8 @@ Every fresh session:
    instruction alone does NOT make a session read-only (trusted project extensions write).
 
 Hard scope limits: do not modify `pli80`, Rune CI, the global Pi install, or
-compaction settings. Phase 2 (automatic session renewal) is not implemented yet.
+compaction settings. Phase 2 (automatic session renewal) is not implemented — the readiness
+gate exists (`/handoff ready`, `renewAuthorization()`) but nothing switches sessions.
+After editing the extension, ALWAYS load it in the real runtime (`pi --mode rpc -e
+.pi/extensions/context-guard/index.ts` or `node scripts/e2e-rpc-two-process.mjs`): mock
+tests do not catch module-load errors (LEARNINGS A-9, A-15).

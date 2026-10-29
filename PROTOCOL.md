@@ -5,7 +5,15 @@ The single source of procedure. Working files reference this; they do not duplic
 ## 1. Context thresholds
 
 Measured as **remaining usable context**:
-`remaining = contextWindow − estimatedTokensUsed − max(modelMaxTokens, safetyReserve)`.
+`remaining = contextWindow − estimatedTokensUsed − max(generationReserveResolved, safetyReserve)`,
+where `generationReserveResolved` is `ctx.model.maxTokens` for `"generationReserve": "model"`
+and the literal number otherwise. The reserve is a **policy budget for the next completion,
+not an output cap**: Pi 1.4.0 clamps `max_tokens = min(model.maxTokens, window − estimate − 4096)`
+per request (`pi-ai` `clampMaxTokensToContext`), so a long generation is truncated by the
+provider instead of overflowing the window. With Sushi's 220 000/65 536 that puts enforced
+closing at ≈150 k used, not 220 k — `/guard status` reports every component (raw remaining,
+reserve and its source, usable remaining, reserve fraction, provenance, inconsistencies) and
+flags a reserve above 25 % of the window.
 Estimation comes from Pi's `ctx.getContextUsage()` (see README §verified API); it is an
 estimate, so thresholds are advisory budgets, not guarantees.
 
@@ -57,14 +65,27 @@ protected at all levels when `protectGoal` is true.
 
 ### 2.1 Checkpoint contents and freshness validation
 
-A checkpoint rewrites the **managed blocks** of HANDOFF.md and PROGRESS.md (schema v2).
-Each block embeds `checkpoint-schema: 2`, a `checkpointed:` timestamp, and **sha256
-fingerprints of the relevant source state**: `source-goal`, `source-progress`,
+A checkpoint rewrites the **managed blocks** of HANDOFF.md and PROGRESS.md (schema v3).
+Each block embeds `checkpoint-schema: 3`, a **transactional identity**
+(`checkpoint-generation`, monotonic `max(existing)+1`, no clock/no randomness; and
+`checkpoint-id`, derived from generation + source fingerprint + session), `checkpoint-kind`
+(`auto|manual`), `content-delta` (`initial|none|new`) and `readiness`, plus a
+`checkpointed:` timestamp and **sha256 fingerprints of the relevant source state**: `source-goal`, `source-progress`,
 `source-handoff`, `source-learnings`, `source-config`. PROGRESS/HANDOFF are fingerprinted
 as *manual prose only* (their managed blocks stripped before hashing); GOAL/LEARNINGS are
 hashed whole; missing files and files containing nothing but managed blocks hash to
 `"absent"`. This makes the fingerprint non-circular: no block ever hashes its own content,
 so re-writing a checkpoint over unchanged prose preserves all source hashes.
+
+Both blocks must prove they came from **one** operation: an interrupted two-file write, an
+obsolete generation, a forged id, a missing twin or disagreeing readiness lines make the
+checkpoint `stale` with `partial: true` — never `current` (Phase 1c repro: two checkpoints
+over unchanged source state had byte-identical hashes, so an interrupted second write
+looked current).
+
+Automatic checkpoints (level ≥ 3, no notes) **preserve** the previous block's substantive
+`### Last verified state` and `### Guard notes` bodies; generic guard text never overwrites
+a real summary (Phase 1b information-loss bug).
 
 `validateCheckpoint()` classifies the durable checkpoint into exactly one of:
 - **missing** — no managed block in HANDOFF.md;
@@ -82,6 +103,15 @@ Precedence on recovery (Phase 1b fix): **manual prose always wins.**
 no manual section exists and the block is verified *current*; a stale block is a
 last-resort, clearly-labelled fallback (`"stale-checkpoint"`).
 
+Technical currency is **not** handoff completeness. `evaluateHandoffReadiness()` reports
+blocking checks (`checkpoint-current`, `identity-consistent`, `next-action-recorded` —
+placeholders and block-only next actions fail) and warnings (`content-delta=none`,
+`learnings-updated`: LEARNINGS.md unchanged since session start). `attestHandoff()` rewrites
+only the readiness lines of both blocks in one operation, bound to the current
+`checkpoint-id`; it refuses (zero writes) unless every blocking check passes, and is a
+reported dry run in audit mode. `renewAuthorization()` is the Phase 2 gate: current ∧
+identity-consistent ∧ attested. A new generation resets readiness to unattested.
+
 Validation is read-only and never "fixes" anything: a stale checkpoint is reported
 (session_start warning + `/guard status` + `/handoff verify`) and must be refreshed
 explicitly via `/handoff`, which rewrites only managed blocks and preserves all
@@ -92,9 +122,13 @@ resolved in favour of the prose, never by overwriting discoveries.
 
 Guard state is persisted to **per-session files** `<stateDir>/sessions/<sessionId>.json`
 (schema version 2, atomic writes): sessions cannot overwrite each other's runtime state.
-Retention: the `maxSessionStates` most recently updated foreign session files are kept
-(current session never pruned; durable checkpoints are markdown files and are never
-pruned). Migration of the legacy single-slot `state.json` (version 1): on load, the
+The state file also carries the audit fields `checkpointId`, `handoffReady` and
+`learningsHash` (the LEARNINGS.md baseline for the readiness warning).
+Retention: `maxSessionStates` defaults to **0 = pruning disabled** — without OS-level
+process liveness, deleting another session's state while that process is still running is
+unsafe; when opted in, only foreign files older than the `updatedAt`/mtime age floor
+(1 h) are pruned (current session never pruned; durable checkpoints are markdown files and
+are never pruned). Migration of the legacy single-slot `state.json` (version 1): on load, the
 legacy file is attributed to the `sessionId` it names and reconciled
 **newest-`updatedAt`-wins** against the per-session file, so a still-running v1 writer
 cannot lose its snapshot; a foreign owner's state is preserved under its own name and
@@ -118,7 +152,16 @@ the strongest guarantee the extension itself can offer: **zero writes inside the
  tree** — no checkpoints (auto and `/handoff` become reported dry runs), no managed-block
  stamps; monitoring, alerts, enforcement and GOAL protection stay active. Runtime state
 may still persist only if `stateDir` resolves **outside** the audited directory
-(`CONTEXT_GUARD_STATE_DIR=/some/other/path`). Pi's own session transcripts live under
+(`CONTEXT_GUARD_STATE_DIR=/some/other/path`). Containment is realpath- and `..`-aware
+(`isInsideTree`): a sneaky `../<name>/.pi-guard` or a tree-resident symlink to an external
+directory is still part of the audited tree.
+
+Audit mode also makes runtime-state loading **inspection only** (`inspectGuardState` via
+`loadGuardState(…, { readOnly: true })`): no quarantine of corrupt files, no legacy
+migration, no temp-file cleanup inside the tree — and every repair that was suppressed is
+reported. With an external stateDir the tree's stale `.pi-guard/` is not the guard's state
+directory at all, so nothing there is inspected, claimed or changed (verified on real
+filesystems: `test/audit-tree.test.ts` A1/A2/A4/A5, `scripts/e2e-rpc-two-process.mjs`). Pi's own session transcripts live under
 `$PI_CODING_AGENT_DIR`, not the project tree; an OS-level snapshot remains the only
 full-immutability option (hence "audited tree", not "audited universe").
 

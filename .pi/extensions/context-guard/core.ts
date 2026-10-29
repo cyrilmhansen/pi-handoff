@@ -35,7 +35,9 @@ export function defaultThresholds(t: ThresholdsInput): Threshold[] {
       kind: "advisory",
       label: "checkpoint",
       guidance:
-        "CONTEXT PRESSURE (advisory): remaining context is low. Update PROGRESS.md with completed work, blockers and the exact next action. No behavior is enforced at this level.",
+        "CONTEXT PRESSURE (advisory): checkpoint now (nothing is enforced at this level). Update PROGRESS.md (completed work, blockers, exact next action) and record in LEARNINGS.md every " +
+        "important discovery, failed assumption, technical insight and improvement proposal you gained since the last checkpoint. " +
+        "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },
     {
       level: 2,
@@ -43,7 +45,9 @@ export function defaultThresholds(t: ThresholdsInput): Threshold[] {
       kind: "advisory",
       label: "wrap-up",
       guidance:
-        "CONTEXT PRESSURE (advisory): finish the current substantial task. Do not open new lines of work. Fold results into PROGRESS.md as you go.",
+        "CONTEXT PRESSURE (advisory): finish the bounded task you are on; do not open substantial new investigations. Preserve newly learned procedures and unresolved questions " +
+        "in PROGRESS.md and LEARNINGS.md (proposals stay proposals, never adopted silently). " +
+        "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },
     {
       level: 3,
@@ -51,7 +55,9 @@ export function defaultThresholds(t: ThresholdsInput): Threshold[] {
       kind: "advisory",
       label: "prioritize-handoff",
       guidance:
-        "CONTEXT PRESSURE (advisory): prioritize durable handoff. Write current state to HANDOFF.md (recovery instructions, last verified state, unfinished operations, next action) before doing anything else.",
+        "CONTEXT PRESSURE (advisory): prioritize durable handoff above new work. PROGRESS.md, LEARNINGS.md and HANDOFF.md must all carry the latest relevant state: the exact next " +
+        "action, the evidence behind each claim, and the unfinished work. " +
+        "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },
     {
       level: 4,
@@ -59,7 +65,9 @@ export function defaultThresholds(t: ThresholdsInput): Threshold[] {
       kind: "enforced",
       label: "closing",
       guidance:
-        "CONTEXT CRITICAL (enforced): controlled closing phase is active. Tools outside the checkpoint allowlist are blocked. Complete HANDOFF.md and PROGRESS.md, then stop; a fresh session will resume from the files.",
+        "CONTEXT CRITICAL (enforced): closing phase active — tools outside the checkpoint allowlist are blocked. Finalize and validate the handoff (/handoff, then /handoff verify), record any " +
+        "unresolved finding in LEARNINGS.md, do not start new experiments, and stop after this closing phase — a fresh session resumes from the files. " +
+        "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },
   ];
 }
@@ -70,6 +78,37 @@ export type UnknownReason =
   | "invalid-measurement"
   | "synthetic";
 
+export type MeasurementProvenance = "real" | "synthetic" | "unknown";
+
+export type ReserveSource = "model-maxTokens" | "generationReserve" | "safetyReserve" | "none";
+
+/** How much output capacity the guard subtracts from the window, and WHY. */
+export interface ReserveSelection {
+  /** Config value: "model" (use ctx.model.maxTokens) or a fixed number. */
+  setting: "model" | number;
+  safetyReserve: number;
+  /** ctx.model.maxTokens as declared by the model config (may be absent). */
+  modelMaxOutputTokens: number | null;
+  /** The reserve actually applied: max(setting value, safetyReserve). */
+  selected: number;
+  source: ReserveSource;
+}
+
+export function selectGenerationReserve(input: {
+  generationReserve?: "model" | number;
+  modelMaxOutputTokens?: number | null;
+  safetyReserve?: number;
+}): ReserveSelection {
+  const setting: "model" | number = input.generationReserve === undefined ? "model" : input.generationReserve;
+  const safety = numOr(input.safetyReserve, 0);
+  const maxOut = numOrNull(input.modelMaxOutputTokens);
+  const fromSetting = setting === "model" ? (maxOut ?? 0) : Math.max(0, setting);
+  const selected = Math.max(fromSetting, safety);
+  let source: ReserveSource = "none";
+  if (selected > 0) source = safety > fromSetting ? "safetyReserve" : setting === "model" ? "model-maxTokens" : "generationReserve";
+  return { setting, safetyReserve: safety, modelMaxOutputTokens: maxOut, selected, source };
+}
+
 export interface Measurement {
   status: "ok" | "unknown";
   /** Tokens usable before hitting the window minus generation reserve. Null when unknown. */
@@ -78,50 +117,228 @@ export interface Measurement {
   contextWindow: number | null;
   reservedForGeneration: number;
   reason?: UnknownReason;
+  /** Where the numbers came from. Pi 1.4.0 supplies an ESTIMATE, never exact counts. */
+  provenance?: MeasurementProvenance;
+  /** contextWindow - tokensUsed, before any reserve. */
+  rawRemaining?: number | null;
+  reserveSource?: ReserveSource;
+  inconsistencies?: string[];
+}
+
+export interface BudgetBreakdown extends Measurement {
+  /** contextWindow - tokensUsed - reserve.selected (same as `remaining` when status is ok). */
+  usableRemaining: number | null;
+  modelId: string | undefined;
+  /** Where the effective window came from. */
+  contextWindowSource: "usage" | "model" | "unknown";
+  /** ctx.model.contextWindow (declared), cross-checked against the usage value. */
+  modelContextWindow: number | null;
+  /** ctx.model.maxTokens (declared maximum output). */
+  modelMaxOutputTokens: number | null;
+  reserve: ReserveSelection;
+  /** reserve / contextWindow (null when the window is unknown). */
+  reserveFraction: number | null;
+  /** Pi's own percent estimate, when it supplied one. */
+  percent: number | null;
+}
+
+export interface BudgetInput {
+  modelId?: string | null;
+  /** ctx.getContextUsage().contextWindow */
+  contextWindow?: number | null;
+  /** ctx.model.contextWindow */
+  modelContextWindow?: number | null;
+  /** ctx.model.maxTokens */
+  modelMaxOutputTokens?: number | null;
+  /** ctx.getContextUsage().tokens — a Pi 1.4.0 estimate, not an exact count. */
+  tokens?: number | null;
+  /** ctx.getContextUsage().percent — cross-check only. */
+  percent?: number | null;
+  generationReserve?: "model" | number;
+  safetyReserve?: number;
+}
+
+function numOr(v: number | null | undefined, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+function numOrNull(v: number | null | undefined): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** Above this share of the window, a policy reserve is worth flagging. */
+export const RESERVE_FRACTION_WARN = 0.25;
+
+/**
+ * Full budget accounting. `remaining`/`status` keep the historical semantics
+ * (usable = window - used - reserve); every other field exists so `/guard status`
+ * can explain WHY the guard sits where it does. Do not read this as exact
+ * accounting: Pi 1.4.0 provides an estimate (usage + chars/4 trailing).
+ */
+export function computeBudget(input: BudgetInput): BudgetBreakdown {
+  const reserve = selectGenerationReserve(input);
+  const inconsistencies: string[] = [];
+  const usageWindow = numOrNull(input.contextWindow);
+  const declaredWindow = numOrNull(input.modelContextWindow);
+  const effectiveWindow = usageWindow != null && usageWindow > 0 ? usageWindow : declaredWindow != null && declaredWindow > 0 ? declaredWindow : null;
+  const contextWindowSource: BudgetBreakdown["contextWindowSource"] =
+    usageWindow != null && usageWindow > 0 ? "usage" : declaredWindow != null && declaredWindow > 0 ? "model" : "unknown";
+  const rawTokens = numOrNull(input.tokens);
+  const tokens = rawTokens != null && rawTokens >= 0 ? rawTokens : null;
+
+  if (usageWindow != null && declaredWindow != null && usageWindow !== declaredWindow) {
+    inconsistencies.push(`inconsistent context window: Pi usage reports ${usageWindow}, ctx.model declares ${declaredWindow}`);
+  }
+  if (effectiveWindow == null) inconsistencies.push("no context window available (no model / no usage data): budget unknown, enforcement is held");
+  if (rawTokens != null && rawTokens < 0) inconsistencies.push(`invalid usage estimate: ${rawTokens}`);
+  if (tokens == null && effectiveWindow != null) inconsistencies.push("no token estimate available yet (no-usage): Pi reports null until a fresh assistant response");
+  if (reserve.setting === "model" && reserve.modelMaxOutputTokens == null) {
+    inconsistencies.push("generationReserve is \"model\" but the model declares no maxTokens: reserve fell back to safetyReserve");
+  }
+
+  const rawRemaining = effectiveWindow != null && tokens != null ? effectiveWindow - tokens : null;
+  const usableRemaining = rawRemaining == null ? null : rawRemaining - reserve.selected;
+  const reserveFraction = effectiveWindow != null && effectiveWindow > 0 ? reserve.selected / effectiveWindow : null;
+  if (reserveFraction != null && reserveFraction > RESERVE_FRACTION_WARN) {
+    inconsistencies.push(
+      `large generation reserve: ${reserve.selected} tokens = ${(reserveFraction * 100).toFixed(1)}% of the ${effectiveWindow}-token window — ` +
+        "thresholds are measured against usable remaining, so the guard escalates early. A policy reserve is not an output cap: " +
+        "Pi clamps max_tokens to window - estimate - 4096 per request (see README §Generation reserve).",
+    );
+  }
+  if (usableRemaining != null && usableRemaining <= 0) {
+    inconsistencies.push(`usable budget is exhausted (negative remaining ${usableRemaining}): used + reserve >= window, enforced closing is unavoidable`);
+  }
+  const percent = numOrNull(input.percent);
+  if (percent != null && tokens != null && effectiveWindow != null && effectiveWindow > 0) {
+    const implied = (percent / 100) * effectiveWindow;
+    if (Math.abs(implied - tokens) > Math.max(1000, effectiveWindow * 0.02)) {
+      inconsistencies.push(`inconsistent measurement: Pi's percent (${percent.toFixed(1)}%) implies ~${Math.round(implied)} tokens used while the estimate says ${tokens}`);
+    }
+  }
+
+  const reason: UnknownReason | undefined =
+    effectiveWindow == null ? "no-model" : tokens == null ? "no-usage" : usableRemaining != null && !Number.isFinite(usableRemaining) ? "invalid-measurement" : undefined;
+  const status: "ok" | "unknown" = reason == null ? "ok" : "unknown";
+
+  return {
+    status,
+    reason,
+    provenance: status === "ok" ? "real" : "unknown",
+    remaining: status === "ok" ? usableRemaining : null,
+    usableRemaining,
+    rawRemaining,
+    tokensUsed: tokens,
+    contextWindow: effectiveWindow,
+    reservedForGeneration: reserve.selected,
+    reserveSource: reserve.source,
+    inconsistencies,
+    modelId: input.modelId ?? undefined,
+    contextWindowSource,
+    modelContextWindow: declaredWindow,
+    modelMaxOutputTokens: reserve.modelMaxOutputTokens,
+    reserve,
+    reserveFraction,
+    percent,
+  };
+}
+
+/** Synthetic budget for test mode: bypasses real accounting and declares itself. */
+export function syntheticBudget(remaining: number, contextWindow?: number | null): BudgetBreakdown {
+  const window = numOr(contextWindow, 0) > 0 ? (contextWindow as number) : null;
+  if (!Number.isFinite(remaining)) {
+    return { ...computeBudget({ contextWindow: window }), status: "unknown", reason: "invalid-measurement", remaining: null, usableRemaining: null, provenance: "unknown" };
+  }
+  return {
+    status: "ok",
+    reason: "synthetic",
+    provenance: "synthetic",
+    remaining: Math.floor(remaining),
+    usableRemaining: Math.floor(remaining),
+    rawRemaining: Math.floor(remaining),
+    tokensUsed: null,
+    contextWindow: window,
+    reservedForGeneration: 0,
+    reserveSource: "none",
+    inconsistencies: ["synthetic measurement: test-injected remaining; real token accounting is NOT proven by this session"],
+    modelId: undefined,
+    contextWindowSource: window != null ? "usage" : "unknown",
+    modelContextWindow: null,
+    modelMaxOutputTokens: null,
+    reserve: selectGenerationReserve({ generationReserve: 0, safetyReserve: 0 }),
+    reserveFraction: 0,
+    percent: null,
+  };
+}
+
+export function measurementFromBudget(b: BudgetBreakdown): Measurement {
+  return {
+    status: b.status,
+    remaining: b.remaining,
+    tokensUsed: b.tokensUsed,
+    contextWindow: b.contextWindow,
+    reservedForGeneration: b.reserve.selected,
+    reason: b.reason,
+    provenance: b.provenance,
+    rawRemaining: b.rawRemaining,
+    reserveSource: b.reserveSource,
+    inconsistencies: b.inconsistencies,
+  };
 }
 
 /**
  * Compute a measurement from raw provider/session numbers.
  * Reserved generation capacity is subtracted so thresholds refer to what is
- * left for *conversation*, not for the next completion.
+ * left for *conversation*, not for the next completion. Thin wrapper over
+ * computeBudget so there is exactly one accounting implementation.
  */
 export function computeMeasurement(input: {
   contextWindow?: number | null;
   tokens?: number | null;
+  /** Declared model maximum output (used when generationReserve is "model"). */
   maxOutputTokens?: number | null;
   safetyReserve?: number;
+  generationReserve?: "model" | number;
+  modelId?: string | null;
+  modelContextWindow?: number | null;
+  percent?: number | null;
 }): Measurement {
-  const { contextWindow, tokens } = input;
-  const safety = Number.isFinite(input.safetyReserve) ? (input.safetyReserve ?? 0) : 0;
-  const maxOut = Number.isFinite(input.maxOutputTokens) ? (input.maxOutputTokens ?? 0) : 0;
-  const reserved = Math.max(maxOut, safety);
-
-  if (contextWindow == null || !Number.isFinite(contextWindow) || contextWindow <= 0) {
-    return { status: "unknown", remaining: null, tokensUsed: tokens ?? null, contextWindow: contextWindow ?? null, reservedForGeneration: reserved, reason: "no-model" };
-  }
-  if (tokens == null || !Number.isFinite(tokens) || tokens < 0) {
-    return { status: "unknown", remaining: null, tokensUsed: tokens ?? null, contextWindow, reservedForGeneration: reserved, reason: "no-usage" };
-  }
-  const remaining = contextWindow - tokens - reserved;
-  if (!Number.isFinite(remaining)) {
-    return { status: "unknown", remaining: null, tokensUsed: tokens, contextWindow, reservedForGeneration: reserved, reason: "invalid-measurement" };
-  }
-  return { status: "ok", remaining, tokensUsed: tokens, contextWindow, reservedForGeneration: reserved };
+  return measurementFromBudget(
+    computeBudget({
+      contextWindow: input.contextWindow,
+      modelContextWindow: input.modelContextWindow ?? input.contextWindow,
+      modelMaxOutputTokens: input.maxOutputTokens,
+      tokens: input.tokens,
+      percent: input.percent,
+      generationReserve: input.generationReserve ?? "model",
+      safetyReserve: input.safetyReserve,
+      modelId: input.modelId,
+    }),
+  );
 }
 
 /** Synthetic measurement for test mode (bypasses real accounting). */
 export function syntheticMeasurement(remaining: number, contextWindow = 0): Measurement {
-  if (!Number.isFinite(remaining)) {
-    return { status: "unknown", remaining: null, tokensUsed: null, contextWindow: null, reservedForGeneration: 0, reason: "invalid-measurement" };
-  }
-  return {
-    status: "ok",
-    remaining,
-    tokensUsed: null,
-    contextWindow: contextWindow || null,
-    reservedForGeneration: 0,
-    reason: "synthetic",
-  };
+  return measurementFromBudget(syntheticBudget(remaining, contextWindow));
+}
+
+export interface NextThresholdReport {
+  /** Next threshold crossed as usage grows (its alert may already be spent). */
+  nextCrossing: (Threshold & { tokensUntil: number }) | null;
+  /** Next threshold that would still fire an alert in THIS session. */
+  nextAlert: (Threshold & { tokensUntil: number }) | null;
+}
+
+/** Which threshold comes next, and how many tokens of growth away it is. */
+export function nextThresholds(thresholds: Threshold[], remaining: number | null, alerted: Iterable<GuardLevel> = []): NextThresholdReport {
+  if (remaining == null) return { nextCrossing: null, nextAlert: null };
+  const spent = new Set(alerted);
+  // remaining falls as the session grows: the next crossing is the largest
+  // threshold still ABOVE the current level's cut, i.e. the closest one below now.
+  const candidates = thresholds.filter((t) => t.remainingBelow < remaining).sort((a, b) => b.remainingBelow - a.remainingBelow);
+  const wrap = (t: Threshold | undefined): (Threshold & { tokensUntil: number }) | null =>
+    t ? { ...t, tokensUntil: Math.max(0, Math.ceil(remaining - t.remainingBelow)) } : null;
+  return { nextCrossing: wrap(candidates[0]), nextAlert: wrap(candidates.find((t) => !spent.has(t.level))) };
 }
 
 export interface Transition {
@@ -164,6 +381,16 @@ export class ContextPressureMachine {
 
   get currentLevel(): GuardLevel {
     return this.level;
+  }
+
+  /** Read-only copy, for status reporting. */
+  get thresholdList(): Threshold[] {
+    return [...this.thresholds];
+  }
+
+  /** Next crossing / next alertable threshold for a given usable-remaining value. */
+  nextThreshold(remaining: number | null): NextThresholdReport {
+    return nextThresholds(this.thresholds, remaining, this.alerted);
   }
 
   /**

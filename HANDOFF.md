@@ -29,7 +29,19 @@
 
 ## Unfinished operations
 
-- [ ] Human review of the Phase 1b consolidation (code + docs + LEARNINGS classifications).
+- [x] Phase 1c code: transactional checkpoint identity (schema v3), readiness gate +
+      attestation, audit-mode inspection-only state load, normalized/symlink-aware
+      containment and GOAL protection, detailed budget status, `/handoff ready`,
+      `renewAuthorization`, pruning disabled by default, auto-checkpoint prose
+      preservation — all implemented, 102/103 tests + 23/23 real-runtime e2e checks.
+- [ ] README + PROTOCOL documentation of Phase 1c (see Next action step 3).
+- [ ] Local commit of the completed milestone (never push).
+- [ ] Live real-model turn for alert delivery (opt-in `GUARD_E2E_LLM=1`; aborted attempt).
+- [ ] **Phase 1d (planned, NOT started): Pi Handoff skill + long-project integration
+      guide** — how to install and use context-guard in long-running projects, using the
+      Digital Research PL/I-80 reverse-engineering project as the case study.
+      Documentation/skill only; no Phase 2 renewal code.
+- [ ] Human review of the Phase 1b+1c consolidation (code + docs + LEARNINGS classifications).
 - [ ] Phase 2 renewal — NOT implemented (contract: PROTOCOL §6); gate: real-session
       checkpoint/recovery verification, plus deciding on LEARNINGS P-4/P-5 proposals.
 - [ ] Live interactive-session walkthrough of `/guard simulate` with a real Sushi model
@@ -39,12 +51,138 @@
 
 ## Next action
 
-STOP for human review. If accepted: run a live interactive session (`pi -e
-.pi/extensions/context-guard/index.ts`, observe `/guard status` remaining values under
-real work), then scope Phase 2 per PROTOCOL §6 and LEARNINGS P-1/P-4/P-5.
+**Phase 1c is functionally COMPLETE and verified; the remaining work is documentation +
+the local commit.** Do NOT reset the tree. Exact next steps, in order:
+
+1. `node --test test/ 2>&1 | grep -E "^(ℹ (tests|pass|fail|skipped)|✖ )"` → expect
+   **103 tests, 102 pass, 0 fail, 1 skipped** (P5 = the gated real-Pi e2e).
+2. `node scripts/e2e-rpc-two-process.mjs` → expect **23/23 PASS** (real pi 1.4.0,
+   two concurrent normal processes + two audit processes, isolated `PI_CODING_AGENT_DIR`,
+   zero inference). It takes ~2 minutes; run with `GUARD_E2E_KEEP=1` to keep artifacts.
+3. Documentation (the only unfinished items): README — add a `## Generation reserve`
+   section stating `usable = contextWindow − used − max(modelMaxTokens, safetyReserve)`,
+   the 150k consequence for Sushi (220000 − used − 65536 ⇒ level 4 at used ≥ 149464),
+   that a policy reserve is NOT an output cap, and that Pi 1.4.0 clamps
+   `max_tokens = min(model.maxTokens, contextWindow − estimate − 4096)`
+   (pi-ai `clampMaxTokensToContext`, LEARNINGS A-12); update README's "55 tests" and
+   "schema v2" mentions to 103 tests / schema v3 + identity + `/handoff ready`.
+   PROTOCOL §1 (budget accounting + reserve source reporting), §2.1 (schema v3 identity,
+   content-delta, auto-checkpoint prose preservation, readiness vs currency,
+   `renewAuthorization`), §2.2 (pruning disabled by default, `checkpointId`/`handoffReady`/
+   `learningsHash` in the state file), §2.3 (audit mode: inspection-only state load +
+   `repairsSuppressed` reporting; external stateDir means the tree's stale `.pi-guard` is
+   never inspected — no repair is claimed or performed).
+4. Then commit locally (`git add` only: the 4 extension files, the 6 test files,
+   `scripts/`, README/PROTOCOL/PROGRESS/LEARNINGS/HANDOFF/AGENTS if changed; never push).
+5. Optional, NOT done yet: `GUARD_E2E_LLM=1 node scripts/e2e-rpc-two-process.mjs` spends
+   two minimal real turns to prove live alert delivery/non-interruption (A-2/A-13 are
+   currently source-verified + mock-tested only). The attempt in session 01a18701 was
+   aborted; leave it as a documented limitation if you do not run it.
+
+## Phase 1c — what was verified in this session (repair session, extensions disabled)
+
+- **Root cause of the load failure**: `index.ts` ended with
+  `export { ContextPressureMachine, computeMeasurement, defaultThresholds };` while the
+  Phase 1c import rewrite had replaced the `computeMeasurement` import with
+  `computeBudget`/`syntheticBudget`/`BudgetBreakdown`. Re-exporting a name that is not a
+  local binding is a module-level LinkError, so BOTH Node's type-stripping loader and
+  pi's jiti loader refused the extension:
+  `ParseError: Export 'computeMeasurement' is not defined. index.ts:560:33`
+  (reproduced verbatim with `pi --mode rpc -e …`). Fix: re-export from the source module
+  (`export { computeMeasurement } from "./core.ts";`) instead of through an unused import.
+- Tests that demonstrate the correction: `test/budget.test.ts` B9/B11 (the detailed
+  `/guard status` report, red before this session), the whole suite at 102/103, and the
+  real-runtime e2e (23/23), which fails immediately if the extension cannot load.
+2. In `.pi/extensions/context-guard/index.ts`, replace the one-line `/guard status`
+   notification with a multi-line report built from `measure(ctx)` (now a
+   `BudgetBreakdown`) containing exactly these labels: `model:`, `context window:`,
+   `estimated used:`, `raw remaining:`, `generation reserve:`, `usable remaining:`,
+   `guard level:`, `next threshold:` (use `g.machine.nextThreshold(m.remaining)`),
+   `measurement:`, `provenance:`, plus the reserve source via the already-defined
+   `RESERVE_LABEL` map (`model maxTokens`, `config generationReserve (fixed)`), the
+   `m.inconsistencies` lines (large-reserve/fraction must appear), `unknown`/`no-model`,
+   `synthetic`, and `READ-ONLY audit mode`. Keep the existing one-liner's info
+   (alerted levels, checkpoint kind) as extra lines — tests R4/S6/A5 depend on them.
+3. Add `/handoff ready` subcommand → `evaluateHandoffReadiness(fs, g.cwd, g.config.files,
+   { learningsHashAtSessionStart: g.learningsHash })` printed as `id: status — detail`,
+   and `attestHandoff(..., { sessionId: g.sessionId, dryRun: !canWriteProjectTree() })`;
+   refuse writes in audit mode. Include readiness + `renewAuthorization(g.checkpoint).reason`
+   in `/handoff verify` and `/guard verify-checkpoint`. Set `g.checkpointId` /
+   `g.handoffReady` there (persisted already by `persistState`).
+4. Delete now-unused `isUnder()` and `resolveComparable()`/`goalPath()` if unreferenced
+   (`tsc`-free project; keep imports clean — `Measurement` import may be unused).
+5. Re-run the suite to 98/98, then README §"Generation reserve", PROTOCOL §1/§2.1/§2.2/§2.3,
+   PROGRESS/LEARNINGS/HANDOFF, `scripts/e2e-rpc-two-process.mjs` (GUARD_E2E=1), commit locally.
+
+Never weaken a failing regression test to get green; the four test-fixture fixes already
+applied in this session were plumbing only (documented in LEARNINGS A-14).
 
 ## Discoveries not yet incorporated
 
+### Phase 1c (INCOMPLETE — suite is RED; do NOT commit, do NOT push)
+
+**Step 1 (start here, deterministic):** `.pi/extensions/context-guard/checkpoint.ts` — finish
+`writeCheckpoint` so BOTH managed blocks carry one transactional identity:
+`checkpoint-schema: 3`, `checkpoint-generation: nextCheckpointGeneration(fs,cwd,files)`,
+`checkpoint-id: makeCheckpointId(gen, sources.fingerprint, sessionId)`, `checkpoint-kind: auto|manual`,
+`content-delta: initial|none|new` (compare the replaced HANDOFF block's `blockFingerprint()` with
+`checkpointSources().fingerprint`), `readiness: unattested`; keep the existing status/timestamp/
+source-hash lines; return `identity`+`contentDelta` in `CheckpointResult`; for `kind:"auto"` without
+notes PRESERVE the previous block's `### Last verified state` and `### Guard notes` bodies (observed
+Phase 1b information-loss bug: the level-3 auto-checkpoint replaced "Phase 1b consolidation …
+55/55 tests; real Pi 1.4.0 RPC verification" with "guard level 3; checkpoint requested (end of
+current iteration /handoff verify)" — see `git diff HANDOFF.md` at baseline).
+**Step 2:** add `evaluateHandoffReadiness(fs,cwd,files,opts)` + `attestHandoff(fs,cwd,files,opts)`.
+Blocking checks: `checkpoint-current`, `identity-consistent`, `next-action-recorded` (reject
+placeholders/`nextFromCheckpoint` alone), `durable-files-valid`; warnings: `content-delta` (=none ⇒
+checkpoint recorded nothing new), `learnings-updated` (LEARNINGS hash unchanged since session start).
+Attestation = rewrite only the readiness lines in both blocks in one operation (no new generation),
+bound to the current `checkpoint-id`; `dryRun` ⇒ zero writes.
+**Step 3:** `index.ts` — detailed `/guard status` (model id, effective window, estimated used, raw
+remaining, reserve+its source, usable remaining, level, next threshold+tokensUntil, provenance
+real/synthetic/unknown, inconsistencies), readOnly → `loadGuardState(...,{readOnly:true})` and
+announce `repairsSuppressed`, stateDir containment via `isInsideTree(fs, resolved, cwd)`, GOAL
+protection via `fs.realpath`+`isLexicallyInside`, `/handoff ready` subcommand, readiness +
+`renewAuthorization().reason` in `/handoff verify`/`/guard verify-checkpoint`, persist
+`checkpointId`/`handoffReady` in the v2 state file.
+**Step 4:** `config.ts` — `maxSessionStates: 0` default (pruning disabled) and accept `0` in
+`mergeConfig`.
+**Step 5:** `node --test test/` to green (no failures), then update README (new "Generation
+reserve" section explaining `usable = window - used - max(modelMaxTokens, safetyReserve)`, the
+150k consequence, that a policy reserve is NOT an output cap, and that Pi clamps
+`max_tokens = min(model.maxTokens, window - estimate - 4096)` via pi-ai `clampMaxTokensToContext`),
+PROTOCOL §1/§2.1/§2.2/§2.3, PROGRESS/LEARNINGS/HANDOFF, then commit locally (never push).
+**Step 6 (real runtime):** write+run `scripts/e2e-rpc-two-process.mjs` — two `pi --mode rpc -e
+<path>/index.ts` processes, isolated `PI_CODING_AGENT_DIR` under /tmp, temp project copy, zero
+inference: distinct session ids, concurrent `.pi-guard/sessions/*.json` writes, no cross-overwrite,
+read-only audit session beside a normal one with the audited snapshot byte-identical, checkpoint
+consistency under controlled concurrency; plus one minimal local Sushi turn to confirm an alert
+lands at end of turn without interrupting a running tool and reaches the model only on the next
+inference turn. Document honestly what could not be exercised.
+
+Baseline evidence (this session): HEAD `b2ccdac`, 55/55 pass. Repros: `/tmp/repro-audit.ts` →
+read-only audit session on a real temp tree with legacy `state.json` + corrupt session file +
+stale `*.tmp-*` changed **6 manifest entries** (quarantine `.bak` written, legacy migrated/removed,
+foreign session file created, tmps deleted); `/tmp/repro-identity.ts` → interrupted 2nd checkpoint
+over unchanged source state validated as **`current`** (identical hashes, no generation proof).
+Live budget proof: my own guard hit level 1 at ~127k used with ~93k raw remaining and level 4 at
+~150k used = `220000 - used - 65536`.
+
+Already implemented and green-ish: `core.ts` (complete: `selectGenerationReserve`, `computeBudget`/
+`BudgetBreakdown` with provenance + rawRemaining + usableRemaining + reserve source + fraction +
+inconsistencies, `syntheticBudget`, `measurementFromBudget`, `computeMeasurement` as a wrapper with
+unchanged semantics, `nextThresholds`, machine `thresholdList`/`nextThreshold`, and all four
+threshold guidance strings now naming LEARNINGS.md with accepted/proposed/falsified classification);
+`checkpoint.ts` (`FsOps.realpath?`/`mtimeMs?`, `normalizePath`, `isLexicallyInside`,
+`isInsideTree`, `inspectGuardState`, read-only `loadGuardState`, safe `pruneSessionStates` with
+`keep<=0` disabled + 1h age floor, identity constants, `readBlockIdentity`,
+`nextCheckpointGeneration`, `makeCheckpointId`, `blockFingerprint`, `resolveReadiness`,
+`renewAuthorization`, rewritten `validateCheckpoint`).
+New spec-tests present (currently failing until the above is done): `test/budget.test.ts` B1–B11
+(8/11 pass; B9/B11 need the index.ts status), `test/audit-tree.test.ts` A1–A8 (real fs,
+byte-for-byte manifests), `test/identity.test.ts` I1–I14, `test/guidance.test.ts` G1–G5 (4/5;
+G3 asserts alerts name LEARNINGS.md and never fabricate discoveries), `test/processes.test.ts`
+P1–P5 (real child processes; P5 skips unless `GUARD_E2E=1`).
 - `sendMessage` deferral semantics (LEARNINGS A-2) are asserted only with mocks; confirm
   in a live session.
 - Real context accuracy caveat: `getContextUsage().tokens` is an estimate (last usage +
@@ -55,18 +193,18 @@ real work), then scope Phase 2 per PROTOCOL §6 and LEARNINGS P-1/P-4/P-5.
   extension (LEARNINGS A-9); scripted RPC verification needs a warm-up delay.
 
 <!-- guard:begin checkpoint -->
-checkpoint-schema: 2
-status: checkpoint (guard level 3, remaining ~9774, session 01a18668-993a-7721-a1c6-cd06f69cf145)
-checkpointed: 2026-10-29T07:19:50.811Z
+checkpoint-schema: 3
+status: checkpoint (guard level 4, remaining ~1980, session 01a186be-c312-77a3-a625-18b0089175be)
+checkpointed: 2026-10-29T08:39:30.368Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: e1193cecb8be053b96e6d27f77fdac8b2a73e48a7ae54cddadc72c9c0e811a27
-source-handoff: eb1d64b632ec075bf3ad887a8278d42e9a6db778ca96b825f0009d24ddac8f5f
-source-learnings: 32fc639828d55aed054d3ebd9e55712b4787794cbe2350b28d4f9ee7930c0846
+source-handoff: fcfbee5c407702629bf0e8917526a61a36bab65a9724718ac31d79085e7df700
+source-learnings: e2b1cc565934e001cb75c6499b5d5271f172bdf51535780d59d99004ee3588f9
 source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 
 
 ### Last verified state
-guard level 3; Phase 1b consolidation (freshness validation, per-session state, audit mode); 55/55 tests; real Pi 1.4.0 RPC verification incl. zero-write audit run
+guard level 4; checkpoint requested (auto at level 4)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.md.
@@ -86,7 +224,4 @@ guard level 3; Phase 1b consolidation (freshness validation, per-session state, 
 STOP for human review. If accepted: run a live interactive session (`pi -e
 .pi/extensions/context-guard/index.ts`, observe `/guard status` remaining values under
 real work), then scope Phase 2 per PROTOCOL §6 and LEARNINGS P-1/P-4/P-5.
-
-### Guard notes
-phase1b consolidation — schema v2 checkpoint; manual prose wins recovery; refresh via /handoff
 <!-- guard:end checkpoint -->

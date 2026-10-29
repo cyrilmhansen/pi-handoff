@@ -30,7 +30,11 @@ export interface GuardConfig {
    * persist if `stateDir` resolves outside the project directory.
    */
   readOnly: boolean;
-  /** Retention cap for per-session runtime state files (ephemeral). */
+  /**
+   * Retention cap for per-session runtime state files (ephemeral).
+   * 0 (the default) DISABLES pruning: without OS-level liveness detection, deleting a
+   * state file that may belong to a still-running session is unsafe.
+   */
   maxSessionStates: number;
   files: GuardFiles;
   /** Fixed remaining-token figure used by synthetic test mode. */
@@ -49,7 +53,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
   maxConsecutiveUnknown: 3,
   stateDir: ".pi-guard",
   readOnly: false,
-  maxSessionStates: 10,
+  maxSessionStates: 0,
   files: { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" },
   syntheticRemaining: null,
 };
@@ -63,6 +67,10 @@ type Json = Record<string, unknown>;
 
 function isPositiveInt(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v > 0;
+}
+
+function isNonNegativeInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && Number.isFinite(v) && v >= 0;
 }
 
 export function mergeConfig(base: GuardConfig, override: Json | null | undefined): GuardConfig {
@@ -87,7 +95,7 @@ export function mergeConfig(base: GuardConfig, override: Json | null | undefined
   if (isPositiveInt(override.maxConsecutiveUnknown)) next.maxConsecutiveUnknown = override.maxConsecutiveUnknown;
   if (typeof override.stateDir === "string" && override.stateDir.length > 0) next.stateDir = override.stateDir;
   if (typeof override.readOnly === "boolean") next.readOnly = override.readOnly;
-  if (isPositiveInt(override.maxSessionStates)) next.maxSessionStates = override.maxSessionStates;
+  if (isNonNegativeInt(override.maxSessionStates)) next.maxSessionStates = override.maxSessionStates;
   const files = override.files;
   if (files && typeof files === "object") {
     const f = files as Json;
