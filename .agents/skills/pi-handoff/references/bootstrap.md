@@ -64,7 +64,8 @@ In the session:
    a load failure silently disables everything; see LEARNINGS A-15).
 2. `/guard simulate 30000` → level 1 alert; `10000` → level 3 + auto-checkpoint
    (managed blocks appear in HANDOFF.md/PROGRESS.md); `4000` → combined alert +
-   enforced closing (bash-like tools blocked, write/edit/read pass).
+   enforced closing (tools outside `closingAllowlist` blocked; by default only
+   write/edit/read pass — add `handoff_renew` if renewal will be used).
 3. `/handoff verify` → `current`; `/handoff ready` → READY + attested.
 4. `/guard simulate 120000` → level relaxes; alerts stay spent (once per session).
 5. Exit; start a fresh session in the target; confirm the session_start banner +

@@ -31,7 +31,7 @@ remaining** = window − estimated used − max(generationReserve, safetyReserve
 | 1 (~≤30k remaining) | checkpoint | update PROGRESS.md (completed, blockers, exact next action) |
 | 2 (~≤20k) | wrap up | finish the current substantial task; open no new work |
 | 3 (~≤10k) | handoff | prioritize durable handoff: update HANDOFF.md before anything else; the guard also auto-checkpoints |
-| 4 (~≤5k) | **enforced closing** | only allowlisted tools (write/edit/read) run; finish checkpoints and stop |
+| 4 (~≤5k) | **enforced closing** | only tools in `closingAllowlist` run (default write/edit/read; renewal-enabled projects add `handoff_renew`); finish checkpoints and stop |
 
 A revocation notice means pressure dropped and a previous closing instruction is
 **historical**, not current policy.
@@ -59,8 +59,13 @@ A revocation notice means pressure dropped and a previous closing instruction is
 - `/handoff renew stop|resume|status` — durable operator stop (inherited by successors),
   resume, chain state view. Hard cap `maxRenewals` per chain; each checkpoint seeds at
   most one successor (idempotence); pending switches are cancellable.
-- Nothing renews unless `renewal.enabled` is true in `handoff.config.json`; defaults are
-  OFF everywhere.
+- Policy meanings are distinct: `renewal.enabled` (default **false**) switches the whole
+  mechanism on — operator `/handoff renew` only; `renewal.autoRenew` (default **false**)
+  *additionally* authorizes the model path (registers the `RENEWAL AVAILABLE` hint at
+  level ≥ 3 and permits the `handoff_renew` tool). Pressure alerts alone NEVER force a
+  transition. The `handoff_renew` tool exists whenever the guard loads but refuses with
+  a named reason unless policy + gates allow; to be callable during enforced closing it
+  must be listed in `closingAllowlist`.
 
 ## Testing and audit without token spend
 
@@ -70,7 +75,9 @@ A revocation notice means pressure dropped and a previous closing instruction is
   renewal line.
 - Read-only audit session: `CONTEXT_GUARD_READONLY=1 CONTEXT_GUARD_STATE_DIR=/tmp/...
   pi -e <ext>` — zero writes inside the project tree; checkpoints become reported dry
-  runs. Instructing the model not to edit is NOT read-only; this mode is.
+  runs. Instructing the model not to edit is NOT read-only; this mode is. Audit mode is
+  still NOT an OS-level read-only filesystem (Pi transcripts live elsewhere, and tools
+  may write outside the tree).
 
 ## Integrating context-guard into a new long-running project
 
@@ -79,7 +86,13 @@ templates. Full command/config/state reference: `references/commands.md`.
 
 ## Honesty rules
 
-- Synthetic runs prove state-machine behavior only, never real-token accuracy.
+- Synthetic runs prove state-machine behavior only, never real-token accuracy; a
+  synthetic-trigger experiment proves the switch mechanics, not where real pressure
+  lands (e.g. a reserve-driven nominal closing point stays unproven until observed
+  under real accounting).
 - Report what was verified and what was not; classify claims with evidence; a green mock
   suite does not prove the extension loads in the real runtime — load it there
   (`pi -e …` or the project's e2e script) after any edit.
+- State renewal proof scope precisely: one model-initiated hop + one operator-initiated
+  hop is what live experiments verified; generalized concurrent renewal safety is not
+  proven (only specific two-process invariants are).

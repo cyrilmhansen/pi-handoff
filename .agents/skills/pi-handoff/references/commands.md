@@ -22,7 +22,10 @@ project's `PROTOCOL.md`.
 
 Tool: `handoff_renew` (model-initiated renewal; requires `renewal.autoRenew: true`;
 dispatches `/handoff renew go` fire-and-forget — the switch happens when the turn
-settles; awaiting it inside the tool would deadlock).
+settles; awaiting it inside the tool would deadlock). Registered whenever the guard
+loads, but every call re-checks the full gate and refuses with a named reason (cheap
+refusals never write); during enforced level-4 closing the model can only call it if
+`handoff_renew` is listed in `closingAllowlist`.
 
 ## Configuration — `handoff.config.json` (project root; read once per `session_start`)
 
@@ -39,8 +42,8 @@ settles; awaiting it inside the tool would deadlock).
 | `stateDir` | `.pi-guard` | runtime state location |
 | `readOnly` | `false` | audit mode (zero writes in the tree) |
 | `maxSessionStates` | `0` | per-session state retention; `0` = pruning disabled (safe default) |
-| `renewal.enabled` | `false` | nothing switches sessions unless true |
-| `renewal.autoRenew` | `false` | model-initiated renewal (`handoff_renew`) requires true |
+| `renewal.enabled` | `false` | master switch: operator `/handoff renew` needs true; the tool and hint stay refused otherwise |
+| `renewal.autoRenew` | `false` | *additionally* authorizes model-initiated renewal (`handoff_renew` tool + `RENEWAL AVAILABLE` hint at level ≥ 3); alerts alone never force a transition |
 | `renewal.maxRenewals` | `2` | hard cap per renewal chain |
 | `renewal.recoveryPrompt` | (built-in) | optional override of the deterministic recovery instruction |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable file names |

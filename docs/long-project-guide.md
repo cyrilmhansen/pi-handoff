@@ -6,8 +6,9 @@ files. Written for Pi 1.4.0; the case study is the Digital Research **PL/I-80
 reverse-engineering** project (`~/projects/sushiworks/pli80`).
 
 Scope note: this guide is a **blueprint**. Installing context-guard into pli80 (or any
-project) is an operator action with explicit approval — the handoff prototype never
-modified pli80, and neither does this document.
+other project — including reuse in `drpli`) is an operator action with explicit approval —
+the handoff prototype never modified pli80, deployed nothing to `drpli`, and neither does
+this document.
 
 ## 1. The problem this solves
 
@@ -112,7 +113,8 @@ work       normal agent work; guard appends one alert per threshold crossing (ne
 L1 (≤30k)  update PROGRESS.md precisely (completed, blockers, exact next action)
 L2 (≤20k)  finish the current substantial task; open nothing new
 L3 (≤10k)  HANDOFF.md first; auto-checkpoint fires once
-L4 (≤5k)   enforced closing: only write/edit/read run; finish checkpoints, stop
+L4 (≤5k)   enforced closing: only tools in closingAllowlist run (default write/edit/read;
+           add handoff_renew when renewal is enabled); finish checkpoints, stop
 close      commit → /handoff → /handoff ready → (commit refresh) → renew or stop
 ```
 
@@ -201,7 +203,8 @@ pli80/handoff.config.json
 
 Special fits for a RE project: (a) the L3 auto-checkpoint preserves substantive "Last
 verified state" prose — the gate counts and claim ids survive; (b) enforced closing
-(allowlist write/edit/read) is exactly what an oracle-heavy session needs to end safely
+(allowlist write/edit/read — plus `handoff_renew` when listed, so the model can renew
+even during closing) is exactly what an oracle-heavy session needs to end safely
 mid-experiment: it can still write the HANDOFF describing the dangling simulator run;
 (c) read-only audit mode lets a review session inspect a candidate snapshot of the tree
 byte-for-byte unchanged; (d) renewal, once the operator enables it, converts "context

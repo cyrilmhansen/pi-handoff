@@ -22,7 +22,7 @@ estimate, so thresholds are advisory budgets, not guarantees.
 | 1 | ≤ 30 000 | advisory | checkpoint: update PROGRESS.md (completed, blockers, exact next action) |
 | 2 | ≤ 20 000 | advisory | finish the current substantial task; do not open new work |
 | 3 | ≤ 10 000 | advisory | prioritize durable handoff: write HANDOFF.md before anything else |
-| 4 | ≤ 5  000 | **enforced** | controlled closing: only allowlisted tools (write/edit/read) run; finish checkpoints and stop |
+| 4 | ≤ 5  000 | **enforced** | controlled closing: only tools in `closingAllowlist` run (default `write/edit/read`; renewal-enabled projects add `handoff_renew` so the model can still renew during closing); finish checkpoints and stop |
 
 Configuration: `handoff.config.json` (`thresholds`, `enforceClosing`, `closingAllowlist`,
 `generationReserve`, `safetyReserve`, `protectGoal`, `maxConsecutiveUnknown`, `stateDir`,
@@ -95,8 +95,11 @@ a real summary (Phase 1b information-loss bug).
 - **stale** — structurally valid but a fingerprint differs from the current files
   (`changed` names the sources), *or* an unversioned legacy block whose freshness is
   unverifiable (`legacy: true`);
-- **current** — schema-v2 block whose source hashes match the files and whose PROGRESS.md
-  twin block is in sync.
+- **current** — schema-**v3** block whose source hashes match the files, whose PROGRESS.md
+  twin block is in sync, and whose transactional identity is consistent. (Schema **v2**
+  is the historical Phase 1b format — source hashes but no identity: it validates as
+  `stale` with `legacyIdentity: true` until refreshed by `/handoff`; unversioned v1
+  blocks are `stale` with `legacy: true`.)
 
 Precedence on recovery (Phase 1b fix): **manual prose always wins.**
 `readRecoveryBundle()` returns `nextActionSource: "handoff-prose"` when a manual
@@ -212,6 +215,22 @@ identity-consistent ∧ attested). `buildRecoveryPrompt()` is deterministic and 
 ONLY durable files (AGENTS/PROTOCOL/GOAL/HANDOFF/PROGRESS/LEARNINGS + the test command):
 no transcript replay, no LLM summarization, no compaction.
 
+`renewal.enabled` and `renewal.autoRenew` mean DIFFERENT things: `enabled` switches the
+whole mechanism on (operator `/handoff renew` becomes possible); `autoRenew` *additionally*
+authorizes the **model-initiated** path — the `handoff_renew` tool and the
+`RENEWAL AVAILABLE` hint (surfaced at level ≥ 3 only when enabled ∧ autoRenew ∧ no
+operator stop ∧ no pending renewal). **Pressure alerts alone never force a transition**;
+transition always requires a gate pass and an explicit trigger (command or tool call).
+The `handoff_renew` tool is registered whenever the guard loads, but its pre-gate refuses
+cheaply (zero writes, no schedule) unless the policy allows model renewal; during enforced
+level-4 closing it is callable only if listed in `closingAllowlist`.
+
+Live-proof scope (A-23, stated precisely): the real-inference experiment verified
+**one** model-initiated renewal followed by **one** operator-initiated renewal (third
+attempt refused at the cap) — not two independently spontaneous renewals. Generalized
+concurrent renewal safety is NOT proven (P-5; only the specific two-process invariants of
+A-16 were tested).
+
 The switch (increments B+C, implemented; proven live A→B→C with real inference) follows this contract:
 
 - Triggered explicitly (`/handoff renew`, operator command context) — never while a
@@ -234,4 +253,10 @@ The switch (increments B+C, implemented; proven live A→B→C with real inferen
 - Stable system prompt: the guard never returns `systemPrompt` overrides and never uses
   `context_with_system`; transcript changes are append-only deltas (cache-friendly).
 - No third-party installs; no writes outside this project directory by the guard.
-- Tests run with mocked Pi events and synthetic budgets only (no paid inference).
+- The unit suite (`node --test test/`) runs with mocked Pi events and synthetic budgets
+  only — zero inference. Real-runtime verification uses the zero-inference scripts
+  (`scripts/e2e-rpc-two-process.mjs`, `scripts/check-skill-discovery.mjs`). The ONLY
+  script that spends real inference is the explicit renewal-chain proof
+  `scripts/e2e-renew.mjs` (LEARNINGS A-23), re-run solely after changes to the renewal
+  wiring in `index.ts`. Mock-only tests once masked a real-runtime crash (A-9) and a
+  module-load failure (A-15): a green suite never substitutes for a real-runtime load.

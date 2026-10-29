@@ -1,9 +1,23 @@
-# Pi Handoff — Phase 1: context-guard
+# Pi Handoff — context-guard for Pi 1.4.0
 
 Minimal Pi 1.4.0 extension + durable working-memory files that monitor remaining context,
-alert at configurable thresholds, enforce a closing phase, and persist crash-safe
-checkpoints for handoff to a fresh session. No lossy compaction, no third-party
+alert at configurable thresholds, enforce a closing phase, persist crash-safe
+checkpoints, and — since Phase 2 — renew a session in-place into a fresh successor that
+recovers from files alone (no transcript replay, no lossy compaction). No third-party
 dependencies, no LLM involvement in the guard itself.
+
+**Current status.** Phases 1, 1b, 1c, 1d and Phase 2 (increments A+B+C) are COMPLETE;
+renewal is proven live with real inference (LEARNINGS A-23). Verification baselines:
+`node --test test/` → 131 pass / 0 fail / 1 gated skip; `node
+scripts/e2e-rpc-two-process.mjs` → 27/27 (real runtime, zero inference); `node
+scripts/check-skill-discovery.mjs` → 8/8 (real runtime, zero inference); `node
+scripts/e2e-renew.mjs` → 20/20 (spends real inference — re-run only after renewal-wiring
+changes). `GOAL.md` still describes the *original* Phase 1 scope ("no automatic session
+switching"): that is historically correct, the file is protected, and it is deliberately
+left untouched — subsequent phases (1b/1c/1d and Phase 2) extended the original scope
+under explicit operator authorization; the history lives in `PROGRESS.md` /
+`LEARNINGS.md`, never in a silent goal rewrite. Reuse in another project (`drpli`) is a
+separate, operator-authorized action: this repository has deployed nothing anywhere.
 
 Environment this was built and verified against: Pi 1.4.0 (`/usr/lib/node_modules/@earendil-works/pi-coding-agent`),
 Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compaction disabled.
@@ -36,7 +50,9 @@ pi -e .pi/extensions/context-guard/index.ts
 ```
 
 Permanent: grant project trust for this directory (`.pi/extensions/` is auto-loaded once
-trusted; trust store is `$PI_CODING_AGENT_DIR/trust.json`).
+trusted; trust store is `$PI_CODING_AGENT_DIR/trust.json`). Project trust also gates
+`.agents/skills/` discovery in Pi 1.4.0 — an untrusted project's skill is silently
+absent from `get_commands` (LEARNINGS A-25, proven by `scripts/check-skill-discovery.mjs`).
 
 No packages are installed; the extension's runtime imports are Node built-ins plus its own
 sibling modules. Pi loads it through `jiti` (verified).
@@ -61,13 +77,18 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 | `generationReserve` | `"model"` | subtract `ctx.model.maxTokens` (or fixed number) from remaining |
 | `safetyReserve` | `0` | extra reserve; effective reserve = `max(generationReserve, safetyReserve)` |
 | `enforceClosing` | `true` | level 4 blocks new non-allowlisted tool calls |
-| `closingAllowlist` | `["write","edit","read"]` | tools permitted during enforced closing |
+| `closingAllowlist` | `["write","edit","read"]` | tools permitted during enforced closing. Renewal-enabled projects should add `"handoff_renew"` so the model can still trigger renewal during closing (this project's config does); without it, closing leaves only checkpoint writes + the operator `/handoff renew` command |
 | `protectGoal` | `true` | block write/edit to GOAL.md; detect goal drift |
 | `autoCheckpointAtHandoffLevel` | `true` | checkpoint once per escalation to level ≥ 3 |
 | `maxConsecutiveUnknown` | `3` | evaluations without a usable measurement before "degraded" |
 | `stateDir` | `.pi-guard` | persisted guard state (atomic per-session `sessions/<id>.json`) |
 | `readOnly` | `false` | audit mode: zero writes to the project tree (dry-run checkpoints) |
 | `maxSessionStates` | `0` | retention cap for per-session state files; `0` disables pruning (deleting a file that may belong to a live process is unsafe without OS liveness data) |
+| `renewal.enabled` | `false` | master switch: nothing switches sessions unless true (commands and the tool still exist — they refuse with a named reason) |
+| `renewal.autoRenew` | `false` | *additionally* required for **model**-initiated renewal (`handoff_renew` tool and the `RENEWAL AVAILABLE` alert at level ≥ 3). `enabled` alone only permits the operator `/handoff renew`. Pressure alerts never force a transition by themselves |
+| `renewal.maxRenewals` | `2` | hard cap per renewal chain (chain state in `<stateDir>/renewal-state.json`) |
+| `renewal.recoveryPrompt` | built-in | optional override of the deterministic recovery instruction |
+| `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable-file names used by checkpointing/validation |
 
 ## Generation reserve
 
@@ -109,7 +130,10 @@ BUDGET change only: it does NOT modify global Pi or Sushi settings and does NOT 
 output; per A-12 Pi still clamps `max_tokens` per request, so a generation that outruns
 the reserve is provider-truncated, the estimate grows, and the guard escalates. Trade-off
 accepted for Phase 2: longer productive window per session before renewal, at the cost of
-less headroom between the L4 alert and the true window edge.
+less headroom between the L4 alert and the true window edge. **Accuracy caveat:** the
+real-inference renewal experiment (A-23) triggered with *synthetic* pressure, so the
+≈195 k closing point is arithmetically verified but has NOT been live-observed under real
+token accounting (LEARNINGS P-7 — live confirmation still open).
 
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<tokens>`, `CONTEXT_GUARD_READONLY=1`,
@@ -139,9 +163,13 @@ Two triggers, both implemented and live-verified (LEARNINGS A-23):
   when the turn settles (awaiting idle inside the tool would deadlock on its own result).
 
 The successor starts with a **fresh context**: identity banner + deterministic recovery
-instruction (durable files only), no transcript replay, no compaction. Verify the whole
-chain yourself with `node scripts/e2e-renew.mjs` (spends real inference on an isolated git
-clone; `GUARD_E2E_KEEP=1` keeps the clone for forensics).
+instruction (durable files only), no transcript replay, no compaction. Scope of the live
+proof (A-23), stated precisely: the experiment verified **one** model-initiated renewal
+(synthetic pressure → `handoff_renew`) followed by **one** operator-initiated renewal,
+then a cap refusal — not two independently spontaneous renewals, and not real-pressure
+threshold accuracy. Verify the whole chain yourself with `node scripts/e2e-renew.mjs`
+(spends real inference on an isolated git clone; `GUARD_E2E_KEEP=1` keeps the clone for
+forensics).
 
 ## Manually triggering each threshold (synthetic mode — no token spend)
 
@@ -153,7 +181,9 @@ In a Pi session with the extension loaded (or with `--guard-synthetic 30000` at 
 /guard simulate 20000        # → level 2 advisory (wrap up)
 /guard simulate 10000        # → level 3 advisory + automatic checkpoint (HANDOFF.md)
 /guard simulate 4000         # → levels 1–4 crossed at once: one combined alert;
-                             #   enforced closing: bash/grep/etc. blocked, write/edit/read allowed
+                             #   enforced closing: bash/grep/etc. blocked, only tools in
+                             #   closingAllowlist run (default write/edit/read; this
+                             #   project also lists handoff_renew)
 /guard simulate 120000       # level relaxes to 0; alerts stay spent (once per session)
 /guard reset                 # re-arm alerts, re-baseline GOAL.md hash (testing only)
 ```
@@ -167,15 +197,20 @@ Two independent checks, both read-only, both reported and never thrown:
 
 1. **Structure** (`validateFile`/`validateAll`): each durable file must contain its
    required `##` sections.
-2. **Freshness** (`validateCheckpoint`): the managed checkpoint blocks (schema v2) embed
-   sha256 fingerprints of the relevant source state — GOAL.md and LEARNINGS.md whole;
-   the *manual prose* of PROGRESS.md and HANDOFF.md (their managed blocks stripped before
-   hashing, so no block ever hashes itself → non-circular); plus `handoff.config.json`.
-   Schema **v3** additionally stamps one transactional identity into both blocks
+2. **Freshness** (`validateCheckpoint`): the managed checkpoint blocks (current format:
+   **schema v3**) embed sha256 fingerprints of the relevant source state — GOAL.md and
+   LEARNINGS.md whole; the *manual prose* of PROGRESS.md and HANDOFF.md (their managed
+   blocks stripped before hashing, so no block ever hashes itself → non-circular); plus
+   `handoff.config.json`.
+   Schema **v3** stamps one transactional identity into both blocks
    (`checkpoint-generation`, `checkpoint-id`, `checkpoint-kind`, `content-delta`,
    `readiness`), so an interrupted two-file write, an obsolete generation or a forged id
    is detected even when every source hash still matches (Phase 1c repro: a second
    checkpoint over unchanged source state validated as `current` before the fix).
+   Older formats are recognized but never treated as current: unversioned **v1** blocks
+   are `stale` (`legacy: true`), and **v2** blocks (source hashes only, no transactional
+   identity — the Phase 1b historical format) are `stale` with `legacyIdentity: true`
+   until refreshed by `/handoff`.
    Result is exactly one of:
    - `missing` — no managed block in HANDOFF.md;
    - `corrupt` — block present but invalid (no `checkpointed:` timestamp, unknown
@@ -232,8 +267,9 @@ byte-for-byte identical after a full audit session (startup + status + simulate 
 Writes the managed checkpoint block in `HANDOFF.md` + `PROGRESS.md` (agent text outside
 markers preserved), embeds fresh source-state fingerprints, validates required sections
 of all four durable files, persists guard state to the per-session file, and reports via
-notification. `/handoff verify` validates freshness without writing. Phase 1 does **not**
-switch sessions.
+notification. `/handoff verify` validates freshness without writing. The original Phase 1
+build did **not** switch sessions; in-place session replacement arrived with Phase 2
+(§Renewal above, PROTOCOL §6).
 
 ## Verified Pi 1.4.0 API contract
 
@@ -296,12 +332,21 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
 
 - Pi 1.4.0 gives no exact tokenizer: `getContextUsage().tokens` mixes provider-reported
   usage with a chars/4 estimate; thresholds are approximate. Synthetic tests exercise the
-  state machine only and **do not prove real context usage is accurate**.
+  state machine only and **do not prove real context usage is accurate**. The unit suite
+  and all default verification scripts spend zero inference; the ONLY real-inference run
+  is the explicit `scripts/e2e-renew.mjs` proof.
 - **Renewal (Phase 2) is implemented and proven live** (A→B→C with real inference,
   LEARNINGS A-23), but it is **off by default**: `renewal.enabled` and `renewal.autoRenew`
   gate it, and `autoRenew` is deliberately false in this project's config — the
   increment-C experiments enabled it per-process with `CONTEXT_GUARD_AUTO_RENEW=1`.
-  Enabling it as the project default is an operator decision. Unattended/recursive agent
+  Enabling it as the project default is an operator decision.
+  What the live experiment proved *precisely*: **one** model-initiated renewal followed
+  by **one** operator-initiated renewal (then a cap refusal) — NOT two independently
+  spontaneous model renewals, and not unbounded auto-chaining.
+  Pressure alerts alone never force a transition: the `RENEWAL AVAILABLE` hint appears
+  only at level ≥ 3 when `renewal.enabled` ∧ `autoRenew` ∧ no operator stop, and renewal
+  still requires a gate pass (current ∧ identity-consistent ∧ attested ∧ below cap ∧
+  unseen checkpoint id). Unattended/recursive agent
   *launching* (spawning new pi processes) is still NOT implemented: renewal replaces the
   session inside the running process only.
 - Alerts are transcript appends; Pi exposes no "inject without a message" channel, so each
@@ -310,18 +355,30 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
   be paused by the guard (deliberately — no arbitrary interruption).
 - `agent_settled` evaluation is best-effort freshness; the authoritative signal is `turn_end`.
 - JSON config is read once per `session_start`; edit files then `/reload` (or restart).
-- **Concurrency is not proven**: per-session isolation and migration are tested serially
-  (mocked events, one process). Real simultaneous Pi processes hammering one `.pi-guard`
-  directory have not been exercised; atomic rename makes each file safe individually,
-  but no multi-process test exists (tracked in LEARNINGS P-5).
+- **Concurrent renewal safety is not proven**: real *two-process* runs tested specific
+  invariants (two `pi --mode rpc` processes on one tree: distinct session ids, each
+  writing only its own `sessions/<id>.json`, no cross-overwrite, one intact managed
+  block per file after concurrent checkpoints — LEARNINGS A-16). What has NOT been
+  exercised: simultaneous interleaved writes under load beyond that scale, and two
+  sessions racing to renew one chain (P-5). Atomic rename makes each file individually
+  safe; that is not a concurrency proof.
 - Audit mode guarantees *tree*-immutability only. Pi still writes session transcripts
   under `$PI_CODING_AGENT_DIR`; a truly immutable snapshot needs OS-level enforcement
-  (out of Phase 1 scope).
+  (read-only mount/snapshot). It is **not** equivalent to an OS-level read-only
+  filesystem.
+- This project never modified `pli80`; the PL/I-80 material in
+  `docs/long-project-guide.md` §7 is a **blueprint only**. Reusing context-guard in
+  another project (e.g. `drpli`) is a separate, explicitly operator-authorized action.
 - A running pi session keeps its already-loaded extension code; after editing the guard,
   `/reload` or a new session is required for changes to take effect (old and new writers
   coexist via the newest-wins migration rule).
 
-## Phase 2 feasibility (settled)
+## Phase 2 feasibility (settled — historical analysis, superseded by the implementation)
+
+**This section is the pre-Phase-2 feasibility note, kept as history because it records
+*why* the renewal design ended up as it did. It no longer describes open work: renewal
+is implemented (increments A+B+C) and proven live (LEARNINGS A-23, A-17); the operative
+contract is §Renewal above and PROTOCOL §6.**
 
 Renewal was built on the primitives listed below and verified in a real session
 (LEARNINGS A-23): Pi 1.4.0 provides `waitForIdle`, `newSession` with `parentSession` +

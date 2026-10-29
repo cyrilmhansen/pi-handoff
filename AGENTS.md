@@ -1,46 +1,44 @@
-# AGENTS.md — handoff prototype
+# AGENTS.md — handoff prototype (Pi context-guard)
 
-Project: Pi 1.4.0 context-guard. **Phase 2 (automatic session renewal) is COMPLETE:
-increments A (decision module + wiring + chain state + RN tests), B (switch wiring:
-`/handoff renew`, `handoff_renew` bridge, stop/resume, lineage, identity banner) and
-C (real-inference A→B→C experiment proven — 20/20, LEARNINGS A-23) are committed.
-Phase 1d is COMPLETE: Pi Handoff skill (`.agents/skills/pi-handoff/`, discovery proven
-live — LEARNINGS A-25) + long-project integration guide (`docs/long-project-guide.md`,
-PL/I-80 case study; pli80 itself remains UNTOUCHED — blueprint only).**
+Pi 1.4.0 context-guard extension + durable handoff files. **All development milestones are
+COMPLETE:** Phases 1, 1b, 1c, 1d, and Phase 2 increments A+B+C — session renewal is proven
+live with real inference (LEARNINGS A-23). Documentation consolidation is complete
+(2026-10-29). No implementation work is pending. Current next action: **operator review,
+then separately authorized reuse in `drpli`** (see HANDOFF.md).
 
-Renewal status: **PROVEN LIVE (2026-10-29, `scripts/e2e-renew.mjs`, real sushi/Qwen
-inference): model-initiated hop via the `handoff_renew` tool works with no deadlock;
-operator hop `/handoff renew` works; cap (maxRenewals=2) enforced; zero transcript
-replay, zero compaction.** Model-initiated renewal requires `renewal.autoRenew: true`
-(project config keeps it false; experiments enable it with
-CONTEXT_GUARD_AUTO_RENEW=1 — enabling by default is an operator decision). Stop =
-`/handoff renew stop` (durable); pending guard switches cancel via
-`session_before_switch`.
+Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
+false; this project sets `enabled: true, autoRenew: false` (model-initiated renewal needs
+`autoRenew: true` — enabling it by default is an operator decision; experiments use
+`CONTEXT_GUARD_AUTO_RENEW=1`). `GOAL.md` describes the original Phase 1 scope; later
+phases extended it under explicit authorization — the file stays untouched.
 
 Every fresh session:
 
-1. Read `PROTOCOL.md` (working rules), `GOAL.md` (objective), `HANDOFF.md` (resume point),
-   `PROGRESS.md` (state). In that order. Manual prose in HANDOFF/PROGRESS takes precedence
-   over `guard:begin checkpoint` managed blocks; the guard reports checkpoint freshness
-   (missing/corrupt/stale/current) at `session_start` and via `/handoff verify`.
-2. Verify with `node --test test/` before touching code.
+1. Read `AGENTS.md`, `PROTOCOL.md`, `GOAL.md`, `HANDOFF.md`, `PROGRESS.md` (in that
+   order; manual prose in HANDOFF/PROGRESS wins over `guard:begin checkpoint` managed
+   blocks — schema v3; freshness is reported at `session_start` and via `/handoff verify`).
+2. Verify with `node --test test/` (expect 131 pass / 1 gated skip) before touching code.
+   Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs` (27/27),
+   `node scripts/check-skill-discovery.mjs` (8/8). `node scripts/e2e-renew.mjs` (20/20)
+   spends REAL inference — re-run only after renewal-wiring changes in `index.ts`.
 3. Never rewrite `GOAL.md`; propose goal changes in `LEARNINGS.md` (Proposed) instead.
-   The guard never writes `LEARNINGS.md`, and every threshold level tells the agent to keep
-   discoveries there (accepted / proposed / falsified).
-4. Keep evidence for anything you claim; classify it (accepted / proposed / falsified).
-5. Initiative is allowed: investigate and propose beyond the objective, but record
-   evidence, expected value and cost in `LEARNINGS.md`, and do not adopt proposals as
-   rules without explicit justification.
-6. For non-mutating audit sessions use read-only mode: `CONTEXT_GUARD_READONLY=1
+   The guard never writes `LEARNINGS.md`; keep discoveries there, classified
+   (accepted / proposed / falsified).
+4. Initiative is allowed: investigate and propose beyond the objective, but record
+   evidence, expected value and cost in `LEARNINGS.md`; never adopt a proposal as a
+   rule without explicit justification.
+5. For non-mutating audit sessions use read-only mode: `CONTEXT_GUARD_READONLY=1
    CONTEXT_GUARD_STATE_DIR=/tmp/... pi -e .pi/extensions/context-guard/index.ts` —
-   instruction alone does NOT make a session read-only (trusted project extensions write).
+   instruction alone does NOT make a session read-only (trusted project extensions
+   write; audit mode protects the project TREE only, not an OS-level snapshot).
 
-Hard scope limits: do not modify `pli80`, Rune CI, the global Pi install, or
-compaction settings. After editing the extension, ALWAYS load it in the real runtime
-(`pi --mode rpc -e .pi/extensions/context-guard/index.ts` or `node
-scripts/e2e-rpc-two-process.mjs`); after ANY change to the renewal wiring in index.ts,
-also re-run `node scripts/e2e-renew.mjs` (spends real inference — it is the only live
-proof of the switch path, LEARNINGS A-23); after editing `.agents/skills/` or the guide,
-re-run `node scripts/check-skill-discovery.mjs` (zero inference, real runtime — project
-skills are trust-gated, LEARNINGS A-25). Mock tests do not catch module-load errors
-(LEARNINGS A-9, A-15).
+Hard scope limits: do not modify `pli80`, `drpli`, Rune CI, the global Pi install, or
+compaction settings. Reusing the guard elsewhere (e.g. `drpli`) requires separate explicit
+operator authorization; `docs/long-project-guide.md` §7 is a blueprint, not an install.
+After editing the extension, ALWAYS load it in the real runtime (`pi --mode rpc -e
+.pi/extensions/context-guard/index.ts` or `node scripts/e2e-rpc-two-process.mjs`); mock
+tests do not catch module-load errors (LEARNINGS A-9, A-15). After any change to the
+renewal wiring in `index.ts`, also re-run `node scripts/e2e-renew.mjs` (real inference —
+the only live proof of the switch path, A-23). After editing `.agents/skills/` or the
+guide, re-run `node scripts/check-skill-discovery.mjs` (zero inference, real runtime;
+project skills are trust-gated, A-25).
