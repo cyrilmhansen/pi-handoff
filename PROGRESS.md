@@ -112,16 +112,16 @@ constraints: HANDOFF.md "Next action" + LEARNINGS A-17/P-6.
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 3
-checkpoint-id: g3-3b09f416d0e1
-checkpoint-kind: auto
-content-delta: none
-readiness: unattested
+checkpoint-generation: 4
+checkpoint-id: g4-ae11fe680edf
+checkpoint-kind: manual
+content-delta: new
+readiness: attested
 guard-level: 3
-checkpointed: 2026-10-29T10:31:42.928Z
+checkpointed: 2026-10-29T10:32:47.699Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 0b141e26d9665a3e8a32989126a1414cbca30cfbff9b153aa1dc6e0a244e645f
-source-handoff: d1b768746ed3c38c99a556b2a8ff0a9b92aebcd753cd5722316b7d4c4f92ad5a
+source-progress: f802b5f6871aa8a5cc8d15ca1eabef5c13eae9b0a8ddf127679d685f8ec06f12
+source-handoff: e79a9dd7eade5fc12a6fff30aa3e89e985078bc35e860a3f113e59f09fa4ccc5
 source-learnings: a0a68b471ff18dbf448d9d9289ef78ed74fdd6c429dc5f98c7f69b702d2c17fb
 source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 next-action: **Phase 2 IN PROGRESS (session 01a18713, real Qwen/Sushi inference). No renewal code
@@ -138,7 +138,13 @@ Concrete next steps for the following session, in order:
 1. `node --test test/ 2>&1 | tail` → expect **103 tests, 102 pass, 0 fail, 1 skipped**;
    `git log --oneline -3` → expect a "Phase 2 increment A" commit (SHA recorded in
    PROGRESS.md "Current phase") on top of `39a2da9`.
-2. **Increment A code**: implement the renewal decision as a pure deterministic module
+1b. **Increment A code — PARTIAL (committed this session)**: `renewal.ts` exists
+   (decideRenewal, RenewalState parse/serialize, buildRecoveryPrompt, DEFAULT_RENEWAL
+   disabled-by-default) with all decision paths smoke-verified manually (see commit
+   message); NOT yet wired: (a) config.ts must parse/merge `renewal` via mergeRenewal
+   + env CONTEXT_GUARD_AUTO_RENEW; (b) formal `test/renewal.test.ts` (RN1-RN8 mirroring
+   the smoke checks); (c) index.ts increment B below. Suite remained 108/109 green.
+2. **Increment A code (rest)**: config wiring + renewal tests, then
    (extend `core.ts` or add `renewal.ts`): config keys `autoRenew` (default **false**),
    `renewal.maxRenewals` (cap), `renewal.recoveryPrompt` (default deterministic text
    naming AGENTS.md/GOAL.md/HANDOFF.md/PROGRESS.md); decision function
@@ -179,4 +185,7 @@ Concrete next steps for the following session, in order:
 **Reserve decision (task §6, open):** config still uses `"generationReserve": "model"`
 (65536 ⇒ enforced closing at ~150k used). A fixed 20000 would extend sessions to ~195k
 used (LEARNINGS P-7, NOT adopted). First working renewal > threshold tuning.
+readiness-by: session:01a18713-0257-728d-a259-9ab1c5662cf7
+readiness-at: 2026-10-29T10:32:47.701Z
+readiness-checkpoint: g4-ae11fe680edf
 <!-- guard:end checkpoint -->

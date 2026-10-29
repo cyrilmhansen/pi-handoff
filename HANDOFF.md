@@ -240,22 +240,25 @@ P1–P5 (real child processes; P5 skips unless `GUARD_E2E=1`).
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 3
-checkpoint-id: g3-3b09f416d0e1
-checkpoint-kind: auto
-content-delta: none
-readiness: unattested
-status: checkpoint (guard level 3, remaining ~7761, session 01a18713-0257-728d-a259-9ab1c5662cf7)
-checkpointed: 2026-10-29T10:31:42.928Z
+checkpoint-generation: 4
+checkpoint-id: g4-ae11fe680edf
+checkpoint-kind: manual
+content-delta: new
+readiness: attested
+status: checkpoint (guard level 3, remaining ~6000, session 01a18713-0257-728d-a259-9ab1c5662cf7)
+checkpointed: 2026-10-29T10:32:47.699Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 0b141e26d9665a3e8a32989126a1414cbca30cfbff9b153aa1dc6e0a244e645f
-source-handoff: d1b768746ed3c38c99a556b2a8ff0a9b92aebcd753cd5722316b7d4c4f92ad5a
+source-progress: f802b5f6871aa8a5cc8d15ca1eabef5c13eae9b0a8ddf127679d685f8ec06f12
+source-handoff: e79a9dd7eade5fc12a6fff30aa3e89e985078bc35e860a3f113e59f09fa4ccc5
 source-learnings: a0a68b471ff18dbf448d9d9289ef78ed74fdd6c429dc5f98c7f69b702d2c17fb
 source-config: 1434a935d372556e4e35b72497f8d7dcc7e63adc25ebd0c30b905cfff0496083
 
 
+readiness-by: session:01a18713-0257-728d-a259-9ab1c5662cf7
+readiness-at: 2026-10-29T10:32:47.701Z
+readiness-checkpoint: g4-ae11fe680edf
 ### Last verified state
-Revocation fix committed (a42d223; prev 6da98d6 design, fb7cab8, 6ea1d64). Suite 108/109 (1 gated skip), real-runtime e2e 23/23. Renewal code NOT yet implemented (increment A code next per HANDOFF).
+Phase 2: revocation fix a42d223 (A-18/A-19/P-8) + renewal decision module renewal.ts committed (increment A partial, smoke-verified; suite 108/109, e2e 23/23). Renewal NOT wired: config parsing, renewal tests, index.ts B, experiment C remain — HANDOFF Next action.
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.md.
@@ -335,5 +338,5 @@ Concrete next steps for the following session, in order:
 used (LEARNINGS P-7, NOT adopted). First working renewal > threshold tuning.
 
 ### Guard notes
-Phase 2: A-18 revocation fix landed; A-19/P-8 identify the model-triggered renewal bridge; next = renewal decision module + tests, then /handoff renew + tool wiring.
+Session ending at level 3; next session: HANDOFF step 1b remainder (config.ts renewal key + test/renewal.test.ts), then increment B (A-17/A-19/P-6/P-8) — never await renewal inside a tool execute (deadlock).
 <!-- guard:end checkpoint -->
