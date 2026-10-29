@@ -2,8 +2,9 @@
 
 ## Current phase
 
-Phase 2 (minimal automatic session renewal) — IN PROGRESS. **Increment A is COMPLETE**
-(renewal session): `renewal.ts` decision module + durable chain state + config wiring
+Phase 2 (minimal automatic session renewal) — **COMPLETE (increments A+B+C)**;
+Phase 1d (skill + long-project guide) — **COMPLETE (this session)**. **Increment A was
+COMPLETE** (renewal session): `renewal.ts` decision module + durable chain state + config wiring
 (`renewal` block via mergeRenewal, env CONTEXT_GUARD_AUTO_RENEW) + chain-state
 persistence (`loadRenewalState`/`saveRenewalState` -> `<stateDir>/renewal-state.json`,
 survives session replacement AND process restart) + formal `test/renewal.test.ts`
@@ -39,6 +40,23 @@ zero transcript replay (user-role scan), zero compaction, durable chain 2/2
 **Renewal is now PROVEN live (LEARNINGS A-23).** `renewal.autoRenew` stays false in
 handoff.config.json (the experiment drives it via the env switch); enabling it by
 default is an operator decision.
+
+**Phase 1d is COMPLETE (this session; docs/skill increment, guard code untouched):**
+Pi Handoff skill at `.agents/skills/pi-handoff/` — SKILL.md (operating procedure:
+start order, level reactions, checkpoints/readiness, renewal, synthetic tests, audit
+mode, honesty rules) + `references/commands.md` (full command/config/state reference,
+verified against index.ts registrations) + `references/bootstrap.md` (equip-a-new-
+project procedure). Long-project integration guide at `docs/long-project-guide.md`
+(problem, install, file-writing discipline, budget tuning, daily rhythm, audits,
+anti-patterns) with the Digital Research PL/I-80 reverse-engineering project as the
+case study — inspected READ-ONLY (claims ledger spec/CLAIMS.md, tiered
+tools/e2e_gate.py gates, oracle discipline, artefacts/ read-only); the blueprint is
+§7; pli80 itself was NOT modified (hard scope). New real-runtime probe
+`scripts/check-skill-discovery.mjs` (zero inference, isolated agent dir): first run
+failed 3/8 because project skills are TRUST-GATED (package-manager.js loads
+`.agents/skills` only when isProjectTrusted); probe fixed by granting trust in the
+isolated trust.json → 8/8 (skill advertised in get_commands + guard auto-loads from
+the trusted tree). Evidence: LEARNINGS A-25.
 
 ## Completed
 
@@ -83,8 +101,10 @@ Phase 1b (this session):
   (20/20 checks, LEARNINGS A-23; driver fixed in A-24).
 
 - [ ] Human review of Phase 1b consolidation.
+- [x] Phase 1d: Pi Handoff skill + long-project integration guide (COMPLETE this
+      session — see Current phase; guide is a blueprint, pli80 untouched).
 - [ ] Phase 2 — auto-renew-by-default decision (config `autoRenew` stays OFF; env switch
-      proven live) + operator UX polish (Phase 1d skill/guide deferred behind this).
+      proven live) + operator UX polish.
 - [ ] Live interactive-session walkthrough of `/guard simulate` on a real Sushi model
   (RPC no-model verification done; real token-accounting observation still open).
 - [ ] Real multi-process concurrency test of per-session state (NOT done; serial mocks only).
@@ -115,6 +135,15 @@ Phase 1c (completion session):
 
 ## Verified evidence
 
+Phase 1d (this session): `node --test test/` → 131/132 (1 gated skip, unchanged —
+guard code untouched); `node scripts/e2e-rpc-two-process.mjs` → 27/27; `node
+scripts/check-skill-discovery.mjs` → 8/8 in real Pi 1.4.0 RPC with an isolated
+PI_CODING_AGENT_DIR + programmatic trust (skill `skill:pi-handoff` advertised by
+`get_commands` with project-scope sourceInfo; references bundled and non-empty;
+guard commands registered AND `/guard status` answered via trusted auto-load, no `-e`).
+pli80 evidence: read-only inspection of README.md, spec/CLAIMS.md, tools/e2e_gate.py,
+SOURCES.md (guide §7 facts sourced from those files; no write ever targeted pli80).
+
 - Phase 2 increment A (renewal session): `node --test test/` -> 118 pass / 0 fail /
   1 skipped (RN1-RN10 renewal suite added); `node scripts/e2e-rpc-two-process.mjs` ->
   23/23 on the CURRENT extension (module load proven in real Pi 1.4.0 per A-15).
@@ -137,12 +166,12 @@ Phase 1c (completion session):
 
 ## Next action
 
-Priority 2: experimental reserve (`generationReserve: 20000` in handoff.config.json,
-documented as policy change: enforced closing ~150k -> ~195k used at the declared 220k
-window; thresholds unchanged) + the project `renewal` config block; then increment B
-(`/handoff renew` + `handoff_renew` tool + operator stop/resume + identity banner),
-then increment C (real-Qwen A->B->C experiment). Exact API constraints: HANDOFF.md
-"Next action" + LEARNINGS A-17/A-19/P-6/P-8.
+Phase 1d complete; next is **human review** of increments A–C + Phase 1d docs, then
+the operator decisions: `renewal.autoRenew` default (stays OFF), and — separately —
+whether to apply the pli80 blueprint (guide §7) as an explicit, approved install.
+Verification set: `node --test test/` (131/1+skip), `scripts/e2e-rpc-two-process.mjs`
+(27/27), `scripts/check-skill-discovery.mjs` (8/8); `scripts/e2e-renew.mjs` (20/20)
+only after renewal-wiring changes. Exact details: HANDOFF.md "Next action".
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3

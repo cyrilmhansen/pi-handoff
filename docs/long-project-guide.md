@@ -1,0 +1,242 @@
+# Long-project integration guide — Pi Handoff / context-guard
+
+How to run a **weeks-long agent project** without lossy compaction and without
+transcript-replay amnesia, using the context-guard extension + durable working-memory
+files. Written for Pi 1.4.0; the case study is the Digital Research **PL/I-80
+reverse-engineering** project (`~/projects/sushiworks/pli80`).
+
+Scope note: this guide is a **blueprint**. Installing context-guard into pli80 (or any
+project) is an operator action with explicit approval — the handoff prototype never
+modified pli80, and neither does this document.
+
+## 1. The problem this solves
+
+An agent session dies three deaths on a long project:
+
+1. **Context exhaustion** — the window fills; without protocol, the agent rambles or
+   hallucinates its own state.
+2. **Lossy compaction** — summarizing the transcript destroys pointers, evidence
+   citations and exact next actions; a "continued" session is a different agent.
+3. **Silent drift** — the objective mutates in prose, discoveries stay in the
+   transcript, and nobody can say what was actually verified.
+
+The answer is not a smarter summary. It is **durable files as the only truth** and a
+guard that enforces keeping them fresh:
+
+```
+AGENTS.md        entry point: what/where/how to verify (Pi auto-loads it)
+PROTOCOL.md      stable working rules (thresholds, checkpoints, evidence classes)
+GOAL.md          objective + acceptance criteria      (guard-PROTECTED, never silently rewritten)
+HANDOFF.md       resume point: recovery instructions + ## Next action (manual prose WINS)
+PROGRESS.md      current state: completed / pending / blockers
+LEARNINGS.md     classified knowledge: accepted / proposed / falsified (guard never writes it)
+handoff.config.json   guard policy
+.pi/extensions/context-guard/   the extension (5 TS modules, zero dependencies)
+.pi-guard/       ephemeral per-session runtime state + renewal chain state (gitignored)
+```
+
+A fresh session recovers by **reading these files** — never by replaying a transcript.
+Renewal (Phase 2) automates the session replacement itself: the old session closes, a
+brand-new session starts with only AGENTS.md + the durable files + a deterministic
+recovery instruction. Zero compaction, zero transcript copy.
+
+## 2. Install into an existing project
+
+Six steps; the skill ships the same procedure in
+`.agents/skills/pi-handoff/references/bootstrap.md`:
+
+1. Copy `.pi/extensions/context-guard/` (index.ts, core.ts, config.ts, checkpoint.ts,
+   renewal.ts) into the target. No build step — Pi loads TS through jiti; Node ≥ 23.
+2. Copy `handoff.config.json` and **tune the budget** (§4) for the model in use.
+3. Write the six durable files (§3). Keep them small: they are prefilled into every
+   fresh session.
+4. Optionally copy the skill directory (`.agents/skills/pi-handoff/`) into the target.
+5. **Verify in the real runtime** — `pi -e <target>/.pi/extensions/context-guard/index.ts`
+   then `/guard status` (a module-load error makes the guard silently absent; mock
+   tests cannot catch it — this bit us as LEARNINGS A-15: an invalid re-export made the
+   whole extension refuse to load while all unit tests "passed").
+6. Walk the synthetic ladder once (`/guard simulate 30000/10000/4000/120000`), start a
+   genuinely fresh session and have it follow HANDOFF → verify command → next action.
+
+## 3. Writing the durable files well
+
+The files are the interface; garbage in, garbage recovery out. The rules that matter:
+
+- **`## Next action` is a command + expected output**, not a mood. Every session ends
+  by making the next session's first five minutes deterministic.
+- **Manual prose wins** over managed blocks. `<!-- guard:begin checkpoint -->` blocks
+  are machine-managed (transactional identity, source hashes, freshness); everything
+  outside the markers survives checkpoint rewrites byte-for-byte and takes precedence
+  on recovery.
+- **LEARNINGS is a ledger, not a diary**: accepted (verified here, safe to rely on),
+  proposed (evidence + expected value + cost, explicitly *not a rule*), falsified
+  (kept — they are the map of traps). Promotion is explicit, never silent.
+- **GOAL.md is immutable by the agent.** Goal changes go to LEARNINGS (Proposed) +
+  HANDOFF for human review. The guard blocks writes/edits targeting it and warns on
+  drift (§6).
+- Commit after every increment; then `/handoff` + `/handoff ready` (refresh + attest
+  **after** the commit), and commit the managed-block refresh separately when it
+  dirties the tree.
+
+## 4. Budget tuning (read this before trusting thresholds)
+
+The guard measures **usable remaining**:
+
+```
+usable = contextWindow − estimatedTokensUsed − max(generationReserve, safetyReserve)
+```
+
+- `estimatedTokensUsed` is Pi's estimate (`getContextUsage().tokens`: last trustworthy
+  assistant usage + chars/4 for trailing messages). Pi 1.4.0 has **no exact
+  remaining-context API** — thresholds are advisory budgets, not accounting.
+- `generationReserve` is a **policy budget for the next completion, not an output cap**.
+  Pi already clamps `max_tokens = min(model.maxTokens, window − estimate − 4096)` per
+  request (`clampMaxTokensToContext`), so generations get provider-truncated instead of
+  overflowing the window.
+- Consequence: with Sushi's declared 220 000 window and `"generationReserve": "model"`
+  (= 65 536), enforced closing lands at ≈**150 k** used, not 220 k. Observed live.
+  A fixed `"generationReserve": 20000` moves closing to ≈**195 k** used — more
+  productive window, less headroom. Both are policy choices; state the choice in
+  PROTOCOL.md so successors inherit the *reason*, not just the number.
+- Config is read once at `session_start`; a running session keeps its old budget
+  (mid-session edits do not re-baseline — LEARNINGS A-22). After changing config:
+  `/reload` or new session; `/guard reset` re-arms alerts when measurements disagree
+  with the operator's reality (the operator is right; the guard is policy).
+
+## 5. The daily rhythm
+
+```
+start      read AGENTS→PROTOCOL→GOAL→HANDOFF→PROGRESS→LEARNINGS; run verify command
+work       normal agent work; guard appends one alert per threshold crossing (never
+           mid-tool-call — alerts ride the end-of-turn boundary)
+L1 (≤30k)  update PROGRESS.md precisely (completed, blockers, exact next action)
+L2 (≤20k)  finish the current substantial task; open nothing new
+L3 (≤10k)  HANDOFF.md first; auto-checkpoint fires once
+L4 (≤5k)   enforced closing: only write/edit/read run; finish checkpoints, stop
+close      commit → /handoff → /handoff ready → (commit refresh) → renew or stop
+```
+
+Test the whole ladder without spending tokens: `/guard simulate <n>`. Prove *load* in
+the real runtime (`pi -e …` or a scripted RPC probe); synthetic runs prove the state
+machine only.
+
+## 6. Audits, protection, honesty
+
+- **Review/audit sessions** run read-only: `CONTEXT_GUARD_READONLY=1
+  CONTEXT_GUARD_STATE_DIR=/tmp/guard-state pi -e <ext>` → zero writes inside the tree;
+  checkpoints become reported dry runs; monitoring and GOAL protection stay active.
+  "I instruct the model not to edit" is **not** read-only — trusted extensions write;
+  only this mode (or OS snapshots) gives the tree-level guarantee.
+- **Freshness classification**: `missing | corrupt | stale | current`, computed from
+  sha256 fingerprints of the *source state* (non-circular: blocks never hash
+  themselves) + a transactional identity shared by HANDOFF and PROGRESS blocks.
+  Validation only reports; it never "fixes" — refresh explicitly with `/handoff`.
+- **Renewal gate**: a session may only be replaced from a checkpoint that is current ∧
+  identity-consistent ∧ attested (`renewAuthorization()`), below the chain cap, not
+  already used (one successor per checkpoint id), with no durable operator stop
+  (`/handoff renew stop`, inherited by successors). Refusals name their reason.
+- What is **proven live** (A→B→C, real inference): model-initiated hop via
+  `handoff_renew` (no deadlock — the tool fire-and-forgets `/handoff renew go`),
+  operator hop `/handoff renew`, cap enforcement, fresh successor context, zero replay,
+  zero compaction. What is **not proven**: real-concurrent multi-process state racing
+  (P-5), the ~195 k closing point under real token accounting (P-7 — the experiment
+  triggered with synthetic pressure). Say so in your own projects; overclaiming is the
+  failure mode this whole protocol exists to prevent.
+
+## 7. Case study — PL/I-80 (Digital Research compiler reverse-engineering)
+
+**Profile** (observed read-only in `~/projects/sushiworks/pli80`): multi-month goal —
+reverse-engineer the CP/M-80 PL/I-80 compiler v1.4 and reimplement it in OCaml. Method
+is scientific: *no claim about compiler behavior is accepted without an experiment
+against the original binaries*; live truth is `spec/CLAIMS.md` (ledger of claims
+`C###`, statuses `confirmed/[TBD]`, each carrying byte-level evidence and gate
+results). A neutral oracle (z80pack `cpmsim -8`) runs the real compiler; `golden/`
+holds captured compilations; `artefacts/` is READ-ONLY ground truth. Verification is
+tiered (`tools/e2e_gate.py`: ~2 s byte panel — editing path; `--runtime` ~10 min — CI
+standard gate; `--link-run` ~90 min / 817 arms — CI audit, pinned by Rune CI with
+SHA-256-pinned emulator + disks). The README itself already schedules
+"revisited priorities every ~10 turns". Tree ≈2.3 GB, git-tracked.
+
+**Why it needs exactly this protocol.** Compiler RE sessions burn context on oracle
+transcripts and hex dumps; the interesting state (which claim is confirmed on which
+specimens, which `[TBD]` is fail-loud by design vs. a gap) lives in files, not in any
+one transcript. Compaction would sever the evidence pointers — a summarized session
+would "remember" conclusions without the specimen IDs that justify them, which in a
+scientific project is fabrication risk, not inconvenience.
+
+**Mapping existing pli80 practice → context-guard:**
+
+| pli80 today | context-guard equivalent |
+|---|---|
+| `spec/CLAIMS.md` (domain evidence ledger, confirmed/probable/[TBD]) | stays authoritative for *compiler* claims; `LEARNINGS.md` holds *working-method* knowledge (oracle quirks, tool bugs, procedure). Cross-reference ids, never merge the ledgers |
+| "no claim without experiment" | PROTOCOL.md evidence classes + acceptance rule: promotion requires reproduction run in this environment |
+| rolling "Current status" section in README | `PROGRESS.md` (completed/pending/blockers) + `## Next action` in `HANDOFF.md` — the guard keeps them fresh-or-flagged instead of vibes |
+| "revisited priorities every ~10 turns" | L1/L2 alerts are the machine-enforced version of exactly this rhythm |
+| fail-loud `[TBD]` gates | the guard's own philosophy: refusal names its reason; validation reports, never silently "fixes" |
+| `artefacts/` read-only ground truth | GOAL.md protection + read-only audit sessions; same discipline, mechanically |
+| Rune CI pinned audits | keep untouched: the guard never touches CI; context-guard's own e2e drivers (`scripts/e2e-*.mjs`) are the analogue for the guard itself |
+
+**Blueprint for equipping pli80** (operator applies; nothing here was written into it):
+
+```
+pli80/AGENTS.md          ~10 lines: goal pointer, read order, verify command:
+                         `python3 tools/e2e_gate.py` (fast tier) expected GREEN;
+                         hard limits: artefacts/ + golden/ + oracle/disks READ-ONLY,
+                         Rune CI untouched, never push
+pli80/GOAL.md            objective + acceptance criteria (OCaml reimpl reproducing DR
+                         bytes per claim; each phase gated)   [protectGoal: true]
+pli80/PROTOCOL.md        oracle quickstart (batch.py usage), evidence rules, claim-id
+                         discipline, checkpoint rules (adapted from this repo)
+pli80/HANDOFF.md         recovery order + ## Next action (e.g. "widen codegen to
+                         RTL-call arithmetic; gate must stay 51/51")
+pli80/PROGRESS.md        phase tracker (front-end DONE/gates cited; $V IR ~90 ops;
+                         codegen $C phase; next: DEC/FLOAT, control flow, I/O)
+pli80/LEARNINGS.md       method knowledge; domain truth stays in spec/CLAIMS.md
+pli80/handoff.config.json
+                         generationReserve tuned (§4: "model" on Sushi ⇒ closing
+                         ≈150k of 220k; a fixed 20000 ⇒ ≈195k — pick per cost policy),
+                         thresholds default, renewal.enabled false at first;
+                         maxSessionStates 0; stateDir .pi-guard (gitignore it)
+```
+
+Special fits for a RE project: (a) the L3 auto-checkpoint preserves substantive "Last
+verified state" prose — the gate counts and claim ids survive; (b) enforced closing
+(allowlist write/edit/read) is exactly what an oracle-heavy session needs to end safely
+mid-experiment: it can still write the HANDOFF describing the dangling simulator run;
+(c) read-only audit mode lets a review session inspect a candidate snapshot of the tree
+byte-for-byte unchanged; (d) renewal, once the operator enables it, converts "context
+full" from a project risk into a scheduled, *audited* event — chain state persists
+across the switch, so a week-long renewal trail is inspectable in one JSON file.
+
+Risks specific to pli80, stated honestly: the tree is 2.3 GB with binary artefacts —
+`CONTEXT_GUARD_STATE_DIR` should stay in-tree (tiny JSON) and gitignored; oracle runs
+leave `disks/` churn (already gitignored); renewal switching mid-emulator-run would
+abandon a child `cpmsim` — the waitForIdle boundary does not cover *tool-spawned*
+processes, so operator-triggered renewal (`/handoff renew`) is the safe default there
+until proven otherwise; and token estimates over oracle transcripts can swing (A-18:
+the chars/4 heuristic vs. provider-reported usage) — trust the operator's correction,
+re-baseline with `/guard reset`.
+
+## 8. Anti-patterns
+
+- Storing durable state only in the transcript (or a compaction summary). Files are
+  truth; transcripts are scratch.
+- Letting the agent edit GOAL.md, or silently "tidying" the goal in HANDOFF prose.
+- Treating a green mock suite as proof the guard works: **load it in the real runtime**
+  after every edit (A-9/A-15 are earned lessons).
+- Hunting thresholds with real inference. Synthetic mode proves the state machine;
+  one live alert observation is enough for accounting sanity.
+- Enabling `autoRenew` without thinking: it hands session-death timing to the model.
+  The mechanism is proven; the *policy* is an operator decision (this project keeps it
+  OFF by default and env-gates experiments with `CONTEXT_GUARD_AUTO_RENEW=1`).
+- Claiming concurrency-safety or unobserved closing points as proven. The guard names
+  its unproven edges (P-5, P-7); your PROTOCOL should too.
+
+## 9. Reference index
+
+- Working rules: `PROTOCOL.md` (§1 thresholds, §2 checkpoints, §2.3 audit, §6 renewal)
+- API contract + config + limits: `README.md`
+- Evidence per claim: `LEARNINGS.md` (A-11/A-12/A-15/A-16/A-17/A-18/A-22/A-23; P-5/P-7)
+- Live proofs: `scripts/e2e-rpc-two-process.mjs` (zero inference), `scripts/e2e-renew.mjs`
+  (real-inference A→B→C), `scripts/refresh-checkpoint.mjs` (post-commit ritual)
+- Skill: `.agents/skills/pi-handoff/` (SKILL.md + references/commands.md + references/bootstrap.md)

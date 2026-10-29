@@ -4,7 +4,9 @@ Project: Pi 1.4.0 context-guard. **Phase 2 (automatic session renewal) is COMPLE
 increments A (decision module + wiring + chain state + RN tests), B (switch wiring:
 `/handoff renew`, `handoff_renew` bridge, stop/resume, lineage, identity banner) and
 C (real-inference A→B→C experiment proven — 20/20, LEARNINGS A-23) are committed.
-Phase 1d (skill + long-project guide) remains deferred.**
+Phase 1d is COMPLETE: Pi Handoff skill (`.agents/skills/pi-handoff/`, discovery proven
+live — LEARNINGS A-25) + long-project integration guide (`docs/long-project-guide.md`,
+PL/I-80 case study; pli80 itself remains UNTOUCHED — blueprint only).**
 
 Renewal status: **PROVEN LIVE (2026-10-29, `scripts/e2e-renew.mjs`, real sushi/Qwen
 inference): model-initiated hop via the `handoff_renew` tool works with no deadlock;
@@ -38,5 +40,7 @@ compaction settings. After editing the extension, ALWAYS load it in the real run
 (`pi --mode rpc -e .pi/extensions/context-guard/index.ts` or `node
 scripts/e2e-rpc-two-process.mjs`); after ANY change to the renewal wiring in index.ts,
 also re-run `node scripts/e2e-renew.mjs` (spends real inference — it is the only live
-proof of the switch path, LEARNINGS A-23). Mock tests do not catch module-load errors
+proof of the switch path, LEARNINGS A-23); after editing `.agents/skills/` or the guide,
+re-run `node scripts/check-skill-discovery.mjs` (zero inference, real runtime — project
+skills are trust-gated, LEARNINGS A-25). Mock tests do not catch module-load errors
 (LEARNINGS A-9, A-15).

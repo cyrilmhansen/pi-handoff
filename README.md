@@ -22,6 +22,8 @@ test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
 GOAL.md PROGRESS.md LEARNINGS.md HANDOFF.md   durable working memory
 AGENTS.md PROTOCOL.md  stable procedures
+docs/long-project-guide.md  Phase 1d: integration guide for long-running projects (PL/I-80 case study)
+.agents/skills/pi-handoff/  Phase 1d: Pi skill (SKILL.md + references/commands.md + references/bootstrap.md)
 .pi-guard/sessions/<sessionId>.json            per-session runtime state (ephemeral)
 ```
 
@@ -42,8 +44,10 @@ sibling modules. Pi loads it through `jiti` (verified).
 ## Run tests
 
 ```bash
-node --test test/          # 103 tests (1 skipped: gated real-Pi e2e), no inference, no installs
-node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (23 checks)
+node --test test/          # 132 tests (1 skipped: gated real-Pi e2e), no inference, no installs
+node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (27 checks)
+node scripts/check-skill-discovery.mjs # real pi 1.4.0: project skill discovery + trust-gated extension auto-load, zero inference (8 checks)
+node scripts/e2e-renew.mjs             # REAL inference: A→B→C renewal chain proof (20 checks); re-run after any renewal-wiring change
 ```
 
 Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use mocks of
