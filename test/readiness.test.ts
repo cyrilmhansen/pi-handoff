@@ -46,7 +46,7 @@ test("RD1: /handoff ready attests the current generation and opens the renewal g
   // before attestation: technically current but semantically unattested
   await s.command("handoff", "verify");
   assert.match(s.text(), /readiness: unattested/);
-  assert.match(s.text(), /renewal authorization \(Phase 2, not implemented\): NOT authorized — handoff readiness has not been attested/);
+  assert.match(s.text(), /renewal authorization \(gate for \/handoff renew\): not authorized — handoff readiness has not been attested/);
 
   const before = new Map(fs.files);
   await s.command("handoff", "ready");
@@ -57,7 +57,7 @@ test("RD1: /handoff ready attests the current generation and opens the renewal g
   assert.match(text, /\[PASS\] next-action-recorded/);
   assert.match(text, /\[PASS\] durable-files-valid/);
   assert.match(text, /attested g1-/);
-  assert.match(text, /renewal authorization \(Phase 2, not implemented\): would be authorized/);
+  assert.match(text, /renewal authorization \(gate for \/handoff renew\): AUTHORIZED/);
 
   const f = validateCheckpoint(fs, "/project", FILES);
   assert.equal(f.kind, "current");
@@ -135,11 +135,11 @@ test("RD4: a new checkpoint generation voids the attestation; verify shows both 
   await s.start();
   await s.command("handoff", "first");
   await s.command("handoff", "ready");
-  assert.match(s.text(), /renewal authorization \(Phase 2, not implemented\): would be authorized/);
+  assert.match(s.text(), /renewal authorization \(gate for \/handoff renew\): AUTHORIZED/);
   await s.command("handoff", "second"); // new generation => readiness resets
   await s.command("guard", "verify-checkpoint");
   assert.match(s.text(), /readiness: unattested/);
-  assert.match(s.text(), /NOT authorized — handoff readiness has not been attested/);
+  assert.match(s.text(), /not authorized — handoff readiness has not been attested/);
   assert.match(s.text(), /identity: g2-/, "verify names the transactional identity");
 });
 
@@ -154,7 +154,7 @@ test("RD5: /guard status reports identity, readiness, provenance and the learnin
   assert.match(text, /readiness unattested/);
   assert.match(text, /provenance: real/);
   assert.match(text, /usable remaining: \d+ = window - used - reserve/);
-  assert.match(text, /NOT authorized/);
+  assert.match(text, /not authorized/);
   // LEARNINGS.md untouched, and its unchanged baseline is visible as an inconsistency-free warning path
   assert.equal(fs.files.get("/project/LEARNINGS.md"), DEFAULT_FILES["/project/LEARNINGS.md"]);
   await s.command("handoff", "ready check");

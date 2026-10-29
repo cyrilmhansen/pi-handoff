@@ -90,7 +90,7 @@ test("R1: crossing 30k remaining sends exactly one advisory custom message at tu
   assert.match(alerts(h)[0].message.content, /CONTEXT PRESSURE \(advisory\)/);
   assert.match(alerts(h)[0].message.content, /Update PROGRESS.md/);
   assert.deepEqual(alerts(h)[0].options, { triggerTurn: false }); // deferred append: never interrupts in-flight tools
-  assert.equal(h.mockPi.entries.length, 1); // audit entry appended
+  assert.equal(h.mockPi.entries.filter((e) => (e.data as any)?.alertLevels).length, 1, "one alert audit entry appended");
 });
 
 test("R1b: no alerts while budget is healthy", async () => {
@@ -272,12 +272,20 @@ test("R10: no compaction, no session switching, no settings/install writes, stab
   const configWrites = h.memFs.writes.filter((p) => p.includes("settings") || p.includes("config.yml") || p.includes("node_modules"));
   assert.deepEqual(configWrites, []);
 
-  // Static contract: the adapter never touches compaction/session-replacement/
-  // system-prompt APIs, and never registers as a compaction consumer.
+  // Static contract (re-specified for Phase 2): compaction, switchSession, fork,
+  // navigateTree and system-prompt mutation remain FORBIDDEN. Session replacement is
+  // allowed ONLY through the gated renewal path (LEARNINGS A-17 / PROTOCOL §6):
+  // exactly one ctx.newSession( call site, and it must sit inside runRenewal AFTER
+  // decideRenewal (never in a tool execute or event handler).
   const src = readFileSync(new URL("../.pi/extensions/context-guard/index.ts", import.meta.url), "utf8");
-  for (const forbidden of [".compact(", "newSession(", "switchSession(", "fork(", "systemPrompt", "context_with_system", "navigateTree("]) {
+  for (const forbidden of [".compact(", "switchSession(", "fork(", "systemPrompt", "context_with_system", "navigateTree("]) {
     assert.ok(!src.includes(forbidden), `extension source must not reference ${forbidden}`);
   }
+  assert.equal((src.match(/\.newSession\(/g) ?? []).length, 1, "exactly ONE newSession call site (the gated renewal transition)");
+  const renewBody = src.slice(src.indexOf("async function runRenewal"), src.indexOf("Model-initiated renewal"));
+  assert.ok(renewBody.includes("decideRenewal(") && renewBody.includes("await ctx.waitForIdle()") && renewBody.includes(".newSession("), "newSession lives in runRenewal, after the idle boundary and the decision gate");
+  const toolBody = src.slice(src.indexOf("name: \"handoff_renew\""), src.indexOf("registerCommand(\"handoff\""));
+  assert.ok(!toolBody.includes(".newSession(") && !toolBody.includes("waitForIdle("), "the model-facing tool NEVER calls waitForIdle or switches sessions itself (P-8 deadlock rule)");
 });
 
 test("alerts survive as custom entries; guard messages are added without triggering extra turns", async () => {

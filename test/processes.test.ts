@@ -151,7 +151,7 @@ const handlers = new Map();
 const pi = {
   on: (e, h) => handlers.set(e, [...(handlers.get(e) ?? []), h]),
   registerCommand: () => {}, registerFlag: () => {}, getFlag: () => undefined,
-  sendMessage: () => {}, appendEntry: () => {},
+  sendMessage: () => {}, sendUserMessage: () => {}, registerTool: () => {}, appendEntry: () => {},
 };
 const ctx = {
   mode: "print", hasUI: true, cwd,

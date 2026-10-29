@@ -72,13 +72,15 @@ test("G4: alerts are append-only custom messages with triggerTurn:false and stab
   const event = { type: "turn_end", turnIndex: 1, entries: [], continue: false, context: {}, outcome: "completed" };
   await pi.emit(event as never, ctx.ctx as never);
   await pi.emit(event as never, ctx.ctx as never); // must not re-alert
-  assert.equal(pi.sentMessages.length, 1, "one alert per crossing, none on repeat");
-  const sent = pi.sentMessages[0];
+  const alertsOnly = pi.sentMessages.filter((m) => m.message.customType === "context-guard");
+  assert.equal(alertsOnly.length, 1, "one alert per crossing, none on repeat (identity banner is a separate customType)");
+  const sent = alertsOnly[0];
   assert.equal(sent.options.triggerTurn, false, "never interrupts the running turn");
   assert.equal(sent.message.display, true);
   assert.equal(sent.message.customType, "context-guard");
   assert.ok(!JSON.stringify(sent).includes("systemPrompt"), "no system-prompt mutation");
-  assert.deepEqual(pi.entries[0].data && Object.keys(pi.entries[0].data as object), ["alertLevels", "remaining", "boundary"], "audit entry persisted outside model context");
+  const alertEntry = pi.entries.find((e) => (e.data as any)?.alertLevels) ?? { data: undefined };
+  assert.deepEqual(Object.keys((alertEntry.data as any) ?? {}), ["alertLevels", "remaining", "boundary"], "audit entry persisted outside model context");
 });
 
 test("G5: combined crossing produces one message whose text is deterministic", async () => {

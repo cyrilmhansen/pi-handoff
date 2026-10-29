@@ -110,8 +110,9 @@ test("RV5: adapter — alert delivery, tool gate, and revocation end-to-end with
     );
 
   await turn(216000); // usable = 220000-216000-20000 < 5000 => levels 1..4, enforced closing
-  assert.equal(pi.sentMessages.length, 1);
-  assert.match(text(pi.sentMessages[0]), /CONTEXT CRITICAL \(enforced\)/);
+  const alertMsgs = () => pi.sentMessages.filter((m) => m.message.customType === "context-guard");
+  assert.equal(alertMsgs().length, 1);
+  assert.match(text(alertMsgs()[0]), /CONTEXT CRITICAL \(enforced\)/);
   assert.equal(gate("bash")?.block, true, "closing gates non-allowlisted tools");
   assert.equal(gate("write")?.block, undefined, "checkpoint tools stay allowed");
 
@@ -136,7 +137,7 @@ test("RV5: adapter — alert delivery, tool gate, and revocation end-to-end with
   assert.equal(revEntry.after.remaining, 100000);
 
   await turn(101000); // still relaxed
-  assert.equal(pi.sentMessages.length, 2, "no repeated alerts and no repeated revocations");
+  assert.equal(alertMsgs().length, 2, "no repeated alerts and no repeated revocations (identity banner excluded)");
 });
 
 test("RV6: /guard status reports the revoked history (operator observability)", async () => {

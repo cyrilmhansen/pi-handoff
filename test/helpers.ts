@@ -9,16 +9,20 @@ export interface MockPi {
   pi: any;
   handlers: Map<string, Handler[]>;
   commands: Map<string, (args: string, ctx: any) => Promise<void>>;
+  tools: Map<string, any>;
   sentMessages: Array<{ message: any; options: any }>;
+  userMessages: Array<{ content: any; options: any }>;
   entries: Array<{ type: string; data: unknown }>;
-  emit: (event: { type: string; [k: string]: unknown }, ctx: any) => Promise<void>;
+  emit: (event: { type: string; [k: string]: unknown }, ctx: any) => Promise<any[]>;
   runCommand: (name: string, args: string, ctx: any) => Promise<void>;
 }
 
 export function createMockPi(flags: Record<string, string> = {}): MockPi {
   const handlers = new Map<string, Handler[]>();
   const commands = new Map<string, (args: string, ctx: any) => Promise<void>>();
+  const tools = new Map<string, any>();
   const sentMessages: Array<{ message: any; options: any }> = [];
+  const userMessages: Array<{ content: any; options: any }> = [];
   const entries: Array<{ type: string; data: unknown }> = [];
 
   const pi: any = {
@@ -39,9 +43,14 @@ export function createMockPi(flags: Record<string, string> = {}): MockPi {
     getFlag(name: string): string | undefined {
       return flags[name];
     },
-    registerTool() {},
+    registerTool(tool: any) {
+      tools.set(tool.name, tool);
+    },
     sendMessage(message: any, options: any) {
       sentMessages.push({ message, options });
+    },
+    sendUserMessage(content: any, options: any) {
+      userMessages.push({ content, options });
     },
     appendEntry(type: string, data?: unknown) {
       entries.push({ type, data });
@@ -56,8 +65,10 @@ export function createMockPi(flags: Record<string, string> = {}): MockPi {
     },
   };
 
-  async function emit(event: { type: string; [k: string]: unknown }, ctx: any): Promise<void> {
-    for (const h of handlers.get(event.type) ?? []) await h(event, ctx);
+  async function emit(event: { type: string; [k: string]: unknown }, ctx: any): Promise<any[]> {
+    const out: any[] = [];
+    for (const h of handlers.get(event.type) ?? []) out.push(await h(event, ctx));
+    return out;
   }
 
   async function runCommand(name: string, args: string, ctx: any): Promise<void> {
@@ -66,7 +77,7 @@ export function createMockPi(flags: Record<string, string> = {}): MockPi {
     await h(args, ctx);
   }
 
-  return { pi, handlers, commands, sentMessages, entries, emit, runCommand };
+  return { pi, handlers, commands, tools, sentMessages, userMessages, entries, emit, runCommand };
 }
 
 export interface UsageFixture {
@@ -79,8 +90,14 @@ export interface MockCtxOptions {
   usage?: UsageFixture | undefined | null; // null => getContextUsage() returns undefined
   model?: { maxTokens: number; contextWindow: number } | undefined;
   sessionId?: string;
+  sessionFile?: string;
   mode?: string;
   hasUI?: boolean;
+  /** If set, ctx.newSession resolves {cancelled:true} without invoking withSession (simulates session_before_switch cancel). */
+  cancelNewSession?: boolean;
+  /** Successor identity used when invoking the withSession callback. */
+  successorSessionId?: string;
+  successorSessionFile?: string;
 }
 
 export interface MockCtx {
@@ -89,11 +106,19 @@ export interface MockCtx {
   compactCalls: number;
   newSessionCalls: number;
   switchSessionCalls: number;
+  waitForIdleCalls: number;
+  /** Order of boundary/session operations, for sequencing assertions. */
+  ops: string[];
+  newSessionOptions: any[];
+  recoverySends: Array<{ message: any; options: any }>;
 }
 
 export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
   const notifications: Array<{ text: string; level: string | undefined }> = [];
-  const state = { compactCalls: 0, newSessionCalls: 0, switchSessionCalls: 0 };
+  const state = { compactCalls: 0, newSessionCalls: 0, switchSessionCalls: 0, waitForIdleCalls: 0 };
+  const newSessionOptions: any[] = [];
+  const recoverySends: Array<{ message: any; options: any }> = [];
+  const ops: string[] = [];
   const usage = options.usage === undefined ? { tokens: 0, contextWindow: 220000 } : options.usage;
   const ctx: any = {
     mode: options.mode ?? "print",
@@ -109,6 +134,7 @@ export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
     model: options.model === undefined ? { maxTokens: 65536, contextWindow: 220000 } : options.model,
     sessionManager: {
       getSessionId: () => options.sessionId ?? "session-1",
+      getSessionFile: () => options.sessionFile ?? `/sessions/${options.sessionId ?? "session-1"}.jsonl`,
       getBranch: () => [],
       getEntries: () => [],
     },
@@ -117,17 +143,40 @@ export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
     abort() {},
     compact() {
       state.compactCalls += 1;
+      ops.push("compact");
     },
-    // command-only session ops (Phase 2 territory): must never be called in Phase 1
-    newSession: async () => {
+    // command-only session ops: renewal wiring tests drive these explicitly.
+    newSession: async (newOptions?: any) => {
       state.newSessionCalls += 1;
+      ops.push("newSession");
+      newSessionOptions.push(newOptions ?? {});
+      if (options.cancelNewSession) return { cancelled: true };
+      if (newOptions?.withSession) {
+        // Fresh command context bound to the SUCCESSOR session (ReplacedSessionContext).
+        const nctx: any = {
+          ...ctx,
+          sessionManager: {
+            ...ctx.sessionManager,
+            getSessionId: () => options.successorSessionId ?? "session-2",
+            getSessionFile: () => options.successorSessionFile ?? `/sessions/${options.successorSessionId ?? "session-2"}.jsonl`,
+          },
+          sendMessage: async (message: any, sendOptions?: any) => {
+            recoverySends.push({ message, options: sendOptions ?? {} });
+          },
+        };
+        await newOptions.withSession(nctx);
+      }
       return { cancelled: false };
     },
     switchSession: async () => {
       state.switchSessionCalls += 1;
+      ops.push("switchSession");
       return { cancelled: false };
     },
-    waitForIdle: async () => {},
+    waitForIdle: async () => {
+      state.waitForIdleCalls += 1;
+      ops.push("waitForIdle");
+    },
     shutdown() {},
     getSystemPrompt: () => "stable prompt",
   };
@@ -143,6 +192,12 @@ export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
     get switchSessionCalls() {
       return state.switchSessionCalls;
     },
+    get waitForIdleCalls() {
+      return state.waitForIdleCalls;
+    },
+    newSessionOptions,
+    recoverySends,
+    ops,
   };
 }
 

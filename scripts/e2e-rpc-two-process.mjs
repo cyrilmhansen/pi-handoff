@@ -197,8 +197,18 @@ try {
     b.command({ id: "b-verify", type: "prompt", message: "/guard status" }),
     b.command({ id: "b-sim", type: "prompt", message: "/guard simulate 9000" }),
     a.command({ id: "a-sim", type: "prompt", message: "/guard simulate 4000" }),
+    a.command({ id: "a-renew-status", type: "prompt", message: "/handoff renew status" }),
+    a.command({ id: "a-renew-stop", type: "prompt", message: "/handoff renew stop" }),
+    a.command({ id: "a-renew-try", type: "prompt", message: "/handoff renew e2e attempt" }),
+    a.command({ id: "a-renew-resume", type: "prompt", message: "/handoff renew resume" }),
   ]);
   await new Promise((r) => setTimeout(r, 1500)); // let end-of-turn persistence settle
+
+  const renewTexts = a.uiTexts().join("\n");
+  check("RENEW(e2e): /handoff renew status reports policy + durable chain", /renewal status/.test(renewTexts) && /policy: enabled=/.test(renewTexts) && /renewalsDone=\d+\/\d+/.test(renewTexts));
+  check("RENEW(e2e): stop is durable and blocks the attempt; resume clears", /STOPPED/.test(renewTexts) && /NOT performed \(stopped\)/.test(renewTexts) && /RESUMED/.test(renewTexts));
+  check("RENEW(e2e): no session switched without inference (session id unchanged)", (await a.command({ id: "a-state2", type: "get_state" })).data?.sessionId === idA);
+  check("RENEW(e2e): renewal-state.json persisted durably", fs.existsSync(path.join(tree, ".pi-guard", "renewal-state.json")) && /"stopped": false/.test(fs.readFileSync(path.join(tree, ".pi-guard", "renewal-state.json"), "utf8")));
 
   await a.shutdown();
   await b.shutdown();

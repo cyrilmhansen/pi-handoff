@@ -88,6 +88,8 @@ function session(root: string, sessionId: string, options: { env?: Record<string
     registerFlag: () => {},
     getFlag: (n: string) => options.flags?.[n],
     sendMessage: () => {},
+    sendUserMessage: () => {},
+    registerTool: () => {},
     appendEntry: () => {},
   };
   const ctx: any = {
