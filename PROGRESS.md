@@ -175,57 +175,47 @@ only after renewal-wiring changes. Exact details: HANDOFF.md "Next action".
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 8
-checkpoint-id: g8-0609d437081b
+checkpoint-generation: 9
+checkpoint-id: g9-1655aaba5cf2
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
 guard-level: 0
-checkpointed: 2026-10-29T14:03:11.969Z
+checkpointed: 2026-10-29T14:45:33.715Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 209ea9a674f69fe536b64bdc014c8c1d8c14d00928c2dcba74a6b7e60b2bcfdf
-source-handoff: 9f6397e2c1eb0cffb917c8c2cf1dfc3a0f733fd07dd427dc02c7e543233c86c7
-source-learnings: febc4715b1e48f8fdf8de1c698419c92ab1a1f825045dacc2157e8035126254c
+source-progress: 083cf0c14a81263006fb63f72701ed1c3fc9c7decdec2e4cb384205d9b7cd505
+source-handoff: 1e99be1f38057b0f550f24210da2c0a4caa08c70db8c26a7bee75c585705b357
+source-learnings: 1b30baa67114f9d39d73ad926ec838bcf12e3cf90ef236758281d8abb3aed3a8
 source-config: 0b1e162bdbf7ec9946afab3d1dd8b0fa35b4e3972ba77214f68c9a55276fe606
-next-action: **Phase 2 COMPLETE (increments A+B+C). The renewal switch is PROVEN LIVE — LEARNINGS
-A-23 (experiment evidence) and A-24 (driver bug class). P-6 and P-8 are ACCEPTED;
-O-1 settled (fire-and-track: newSession returned while the successor's first turn ran).**
-This session: fixed `scripts/e2e-renew.mjs` (clone into `<parent>/work`; read the exit
-event's code argument; check the custom_message in the transcript, not ui.notify; scope
-the replay check to user-role entries) and ran the real-inference A→B→C experiment on a
-full clone with CONTEXT_GUARD_AUTO_RENEW=1, twice: run 1 → 18/20 (both fails were
-driver checkers, manually disproven); run 2 → **20/20** — hop 1 MODEL-initiated via
-`handoff_renew` (P-8 live, no deadlock), hop 2 operator `/handoff renew`, 3rd attempt
-refused (cap 2/2, C kept running), three distinct session ids, lineage parentSession,
-messageCount=3 successors whose first action read ALL six durable files, banner +
-recovery before first inference, zero replay/compaction, durable chain 1/2→2/2
-(g9-61eed787a6bb → g10-c1eb40a08a44), both successors committed real work (95ff109,
-40770f6; suite 131 recorded in their LEARNINGS X-1/X-2).
+next-action: **Phase 2 (increments A+B+C) AND Phase 1d are COMPLETE. Nothing in the guard's code
+changed in the Phase 1d increment — docs, skill, and one new zero-inference probe
+script.** Phase 1d delivered: `.agents/skills/pi-handoff/` (operating skill +
+commands/config reference + bootstrap procedure), `docs/long-project-guide.md`
+(long-project integration guide, PL/I-80 case study as blueprint only — pli80 was
+inspected read-only and NOT modified), `scripts/check-skill-discovery.mjs` (real-
+runtime skill discovery probe; found + documented the trust-gating of project skills,
+LEARNINGS A-25).
 
 Concrete next steps, in order:
 
-1. `node --test test/` → expect **132 tests, 131 pass, 0 fail, 1 skipped**; zero-inference
-   e2e `node scripts/e2e-rpc-two-process.mjs` → 27/27; real-inference renewal e2e
-   `node scripts/e2e-renew.mjs` (spends inference; GUARD_E2E_KEEP=1 keeps the clone)
-   → 20/20. Re-run the latter after ANY change to the renewal wiring in index.ts.
-2. Human review of increments A–C (code + docs + LEARNINGS classifications; P-7's ~195k
-   closing point is still NOT live-observed — the experiment triggered with synthetic
-   pressure).
+1. `node --test test/` → expect **132 tests, 131 pass, 0 fail, 1 skipped**;
+   zero-inference e2e `node scripts/e2e-rpc-two-process.mjs` → 27/27;
+   skill probe `node scripts/check-skill-discovery.mjs` → 8/8; real-inference renewal
+   e2e `node scripts/e2e-renew.mjs` (spends inference) → 20/20 — re-run the latter only
+   after a change to the renewal wiring in index.ts.
+2. **Human review** of increments A–C + Phase 1d docs (code + guide + LEARNINGS
+   classifications; P-7's ~195k closing point is still NOT live-observed — the renewal
+   experiment triggered with synthetic pressure).
 3. Operator decision: set `renewal.autoRenew: true` in `handoff.config.json` as the
    project default (model-initiated renewal then works WITHOUT the env switch) — NOT
-   done here; config stays OFF until the operator says so.
-4. Optional follow-ups (not blocking Phase 2): Phase 1d skill + long-project guide;
-   P-5 real two-process concurrency proof; live token-accounting sanity walk-through;
-   "config-changed-since-session-start" notice (A-22).
+   done here; config stays OFF until the operator says so. Likewise: applying the
+   pli80 blueprint (guide §7) is a separate, explicitly-approved operator action.
+4. Optional follow-ups: P-5 real two-process concurrency proof; live token-accounting
+   sanity walk-through; "config-changed-since-session-start" notice (A-22).
 5. Commit after every increment (local only, never push). Refresh + attest the
    checkpoint AFTER committing; commit the managed-block refresh separately when it
    dirties the tree.
-
-(For increment-B implementation details see the commit message of `11b59b9` and
-PROTOCOL §6; the wiring was unchanged by increment C — only the driver script was.)
-
-<!-- increment-C history kept short on purpose; full detail in git + LEARNINGS -->
-readiness-by: session:01a187f8-c8a4-7795-977b-9204f5369d3a
-readiness-at: 2026-10-29T14:03:12.070Z
-readiness-checkpoint: g8-0609d437081b
+readiness-by: session:01a1881f-91b1-71c8-9606-aabc3647d0eb
+readiness-at: 2026-10-29T14:45:33.815Z
+readiness-checkpoint: g9-1655aaba5cf2
 <!-- guard:end checkpoint -->
