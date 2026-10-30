@@ -12,6 +12,7 @@ project's `PROTOCOL.md`.
 | `/guard simulate <remainingTokens>` | Synthetic pressure for this session (state-machine testing, no inference) |
 | `/guard reset` | Re-arm alerts, re-baseline GOAL hash, rebuild the machine (testing/re-baselining only) |
 | `/guard verify-checkpoint` | Checkpoint classification + readiness + renewal authorization |
+| `/guard events [n]` | Tail of `<stateDir>/diagnostics.jsonl` (dev.2 D5c): typed, bounded events — session_start/alert/revocation/renewal_request/renewal_result/finalize/tool_block/turn_aborted; never prompts/args/secrets; audit mode with in-tree stateDir reports "not persisted" |
 | `/handoff [notes]` | Write checkpoint (managed blocks of HANDOFF.md + PROGRESS.md only) |
 | `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources) |
 | `/handoff ready` | Evaluate + attest readiness (bound to checkpoint id). `/handoff ready check` = evaluate only |

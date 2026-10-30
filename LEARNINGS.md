@@ -109,6 +109,32 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   renewal from the same checkpoint, count continues (3/8), raised cap still caps, and
   config reload does not flip autoRenew. confidence: high. adopted: yes.
 
+- [A-33] **dev.2 D5 implemented (verified, committed).** (a) `defaultThresholds(t,
+  {enforceClosing})` — level 4 becomes `advisory` kind with "enforcement is disabled"
+  wording when false (blocks nothing, still names the closing procedure); the default
+  keeps the enforced text — G1/G2 contracts hold for BOTH variants; the adapter passes
+  config in `buildMachine` AND `ContextPressureMachine.restore`. (b) The model-facing
+  renewal hint is now a WRITE-FREE PREVIEW of the real gate: `decideRenewal` with live
+  `validateCheckpoint` identity + `renewAuthorization` + durable stop + cap + readOnly +
+  pending; pass -> `RENEWAL AVAILABLE`, refuse -> `RENEWAL NOT AVAILABLE (<why>)` +
+  per-reason safe instructions (`handoff_finalize` at the cap, `/handoff` + `/handoff
+  ready` when unauthorized, resume/stop semantics, dry-run in audit). The preview writes
+  nothing (chain-state byte-identity asserted); autoRenew:false stays fully silent.
+  (c) `diagnostics.ts` (pure): closed type vocabulary {session_start, alert, revocation,
+  renewal_request, renewal_result, finalize, tool_block, turn_aborted}, allowlisted
+  fields with unknown-key DROPPED semantics (no channel for prompts/tool args/secrets —
+  asserted with secret-marker arguments in DG6), strings <=300 chars, ISO+epoch, JSONL
+  append with rotation to the last 500, corrupt-line-tolerant reads, `/guard events
+  [n]` tail; persistence follows the §2.3 audit rule (in-tree readOnly = zero writes,
+  external stateDir = outside the tree). `agent_settled.aborted` recorded, NEVER
+  auto-retried (P-10 constraint; DG7 asserts zero newSession/userMessages on abort).
+  (d) Banner: `context-guard (project-local, v<GUARD_VERSION>)` with env override; the
+  hardcoded "Phase 2 increment B" label is gone (P-9 resolved). Evidence: test/d5.test.ts
+  19/19 (D5a1-4, D5b1-5, DG1-9, D5d1), suite 178/179 (1 skip), real-runtime e2e-rpc
+  32/32, skill probe 8/8; docs synced (README, PROTOCOL §1/§6, SKILL, commands.md).
+  confidence: high (unit + real-runtime zero-inference; the real-inference candidate
+  proof remains scheduled). adopted: yes.
+
 ## Proposed
 
 > **Status note (documentation consolidation, 2026-10-29).** The entries below keep

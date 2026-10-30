@@ -1,5 +1,5 @@
 /**
- * context-guard — Pi 1.4.0 extension (Phase 1 guard + Phase 2 renewal, increment B)
+ * context-guard — Pi 1.4.0 extension (guard + durable handoff + renewal + finalization + diagnostics)
  *
  * Monitors remaining context against configurable thresholds, delivers
  * one-shot threshold alerts, enforces a closing phase at the critical level,
@@ -71,8 +71,46 @@ import {
   type RenewalState,
   type RenewalTrigger,
 } from "./renewal.ts";
+import {
+  appendDiagnostic,
+  buildDiagnosticEvent,
+  diagnosticsPath,
+  formatDiagnosticEvent,
+  recentDiagnostics,
+  type DiagnosticType,
+} from "./diagnostics.ts";
 
 export const CUSTOM_TYPE = "context-guard";
+
+/**
+ * dev.2 D5d (P-9): the runtime identity carries a VERSION, never a milestone label.
+ * `GUARD_VERSION` overrides it for probes/forensics without touching code.
+ */
+export const DEFAULT_GUARD_VERSION = "0.1.0-dev.2";
+export function guardVersion(env: Record<string, string | undefined> = process.env): string {
+  const v = env.GUARD_VERSION;
+  return typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, 40) : DEFAULT_GUARD_VERSION;
+}
+
+/** D5b: concrete next steps when the renewal preview refuses — never a bare "no". */
+function renewalSafeInstructions(why: string, done: number, max: number): string {
+  switch (why) {
+    case "capped":
+      return `At the cap (${done}/${max}) the safe closing path is the handoff_finalize tool — one synchronous checkpoint + attestation, never a switch; raising renewal.maxRenewals or resetting the chain state stays an explicit OPERATOR decision. Finish the durable prose, finalize, then stop.`;
+    case "already-renewed":
+      return "This checkpoint already seeded a successor: refresh (/handoff) and re-attest (/handoff ready) before renewing again, or close with handoff_finalize.";
+    case "not-authorized":
+      return "Renewal needs a current + attested checkpoint: run /handoff, then /handoff ready; meanwhile finish the durable prose and close with handoff_finalize.";
+    case "stopped":
+      return "The operator stop is durable on this chain (renewal stays refused until an operator /handoff renew resume); close with handoff_finalize.";
+    case "read-only":
+      return "Read-only audit mode never switches sessions; /handoff finalize is a reported dry run here.";
+    case "pending":
+      return "A renewal is already pending/running in this process; finish the current turn normally.";
+    default:
+      return "Keep the durable files current and stop cleanly; renewal remains operator-driven.";
+  }
+}
 
 /**
  * MODULE-SCOPE renewal runtime (LEARNINGS A-17.4): jiti caches the extension module,
@@ -204,7 +242,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   }
 
   function buildMachine(config: GuardConfig): ContextPressureMachine {
-    return new ContextPressureMachine(defaultThresholds(config.thresholds), config.maxConsecutiveUnknown);
+    return new ContextPressureMachine(defaultThresholds(config.thresholds, { enforceClosing: config.enforceClosing }), config.maxConsecutiveUnknown);
   }
 
   function measure(ctx: ExtensionContext): BudgetBreakdown {
@@ -238,6 +276,19 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     } catch {
       /* UI unavailable (print/json mode) */
     }
+  }
+
+  /**
+   * dev.2 D5c: structured diagnostics trail (<stateDir>/diagnostics.jsonl).
+   * Bounded, allowlisted events only — NEVER prompts, tool arguments or secrets.
+   * Persistence follows the audit rule (PROTOCOL §2.3): read-only mode with an IN-TREE
+   * stateDir records NOTHING; an external stateDir records outside the audited tree.
+   */
+  function recordDiag(type: DiagnosticType, fields: Record<string, unknown> = {}): void {
+    if (!g || !g.config.enabled) return;
+    if (!canPersistState()) return;
+    const event = buildDiagnosticEvent(type, { session: g.sessionId, ...fields });
+    if (event) appendDiagnostic(fs, resolvedStateDir(g), event);
   }
 
   /**
@@ -308,7 +359,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const model = ctx.model as { provider?: string; id?: string; api?: string; contextWindow?: number; maxTokens?: number } | undefined;
     const bits = [
       `harness: pi ${harness.version}${harness.pkgDir ? ` @ ${harness.pkgDir}` : " (package dir unresolved)"}`,
-      "extension: context-guard (project-local, Phase 2 increment B)",
+      "extension: context-guard (project-local, v" + guardVersion(env) + ")",
       model?.id
         ? `model: ${model.provider ?? "?"}/${model.id}${model.api ? ` api=${model.api}` : ""}${model.contextWindow ? ` window=${model.contextWindow}` : ""}${model.maxTokens ? ` maxOutput=${model.maxTokens}` : ""}`
         : "model: none selected",
@@ -434,13 +485,34 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if (!g || !g.config.enabled) return undefined;
     const transition = g.machine.evaluate(measure(ctx));
     const alertText = g.machine.formatAlert(transition);
-    // When model-initiated renewal is configured, tell the model it EXISTS at the
-    // escalation points (core.ts guidance stays config-agnostic; this is the adapter).
+    // dev.2 D5b: the model hears about renewal ONLY through a WRITE-FREE preview of the
+    // REAL gate (decideRenewal with the LIVE checkpoint identity + renewAuthorization +
+    // durable stop + cap + read-only + pending). A hint must never promise a transition
+    // the gate would refuse; refusals get concrete safe instructions instead
+    // (finalize-at-cap included — P-10: facts, no speculation). validateCheckpoint,
+    // renewAuthorization and loadRenewalState are read-only: the preview performs ZERO writes.
     let renewalHint = "";
-    if (transition.level >= 3 && g.config.renewal.enabled && g.config.renewal.autoRenew && !renewalRuntime.operatorStop && !renewalRuntime.pending && !renewalRuntime.running) {
+    if (transition.level >= 3 && g.config.renewal.enabled && g.config.renewal.autoRenew) {
       const chainNow = loadRenewalState(fs, resolvedStateDir(g));
-      renewalHint =
-        `\nRENEWAL AVAILABLE: when your durable files (HANDOFF.md/PROGRESS.md/LEARNINGS.md) carry your current state, call the handoff_renew tool — it refreshes+attests the checkpoint and switches to a FRESH session that recovers from those files only (no transcript replay, no compaction; chain renewals used ${chainNow.state.renewalsDone}/${g.config.renewal.maxRenewals}).`;
+      const live = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+      const preview = decideRenewal({
+        renewal: g.config.renewal,
+        trigger: "model",
+        auth: renewAuthorization(live),
+        checkpointId: live.kind === "current" ? live.identity?.id ?? null : null,
+        state: chainNow.state,
+        operatorStop: renewalRuntime.operatorStop || chainNow.state.stopped === true,
+        pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running,
+        readOnly: g.config.readOnly === true,
+      });
+      const done = chainNow.state.renewalsDone;
+      const max = g.config.renewal.maxRenewals;
+      if (preview.renew) {
+        renewalHint =
+          `\nRENEWAL AVAILABLE: when your durable files (HANDOFF.md/PROGRESS.md/LEARNINGS.md) carry your current state, call the handoff_renew tool — it refreshes+attests the checkpoint and switches to a FRESH session that recovers from those files only (no transcript replay, no compaction; chain renewals used ${done}/${max}).`;
+      } else {
+        renewalHint = `\nRENEWAL NOT AVAILABLE (${preview.why}): ${preview.detail} ${renewalSafeInstructions(preview.why, done, max)}`;
+      }
     }
     if (alertText) {
       // triggerTurn:false while Pi is streaming => Pi defers the append to the
@@ -460,6 +532,12 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         /* audit entry is best-effort */
       }
       notify(ctx, `context-guard: level ${transition.level} (${transition.crossed.map((t) => t.label).join(", ")})`, transition.level >= 4 ? "error" : "warning");
+      recordDiag("alert", {
+        level: transition.level,
+        crossed: transition.crossed.map((t) => t.label),
+        remaining: transition.measurement.remaining ?? undefined,
+        boundary,
+      });
     }
     if (transition.degraded && transition.crossed.length === 0) {
       notify(ctx, "context-guard: context measurement unavailable for several evaluations; holding last known pressure level.", "warning");
@@ -503,6 +581,12 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         `context-guard: level ${transition.previousLevel} -> ${transition.level}; closing REVOKED by fresh measurement (${transition.revoked.map((t) => t.label).join(", ")} no longer current policy).`,
         "info",
       );
+      recordDiag("revocation", {
+        revoked: transition.revoked.map((t) => t.label),
+        level: transition.level,
+        remaining: transition.measurement.remaining ?? undefined,
+        boundary,
+      });
     }
     checkGoalDrift(ctx);
     if (g.config.autoCheckpointAtHandoffLevel && transition.level >= 3 && g.lastCheckpointLevel < transition.level) {
@@ -578,7 +662,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       );
     }
     if (loaded.kind === "found" && loaded.state.sessionId === sessionId) {
-      g.machine = ContextPressureMachine.restore(loaded.state.snapshot, defaultThresholds(config.thresholds), config.maxConsecutiveUnknown);
+      g.machine = ContextPressureMachine.restore(loaded.state.snapshot, defaultThresholds(config.thresholds, { enforceClosing: config.enforceClosing }), config.maxConsecutiveUnknown);
       g.lastCheckpointLevel = g.machine.currentLevel;
       if (typeof loaded.state.goalHash === "string") g.goalHash = loaded.state.goalHash;
       if (typeof loaded.state.learningsHash === "string") g.learningsHash = loaded.state.learningsHash;
@@ -654,6 +738,14 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       notify(ctx, `context-guard: identity banner failed: ${err instanceof Error ? err.message : String(err)}`, "warning");
     }
 
+    recordDiag("session_start", {
+      reason: event.reason,
+      level: g.machine.currentLevel,
+      checkpoint: g.checkpoint.kind,
+      chain: chain0.state.chainId || undefined,
+      renewalsDone: chain0.state.renewalsDone,
+      maxRenewals: config.renewal.maxRenewals,
+    });
     persistState();
     setStatus(ctx);
   });
@@ -675,9 +767,16 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return undefined;
   });
 
-  pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
-    if (g && g.config.enabled) evaluate(ctx, "settled");
-    else persistState();
+  pi.on("agent_settled", (event, ctx: ExtensionContext) => {
+    if (g && g.config.enabled) {
+      // D5c/P-10: an aborted run is the INTERRUPTION SIGNAL — record it for later
+      // attribution (known refusal vs unknown cause). The guard NEVER retries an
+      // aborted generation automatically; recovery stays model/operator driven.
+      if ((event as { aborted?: boolean }).aborted === true) {
+        recordDiag("turn_aborted", { aborted: true, detail: "agent_settled.aborted — recorded for attribution; no automatic retry is performed or implied" });
+      }
+      evaluate(ctx, "settled");
+    } else persistState();
   });
 
   pi.on("tool_call", (event: ToolCallEvent, _ctx: ExtensionContext) => {
@@ -690,6 +789,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     // allowlist-gated because it DOES schedule a switch.
     if (g.machine.currentLevel >= 4 && g.config.enforceClosing) {
       if (!g.config.closingAllowlist.includes(event.toolName) && event.toolName !== "handoff_finalize") {
+        recordDiag("tool_block", { tool: event.toolName, kind: "closing" });
         return {
           block: true,
           reason:
@@ -703,6 +803,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       const input = event.input as { path?: string; file_path?: string } | undefined;
       const target = input?.path ?? input?.file_path;
       if (target && isGoalTarget(target)) {
+        recordDiag("tool_block", { tool: event.toolName, kind: "goal" });
         return {
           block: true,
           reason:
@@ -729,7 +830,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   });
 
   pi.registerCommand("guard", {
-    description: "Context guard status/simulation: /guard status | simulate <tokens> | reset | verify-checkpoint",
+    description: "Context guard status/simulation: /guard status | simulate <tokens> | reset | verify-checkpoint | events [n]",
     handler: async (args: string, ctx: ExtensionContext) => {
       if (!g) {
         ctx.ui.notify("context-guard: not initialized (no active session)", "error");
@@ -769,7 +870,25 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         ctx.ui.notify(verifyReport(), g.checkpoint.kind === "current" ? "info" : "warning");
         return;
       }
-      ctx.ui.notify("usage: /guard status | /guard simulate <remainingTokens> | /guard reset | /guard verify-checkpoint", "info");
+      if (sub === "events") {
+        // D5c: operator-facing tail of the diagnostics trail (no prompts/args/secrets
+        // can appear — the file itself is allowlisted at write time).
+        if (!canPersistState()) {
+          ctx.ui.notify("context-guard events: diagnostics are not persisted in read-only audit mode with an in-tree stateDir (zero writes to the audited tree).", "info");
+          return;
+        }
+        const nRaw = parts[1] != null ? Number(parts[1]) : 20;
+        const n = Number.isFinite(nRaw) ? Math.min(200, Math.max(1, Math.floor(nRaw))) : 20;
+        const events = recentDiagnostics(fs, resolvedStateDir(g), n);
+        ctx.ui.notify(
+          events.length === 0
+            ? `context-guard events: no diagnostics recorded yet (${diagnosticsPath(resolvedStateDir(g))})`
+            : `context-guard events (last ${events.length}):\n` + events.map(formatDiagnosticEvent).join("\n"),
+          "info",
+        );
+        return;
+      }
+      ctx.ui.notify("usage: /guard status | /guard simulate <remainingTokens> | /guard reset | /guard verify-checkpoint | /guard events [n]", "info");
     },
   });
 
@@ -909,6 +1028,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       lines.push(header(ev.ok ? "DRY RUN" : "DRY RUN (NOT READY)", ev.identity?.id ?? null, String(readiness)));
       lines.push(`  read-only audit mode: NOT written (would ${fresh.kind !== "current" ? "refresh + attest" : "attest"} the managed blocks; no renewal involvement)`);
       for (const c of ev.checks) if (c.status === "fail") lines.push(`  FAIL ${c.id}: ${c.detail}`);
+      recordDiag("finalize", { ok: ev.ok, dry: true, checkpoint: ev.identity?.id ?? undefined, detail: "audit dry run (zero tree writes)" });
       persistState();
       return { ok: ev.ok, text: lines.join("\n"), checkpointId: ev.identity?.id ?? null, dry };
     }
@@ -917,6 +1037,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       if (!res || !res.ok) {
         lines.push(header("FAILED", res?.identity.id ?? null, "n/a"));
         lines.push(`  checkpoint refresh failed: ${res ? res.errors.join("; ") : "no result"}`);
+        recordDiag("finalize", { ok: false, dry: false, checkpoint: res?.identity.id, detail: "checkpoint refresh failed" });
         persistState();
         return { ok: false, text: lines.join("\n"), checkpointId: res?.identity.id ?? null, dry };
       }
@@ -933,6 +1054,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         // NEVER bypass readiness: blocking failures refuse the attestation with zero stamps.
         lines.push(header("NOT READY", att.checkpointId ?? null, "unattested"));
         for (const e of att.errors) lines.push(`  attestation refused: ${e}`);
+        recordDiag("finalize", { ok: false, dry: false, checkpoint: att.checkpointId ?? undefined, detail: "attestation refused (readiness blocking checks failed)" });
         persistState();
         return { ok: false, text: lines.join("\n"), checkpointId: att.checkpointId ?? null, dry };
       }
@@ -952,6 +1074,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if (chain.state.stopped) {
       lines.push("  operator stop is durable on this chain; finalize neither needs nor clears it (renewal stays refused until /handoff renew resume).");
     }
+    recordDiag("finalize", { ok, dry: false, checkpoint: cpId ?? undefined, detail: ok ? "finalized (current + attested)" : "not ready" });
     persistState();
     setStatus(ctx);
     return { ok, text: lines.join("\n"), checkpointId: cpId, dry };
@@ -972,9 +1095,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     }
     if (renewalRuntime.running || renewalRuntime.pending) {
       notify(ctx, "context-guard: renewal refused (pending): another renewal is already pending/running in this process", "warning");
+      recordDiag("renewal_result", { trigger, ok: false, why: "pending", detail: "another renewal is pending/running in this process" });
       return;
     }
     renewalRuntime.running = true;
+    recordDiag("renewal_request", { trigger });
     try {
       // 0. NO-WRITE pre-gate: stop/read-only/disabled/auto-disabled/pending/cap refuse
       //    before anything touches the tree (authorization/idempotence are re-checked
@@ -993,6 +1118,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         });
         if (!pre.renew) {
           notify(ctx, `context-guard: renewal NOT performed (${pre.why}): ${pre.detail}`, "warning");
+          recordDiag("renewal_result", { trigger, ok: false, why: pre.why, detail: pre.detail });
           return;
         }
       }
@@ -1004,6 +1130,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         const res = checkpoint(ctx, `renewal refresh (${trigger})`, notes, { kind: "manual" });
         if (!res || !res.ok) {
           notify(ctx, `context-guard: renewal ABORTED — checkpoint refresh failed: ${res ? res.errors.join("; ") : "no result"}`, "error");
+          recordDiag("renewal_result", { trigger, ok: false, why: "checkpoint-refresh-failed", detail: res ? res.errors.join("; ").slice(0, 300) : "no result" });
           return;
         }
         fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
@@ -1016,6 +1143,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         });
         if (!att.ok) {
           notify(ctx, `context-guard: renewal ABORTED — attestation refused: ${att.errors.join("; ")}`, "error");
+          recordDiag("renewal_result", { trigger, ok: false, why: "attestation-refused", detail: att.errors.join("; ").slice(0, 300) });
           return;
         }
         fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
@@ -1036,6 +1164,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       });
       if (!decision.renew) {
         notify(ctx, `context-guard: renewal NOT performed (${decision.why}): ${decision.detail}`, "warning");
+        recordDiag("renewal_result", { trigger, ok: false, why: decision.why, detail: decision.detail, checkpoint: checkpointId ?? undefined });
         return;
       }
       // 4. Persist chain state BEFORE the switch: cap + idempotence key must already
@@ -1053,6 +1182,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       const saved = saveRenewalState(fs, stateDir, updated);
       if (!saved.ok) {
         notify(ctx, `context-guard: renewal ABORTED — chain state not persisted (${saved.error}); refusing an uncounted switch`, "error");
+        recordDiag("renewal_result", { trigger, ok: false, why: "chain-state-save-failed", detail: saved.error ?? "unknown", checkpoint: checkpointId ?? undefined });
         return;
       }
       // 5. Mark pending (successor's session_start records lineage; the stop flag
@@ -1077,6 +1207,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         withSession: async (nctx: ReplacedSessionContext) => {
           // From here on the OLD ctx is invalid (A-17.5): report via nctx only.
           notify(nctx, `context-guard: session renewed (${renewalIndex}/${maxRen}) from checkpoint ${checkpointId}; starting successor turn…`, "info");
+          recordDiag("renewal_result", { trigger, ok: true, checkpoint: checkpointId, chain: chainId, renewalsDone: renewalIndex, maxRenewals: maxRen });
           void nctx
             .sendMessage(
               {
@@ -1104,6 +1235,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           updatedAt: Date.now(),
         });
         notify(ctx, "context-guard: renewal CANCELLED by the operator stop — no session switch; chain state rolled back", "warning");
+        recordDiag("renewal_result", { trigger, ok: false, why: "cancelled-by-stop", checkpoint: checkpointId ?? undefined });
       }
       // Success path: do NOT touch ctx here — the successor's session_start handler
       // records lineage, notifies the operator and names the checkpoint it came from.
@@ -1111,6 +1243,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       // Failure path: never leave the pending marker armed; report honestly.
       renewalRuntime.pending = null;
       notify(ctx, `context-guard: renewal FAILED with an error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`, "error");
+      recordDiag("renewal_result", { trigger, ok: false, why: "error", detail: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
     } finally {
       renewalRuntime.running = false;
     }

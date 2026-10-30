@@ -27,7 +27,11 @@ export interface ThresholdsInput {
   closing: number;
 }
 
-export function defaultThresholds(t: ThresholdsInput): Threshold[] {
+export function defaultThresholds(t: ThresholdsInput, opts: { enforceClosing?: boolean } = {}): Threshold[] {
+  // dev.2 D5a: the level-4 alert must describe the ACTUAL policy. With
+  // enforceClosing:false nothing is blocked by the guard, so the alert is advisory
+  // wording only — claiming enforcement would misdirect a model that still has tools.
+  const enforcing = opts.enforceClosing !== false;
   return [
     {
       level: 1,
@@ -62,12 +66,15 @@ export function defaultThresholds(t: ThresholdsInput): Threshold[] {
     {
       level: 4,
       remainingBelow: t.closing,
-      kind: "enforced",
+      kind: enforcing ? "enforced" : "advisory",
       label: "closing",
-      guidance:
-        "CONTEXT CRITICAL (enforced): closing phase active — tools outside the checkpoint allowlist are blocked. Finalize and validate the handoff (/handoff, then /handoff verify), record any " +
-        "unresolved finding in LEARNINGS.md, do not start new experiments, and stop after this closing phase — a fresh session resumes from the files. " +
-        "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
+      guidance: enforcing
+        ? "CONTEXT CRITICAL (enforced): closing phase active — tools outside the checkpoint allowlist are blocked. Finalize and validate the handoff (/handoff, then /handoff verify), record any " +
+          "unresolved finding in LEARNINGS.md, do not start new experiments, and stop after this closing phase — a fresh session resumes from the files. " +
+          "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven)."
+        : "CONTEXT CRITICAL (advisory — enforcement is disabled, the guard blocks nothing, closing is YOUR responsibility): finalize and validate the handoff now (/handoff, then /handoff verify), record any " +
+          "unresolved finding in LEARNINGS.md, do not start new experiments, and stop; a fresh session resumes from the files. " +
+          "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },
   ];
 }

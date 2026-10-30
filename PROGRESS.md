@@ -17,7 +17,7 @@ Increments:
 | D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (capped/disabled/stopped OK; never switches, never touches chain state, never bypasses readiness; no waitForIdle) | IMPLEMENTED — FZ1-FZ9 9/9, suite 146/147, real runtime 32/32; docs updated; committing now |
 | D3 | `scripts/durable_edit.py` targeted durable-doc editing | DONE — DE0-DE11 (12 tests: dry-run, byte-identity, fences, AMBIGUOUS/NOT_FOUND/CONFLICT/MANAGED/MISSING_REF, failed-write atomicity, JSON, guard round-trip stale→refresh, no-git); suite 158/159 |
 | D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | pending |
-| D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | IN PROGRESS (test-first) — pre-D5 adjustments committed: cap 8 verified chain-safe (A-32, RN15), runtime identified (A-31) |
+| D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | DONE — test/d5.test.ts 19/19 (D5a/b, DG1-9, D5d), suite 178/179, e2e-rpc 32/32, skill probe 8/8; A-33; P-9 resolved (GUARD_VERSION banner) |
 | D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | pending |
 
 Dogfooding (corrected 2026-10-30, A-31): the pi process hosting this mission was
@@ -117,20 +117,24 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**Pre-D5 adjustments DONE (A-31 runtime audit, A-32 cap-raise verification + RN15;
-config maxRenewals 8 + generationReserve 5000 committed).** Now executing D5
-(test-first): (a) level-4 alert wording under `enforceClosing:false`;
-(b) `RENEWAL AVAILABLE` only behind a full write-free preview gate (decideRenewal with
-live checkpointId + renewAuthorization + durable stop + cap + readOnly), otherwise safe
-instructions incl. finalize-at-cap; (c) `diagnostics.ts` + `<stateDir>/diagnostics.jsonl`
-(JSONL, ISO+epoch, types session_start/alert/revocation/renewal_request/renewal_result/
-finalize/tool_block/turn_aborted; NO prompts/tool args/secrets; rotation ~500;
-external-stateDir rule in audit mode; `/guard events [n]`); `agent_settled.aborted`
-recorded, NEVER auto-retried; (d) banner label: drop hardcoded "Phase 2 increment B",
-add `GUARD_VERSION` (P-9). Gates after index.ts/core.ts edits: suite, e2e-rpc-two-process
-(32/32), skill probe (8/8); e2e-renew ONLY as the scheduled candidate proof.
-Then D4, D6, dogfood proofs, release docs; STOP for operator review.
-Post-commit ritual: prose via `scripts/durable_edit.py`; refresh via
+**D5 DONE (A-33): parameterized level-4 wording (enforceClosing:false = advisory, gate
+stays open), renewal hint only behind a WRITE-FREE full-gate preview (safe instructions
+incl. handoff_finalize at cap; NOT AVAILABLE names the reason), diagnostics.jsonl +
+/guard events (typed, no prompts/args/secrets, rotation 500, §2.3 audit rule;
+turn_aborted recorded, never auto-retried), GUARD_VERSION banner (P-9 resolved).**
+Next: D4 lean-recovery tiers — operational/methodology/archive, opt-in
+`recovery.lean:false` default, schema v3 compatible, cost meter in verify/finalize/
+status, GENERATED DRPLi-shaped fixture in tests (six docs ~121,312 chars; full mandatory
+set >> budget, lean tier ≤ 12k est tokens, archive refs exist; spec/CLAIMS.md authority
+by reference). Then D6 — pure `crossingPoints` in core.ts (window 95k, reserve 5k →
+used 70/78/82/85k), /guard status crossing line + provenance + honest "guard never
+changes the model window" wording, docs/profiles/experimental-95k.json. Then dogfood
+proofs (e2e-renew real inference on the CANDIDATE incl. model-initiated hop 1 +
+productive continuation; capped-chain finalize zero-inference proof; recovery-cost
+before/after vs A-27), CHANGELOG dev.2 + migration/rollback from dev.1,
+release-readiness assessment; STOP for operator review.
+Gates after any extension edit: suite (≥178), e2e-rpc-two-process (32/32), skill probe
+(8/8). Post-commit ritual: prose via `scripts/durable_edit.py`; refresh via
 `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1; `pi --mode rpc -ne -e <pinned>`);
 commit managed blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 

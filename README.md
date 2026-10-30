@@ -153,6 +153,13 @@ command the successor prompt carries NONE — the dev.1 hardcoded `node --test t
 removed, LEARNINGS A-26). Chain state persists at
 `<stateDir>/renewal-state.json` and survives session replacement and process restarts;
 `/handoff renew stop` writes a DURABLE stop flag that successor sessions inherit.
+Since dev.2 D5c the guard also keeps a bounded structured trail at
+`<stateDir>/diagnostics.jsonl` (typed events, ISO+epoch, allowlisted fields ONLY — never
+prompts, tool arguments or secrets; rotation ~500; read-only audit mode records nothing
+with an in-tree stateDir, only under an external one). `agent_settled.aborted` is
+recorded for attribution but NEVER auto-retried (P-10). `/guard events [n]` shows the
+tail; the identity banner carries `GUARD_VERSION` (env-overridable) instead of a
+hardcoded milestone label (P-9).
 Renewal requires the full Phase 1c gate: current checkpoint ∧ consistent identity ∧
 attested readiness (`renewAuthorization()`) ∧ below cap ∧ checkpoint not already used
 (idempotence). See PROTOCOL §6.
@@ -212,9 +219,12 @@ In a Pi session with the extension loaded (or with `--guard-synthetic 30000` at 
 /guard simulate 4000         # → levels 1–4 crossed at once: one combined alert;
                              #   enforced closing: bash/grep/etc. blocked, only tools in
                              #   closingAllowlist run (default write/edit/read; this
-                             #   project also lists handoff_renew)
+                             #   project also lists handoff_renew). With
+                             #   enforceClosing:false the SAME crossing alerts with
+                             #   advisory wording and blocks nothing (dev.2 D5a)
 /guard simulate 120000       # level relaxes to 0; alerts stay spent (once per session)
 /guard reset                 # re-arm alerts, re-baseline GOAL.md hash (testing only)
+/guard events [n]            # tail of <stateDir>/diagnostics.jsonl (dev.2 D5c)
 ```
 
 To test real measurement instead of synthetic: run `/guard status` during ordinary work;
@@ -372,9 +382,12 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
   What the live experiment proved *precisely*: **one** model-initiated renewal followed
   by **one** operator-initiated renewal (then a cap refusal) — NOT two independently
   spontaneous model renewals, and not unbounded auto-chaining.
-  Pressure alerts alone never force a transition: the `RENEWAL AVAILABLE` hint appears
-  only at level ≥ 3 when `renewal.enabled` ∧ `autoRenew` ∧ no operator stop, and renewal
-  still requires a gate pass (current ∧ identity-consistent ∧ attested ∧ below cap ∧
+  Pressure alerts alone never force a transition, and since dev.2 D5b the model only
+  ever hears "renewal is possible" after a full WRITE-FREE PREVIEW of the real gate
+  passes (live checkpoint identity ∧ authorization ∧ durable stop ∧ cap ∧ read-only ∧
+  pending, zero writes); a refusing preview prints `RENEWAL NOT AVAILABLE (<reason>)`
+  with concrete safe instructions — `handoff_finalize` at the cap. Renewal still requires
+  the same gate at execution time (current ∧ identity-consistent ∧ attested ∧ below cap ∧
   unseen checkpoint id). Unattended/recursive agent
   *launching* (spawning new pi processes) is still NOT implemented: renewal replaces the
   session inside the running process only.

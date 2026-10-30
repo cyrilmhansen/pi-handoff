@@ -5,11 +5,15 @@
 0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 IN PROGRESS on top of tag
    `v0.1.0-dev.1` (`2ea6219`) — operator-authorized D1-D6 reliability/recovery-efficiency
    work from the eight-renewal DRPLi campaign audit (evidence: LEARNINGS A-26/A-27/P-10).
-   D1 (recovery prompt) DONE `6e61967`; D2 (finalize) DONE `8674c90`; D3 tool
-   (`scripts/durable_edit.py`) smoke+dogfood verified, node tests pending; D4-D6 pending.
-   Hard limits: DRPLi READ-ONLY (fixtures only, it is not on this machine); no push/tag/
-   release/deploy without operator authorization; raw campaign logs outside Git. See
-   PROGRESS.md Current-phase table and this file's Next action.**
+   D1 `6e61967`, D2 `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c` (runtime audit
+   A-31 — active guard is the TREE CANDIDATE since the 08:15 process restart; pinned
+   dev.1 byte-identical to the tag, stays the refresh ritual; cap 8 chain-safe A-32 +
+   RN15), D5 (A-33: honest level-4 wording, write-free renewal preview + finalize-at-cap
+   guidance, diagnostics.jsonl + /guard events, GUARD_VERSION banner — P-9 resolved)
+   committing now; D4, D6 pending. Hard limits: DRPLi READ-ONLY (fixtures only, it is not
+   on this machine); no push/tag/release/deploy without operator authorization; raw
+   campaign logs outside Git. See PROGRESS.md Current-phase table and this file's
+   Next action.**
 
 1. Read `AGENTS.md`, then `PROTOCOL.md`, then this file, then `PROGRESS.md`, then
    `GOAL.md`/`LEARNINGS.md`. Do not replay transcripts.
@@ -98,22 +102,21 @@ Outstanding (operator decisions and open proofs — NOT development tasks):
 - [ ] A-22 follow-up: "config-changed-since-session-start" notice (proposal, unbuilt).
 
 ## Next action
-**Pre-D5 adjustments DONE and committed (A-31 runtime audit — active guard is the TREE
-candidate, pinned dev.1 byte-identical to `v0.1.0-dev.1` and reserved for the refresh
-ritual; A-32 cap-raise verification + RN15 regression; config `maxRenewals: 8`,
-`generationReserve: 5000`). Executing D5 test-first** — (a) honest level-4 wording under
-`enforceClosing:false`; (b) `RENEWAL AVAILABLE` only behind a write-free preview gate,
-safe instructions otherwise (finalize at cap); (c) `diagnostics.ts` +
-`<stateDir>/diagnostics.jsonl` + `/guard events [n]`, `agent_settled.aborted` recorded,
-NEVER auto-retried; (d) banner `GUARD_VERSION` (P-9). Then D4, D6, dogfood proofs
-(e2e-renew on the candidate + capped-chain finalize + recovery-cost vs A-27), release
-docs; STOP for operator review. Gates after any extension edit: suite, e2e-rpc (32/32),
-skill probe (8/8); e2e-renew only as the scheduled candidate proof. Post-commit ritual:
-prose via `scripts/durable_edit.py`; refresh via `node /tmp/refresh-pinned.mjs "notes"`
-(PINNED dev.1, `pi --mode rpc -ne -e <pinned>`); commit managed blocks. NEVER
-push/tag/release; DRPLi untouched; raw logs outside Git.
+**D5 DONE and committing (A-33). Next: D4 lean-recovery tiers, then D6 95k profile,**
+then dogfood proofs (real-inference e2e-renew on the candidate incl. model-initiated
+hop 1 + byte-exact recovery checks + productive continuation; capped-chain finalize
+zero-inference proof; recovery-cost before/after vs A-27) and release docs (CHANGELOG
+dev.2, migration/rollback from dev.1); STOP for operator review.
+D4/D6 scope details: PROGRESS.md "Next action" (exact parameters, fixtures, budgets).
+Gates after any extension edit: suite (≥178 pass / 1 skip), e2e-rpc-two-process (32/32),
+skill probe (8/8 — required after `.agents/skills/` edits); e2e-renew ONLY as the
+scheduled candidate proof. Post-commit ritual: prose via `scripts/durable_edit.py`;
+refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard, `pi --mode rpc
+-ne -e <pinned>` — `-ne` required, P-12); commit managed blocks. NEVER push/tag/release;
+DRPLi untouched; raw logs outside Git.
 
-Historical successor sequence (D4/D6 details; D5 superseded by the above):
+Historical successor sequence (superseded for D5 by the above; D4/D6 details live in
+PROGRESS.md):
 
 1. Gates first: `node --test test/` (expect **158 pass / 1 skip**),
    `node scripts/e2e-rpc-two-process.mjs` (**32/32**), `node scripts/check-skill-discovery.mjs`

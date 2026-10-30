@@ -31,7 +31,7 @@ remaining** = window − estimated used − max(generationReserve, safetyReserve
 | 1 (~≤30k remaining) | checkpoint | update PROGRESS.md (completed, blockers, exact next action) |
 | 2 (~≤20k) | wrap up | finish the current substantial task; open no new work |
 | 3 (~≤10k) | handoff | prioritize durable handoff: update HANDOFF.md before anything else; the guard also auto-checkpoints |
-| 4 (~≤5k) | **enforced closing** | only tools in `closingAllowlist` run (default write/edit/read; renewal-enabled projects add `handoff_renew`); finish checkpoints and stop |
+| 4 (~≤5k) | **enforced closing** | only tools in `closingAllowlist` run (default write/edit/read; renewal-enabled projects add `handoff_renew`); finish checkpoints and stop. With `enforceClosing:false` the same crossing alerts with ADVISORY wording and blocks nothing — alert text always matches live policy |
 
 A revocation notice means pressure dropped and a previous closing instruction is
 **historical**, not current policy.
@@ -65,18 +65,22 @@ A revocation notice means pressure dropped and a previous closing instruction is
   most one successor (idempotence); pending switches are cancellable.
 - Policy meanings are distinct: `renewal.enabled` (default **false**) switches the whole
   mechanism on — operator `/handoff renew` only; `renewal.autoRenew` (default **false**)
-  *additionally* authorizes the model path (registers the `RENEWAL AVAILABLE` hint at
-  level ≥ 3 and permits the `handoff_renew` tool). Pressure alerts alone NEVER force a
-  transition. The `handoff_renew` tool exists whenever the guard loads but refuses with
-  a named reason unless policy + gates allow; to be callable during enforced closing it
-  must be listed in `closingAllowlist`.
+  *additionally* authorizes the model path (permits the `handoff_renew` tool and the
+  level-≥3 renewal hint — which since dev.2 D5b only appears as `RENEWAL AVAILABLE` when
+  a full WRITE-FREE preview of the real gate passes, otherwise as `RENEWAL NOT AVAILABLE
+  (<reason>)` with concrete safe instructions, `handoff_finalize` at the cap). Pressure
+  alerts alone NEVER force a transition. The `handoff_renew` tool exists whenever the
+  guard loads but refuses with a named reason unless policy + gates allow; to be callable
+  during enforced closing it must be listed in `closingAllowlist`.
 
 ## Testing and audit without token spend
 
 - `/guard simulate <remainingTokens>` forces a threshold crossing; `/guard reset`
   re-arms alerts and re-baselines the GOAL hash (testing only).
 - `/guard status` prints the full budget breakdown, provenance, identity/readiness,
-  renewal line.
+  renewal line. `/guard events [n]` tails the structured diagnostics trail
+  (`<stateDir>/diagnostics.jsonl`; typed, bounded, never prompts/args/secrets;
+  `agent_settled.aborted` is recorded for attribution and NEVER auto-retried).
 - Read-only audit session: `CONTEXT_GUARD_READONLY=1 CONTEXT_GUARD_STATE_DIR=/tmp/...
   pi -e <ext>` — zero writes inside the project tree; checkpoints become reported dry
   runs. Instructing the model not to edit is NOT read-only; this mode is. Audit mode is

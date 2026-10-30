@@ -22,7 +22,7 @@ estimate, so thresholds are advisory budgets, not guarantees.
 | 1 | ≤ 30 000 | advisory | checkpoint: update PROGRESS.md (completed, blockers, exact next action) |
 | 2 | ≤ 20 000 | advisory | finish the current substantial task; do not open new work |
 | 3 | ≤ 10 000 | advisory | prioritize durable handoff: write HANDOFF.md before anything else |
-| 4 | ≤ 5  000 | **enforced** | controlled closing: only tools in `closingAllowlist` run (default `write/edit/read`; renewal-enabled projects add `handoff_renew` so the model can still renew during closing); finish checkpoints and stop |
+| 4 | ≤ 5  000 | **enforced** (advisory when `enforceClosing:false`) | controlled closing: only tools in `closingAllowlist` run (default `write/edit/read`; renewal-enabled projects add `handoff_renew` so the model can still renew during closing); finish checkpoints and stop. With enforcement off the alert says so explicitly and blocks nothing — the alert text always matches live policy (dev.2 D5a) |
 
 Configuration: `handoff.config.json` (`thresholds`, `enforceClosing`, `closingAllowlist`,
 `generationReserve`, `safetyReserve`, `protectGoal`, `maxConsecutiveUnknown`, `stateDir`,
@@ -30,7 +30,8 @@ Configuration: `handoff.config.json` (`thresholds`, `enforceClosing`, `closingAl
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<n>`, `CONTEXT_GUARD_READONLY=1`,
 `CONTEXT_GUARD_STATE_DIR=<path>`, `CONTEXT_GUARD_AUTO_RENEW=1|0` (force-enable/disable
-the renewal policy for this process); CLI flags `--guard-synthetic <n>`, `--guard-readonly <1>`.
+the renewal policy for this process), `GUARD_VERSION=<string>` (banner version override
+for probes/forensics); CLI flags `--guard-synthetic <n>`, `--guard-readonly <1>`.
 
 Alert semantics:
 - One alert per threshold crossing per session (even if headroom later returns).
@@ -42,7 +43,9 @@ Alert semantics:
   silently released by missing data).
 
 Advisory vs enforced: levels 1–3 change agent *guidance* only; level 4 blocks new
-non-checkpoint tool calls (`tool_call` gate) when `enforceClosing` is true. GOAL.md is
+non-checkpoint tool calls (`tool_call` gate) when `enforceClosing` is true — and when it
+is false the level-4 alert is worded as advisory and blocks nothing
+(`defaultThresholds(t,{enforceClosing})`).. GOAL.md is
 protected at all levels when `protectGoal` is true.
 
 ## 2. Checkpoint semantics
@@ -223,12 +226,27 @@ never-push). No transcript replay, no LLM summarization, no compaction.
 `renewal.enabled` and `renewal.autoRenew` mean DIFFERENT things: `enabled` switches the
 whole mechanism on (operator `/handoff renew` becomes possible); `autoRenew` *additionally*
 authorizes the **model-initiated** path — the `handoff_renew` tool and the
-`RENEWAL AVAILABLE` hint (surfaced at level ≥ 3 only when enabled ∧ autoRenew ∧ no
-operator stop ∧ no pending renewal). **Pressure alerts alone never force a transition**;
+`RENEWAL AVAILABLE` hint (dev.2 D5b: surfaced at level ≥ 3 ONLY when a full WRITE-FREE
+PREVIEW of the real gate passes — `decideRenewal` with the live checkpoint identity,
+`renewAuthorization()`, durable stop, cap, read-only and pending state, zero writes;
+otherwise the alert carries `RENEWAL NOT AVAILABLE (<reason>)` plus concrete safe
+instructions, including `handoff_finalize` at the cap — never a promise the gate would
+break) ∧ no pending renewal). **Pressure alerts alone never force a transition**;
 transition always requires a gate pass and an explicit trigger (command or tool call).
 The `handoff_renew` tool is registered whenever the guard loads, but its pre-gate refuses
 cheaply (zero writes, no schedule) unless the policy allows model renewal; during enforced
 level-4 closing it is callable only if listed in `closingAllowlist`.
+
+**Structured diagnostics (dev.2 D5c)** persist a bounded, typed trail at
+`<stateDir>/diagnostics.jsonl` (JSONL, ISO+epoch; types `session_start`, `alert`,
+`revocation`, `renewal_request`, `renewal_result`, `finalize`, `tool_block`,
+`turn_aborted`; allowlisted fields only — NEVER prompts, tool arguments or secrets;
+rotation keeps the last ~500 entries; read-only audit mode records NOTHING with an
+in-tree `stateDir` and persists only under an external one — the §2.3 rule). `agent_settled.aborted`
+is the interruption signal: it is RECORDED for later attribution, and the guard NEVER
+retries an aborted generation automatically (P-10 constraint). `/guard events [n]` shows
+the tail. The identity banner carries `GUARD_VERSION` (env-overridable) instead of any
+hardcoded milestone label (P-9).
 
 **Finalization (dev.2 D2)** is independent of the renewal contract: `/handoff finalize
 [notes]` (operator) and the `handoff_finalize` tool (model) run refresh + readiness
