@@ -209,27 +209,30 @@ Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 23
-checkpoint-id: g23-e4216cdfde40
+checkpoint-generation: 24
+checkpoint-id: g24-c07d154786d9
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
 guard-level: 0
-checkpointed: 2026-10-30T08:51:32.110Z
+checkpointed: 2026-10-30T09:09:30.833Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 3dd62f2b9fb90baf8217834694c09d8535d361fe9707458f13b5168b614d5049
-source-handoff: 6e299fffef4b90bb651dd9813f3cf4515510048a0748edfe10019fa590fa9b32
-source-learnings: bdcbbcada606b009d3b3c87a66f6b66fec386de9a3ec4c799e3d6f4f3ca62f30
+source-progress: 4766ab3849f660c230db88b76a929193f84023ea51e996596a1024be93ff39a5
+source-handoff: 49d63f50ce70a592a597baed7ffdf0223b9b1bc5e720c5bef656dfd65bb820df
+source-learnings: 0a7985f28fb241574a6077334c10b45dcf0c92a816aee7f696b08473edbdafc8
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
-next-action: **D4 + D6 committed; dogfood proofs + release docs remain (A-35). Successor
-sequence (exact steps in PROGRESS.md "Next action"): e2e-renew real inference on
-the candidate (model-initiated hop 1 under the D5b preview gate, byte-exact
-recovery checks) → recovery-cost write-up vs A-27 (meter numbers in A-35) →
-CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
-STOP for operator review. Gates: suite (≥187/1 skip), e2e-rpc (38/38), probe (8/8).
-Ritual: refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 — finalize is
-NOT available there, P-12; it stays the recovery infrastructure), commit managed
-blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
+next-action: **STOP — dev.2 COMPLETE, awaiting OPERATOR REVIEW (A-36, CHANGELOG.md). No further
+implementation without operator direction.** Operator decision points: (1) review the
+dev.2 range `4df08a8..HEAD` (one commit per increment + refreshes); (2) authorize or
+withhold tag `v0.1.0-dev.2` + push (NEITHER is done); (3) separately authorize `drpli`
+reuse (blueprint: docs/long-project-guide.md §7 + skill bootstrap; CHANGELOG migration/
+rollback sections are the install notes); (4) optional policy calls: enable
+`recovery.lean`, raise `renewal.autoRenew`, adjust caps. Open caveats that travel with
+any release claim: P-5 concurrency NOT generalized; P-7 live closing point NOT observed
+under real accounting (nominal crossings printed live, never reached); lean-tier benefit
+is fixture/meter projection (chars/4), not campaign re-run. Successors: if woken without
+operator input, verify gates (`node --test test/`, e2e-rpc, probe), do NOT open new
+implementation, keep docs/checkpoints current.
 
 Historical successor sequence (superseded for D5/D4 by the above; D6 details live in
 PROGRESS.md):
@@ -265,7 +268,7 @@ PROGRESS.md):
    `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
    <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
-readiness-by: session:01a18c01-ce83-735c-9c90-f90d0b5d7fd1
-readiness-at: 2026-10-30T08:51:32.211Z
-readiness-checkpoint: g23-e4216cdfde40
+readiness-by: session:01a18c12-4417-769d-84ab-10b7579ec82f
+readiness-at: 2026-10-30T09:09:30.933Z
+readiness-checkpoint: g24-c07d154786d9
 <!-- guard:end checkpoint -->
