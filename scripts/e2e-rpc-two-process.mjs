@@ -166,6 +166,7 @@ const auditTree = makeProject("audit");
 
 let exitCode = 0;
 let intree = "";
+let capTree = "";
 try {
   // ---- two normal sessions racing on ONE tree ----
   const a = startRpc({ dir: tree, agentDir: agentA, label: "A" });
@@ -250,6 +251,7 @@ try {
   check("A/B: renewal authorization reflects readiness (Phase 2 gate)", auth.authorized === (f.kind === "current" && f.readiness?.state === "attested"), JSON.stringify(auth));
   const texts = a.uiTexts().concat(b.uiTexts()).join("\n");
   check("A/B: real runtime prints the detailed budget report", /usable remaining:/.test(texts) && /generation reserve:/.test(texts) && /provenance:/.test(texts));
+  check("A/B: dev.2 D6 crossing line present with honest window ownership (crossings when known, explicit unavailable otherwise)", /threshold crossings/.test(texts) && /never changes/.test(texts), texts.split("\n").find((l) => /threshold crossings/.test(l))?.slice(0, 220) ?? "(no crossing line)");
   check("A/B: enforced closing reported at level 4", /ENFORCED closing/.test(texts) || /level 4/.test(texts));
   check("A/B: no extension errors in the real runtime", !/extension_error|ParseError|not defined/.test(texts + "\n" + a.stderr.join("") + b.stderr.join("")), (a.stderr.join("") + b.stderr.join("")).slice(0, 200));
 
@@ -292,6 +294,37 @@ try {
   check("AUDIT-IN-TREE: suppressed repairs are reported, not performed", /suppressed/.test(t2) && /repair/i.test(t2), t2.split("\n").find((l) => /repair/i.test(l))?.slice(0, 160) ?? "(no repair line: " + t2.slice(0, 120) + ")");
   check("AUDIT-IN-TREE: /guard status names the in-tree state dir as unpersistable", /READ-ONLY audit mode/.test(t2));
 
+  // ---- dev.2 D2 dogfood proof: CAPPED-CHAIN FINALIZATION in the real runtime, zero ----
+  // ---- inference. The exact DRPLi campaign closing scenario (A-27): cap 8/8        ----
+  // ---- exhausted, obsolete checkpoint. Renewal must refuse at the cap BEFORE        ----
+  // ---- waitForIdle (so the refusal itself is provably zero-inference), and finalize  ----
+  // ---- must succeed anyway WITHOUT touching chain bytes or switching sessions.       ----
+  capTree = makeProject("capped");
+  const capAgent = path.join(root, "agent-cap");
+  fs.mkdirSync(capAgent, { recursive: true });
+  const capStatePath = path.join(capTree, ".pi-guard", "renewal-state.json");
+  const capSeed = JSON.stringify({ version: 1, chainId: "chain:capped-e2e", renewalsDone: 8, renewedFromCheckpointId: "g1-000000000000", lastSuccessorSessionId: null, stopped: false, updatedAt: 1 });
+  fs.writeFileSync(capStatePath, capSeed);
+  const cap = startRpc({ dir: capTree, agentDir: capAgent, label: "CAP" });
+  await awaitReady(cap);
+  const capId = (await cap.command({ id: "cap-state", type: "get_state" })).data?.sessionId;
+  await cap.command({ id: "cap-renew", type: "prompt", message: "/handoff renew capped proof" });
+  await new Promise((r) => setTimeout(r, 800));
+  const capTexts = cap.uiTexts().join("\n");
+  check("CAP: /handoff renew refused at the cap BEFORE any idle-wait or switch (zero inference)", /NOT performed \(capped\)/.test(capTexts) && /cap reached \(8\/8\)/.test(capTexts), capTexts.split("\n").find((l) => /NOT performed/.test(l))?.slice(0, 180) ?? "(no refusal line)");
+  const finCap = await cap.command({ id: "cap-fin", type: "prompt", message: "/handoff finalize capped-chain proof" });
+  await new Promise((r) => setTimeout(r, 800));
+  const capFinTexts = cap.uiTexts().join("\n");
+  check("CAP: finalize SUCCEEDS on an exhausted 8/8 chain (FINALIZED, chain UNTOUCHED, no switch claim)", finCap.success && finCap.data?.disposition === "handled" && /-> FINALIZED/.test(capFinTexts) && /UNTOUCHED/.test(capFinTexts) && /no session switch/.test(capFinTexts), capFinTexts.split("\n").find((l) => /FINALIZE/.test(l))?.slice(0, 200) ?? "(no finalize line)");
+  check("CAP: renewal-state.json byte-identical after the whole capped closing (done stays 8/8, seed preserved)", fs.readFileSync(capStatePath, "utf8") === capSeed);
+  check("CAP: same session at the end (finalize never switches)", (await cap.command({ id: "cap-state2", type: "get_state" })).data?.sessionId === capId);
+  const rsBefore = cap.uiTexts().length;
+  await cap.command({ id: "cap-rs", type: "prompt", message: "/handoff renew status" });
+  await new Promise((r) => setTimeout(r, 500));
+  const rsTexts = cap.uiTexts().slice(rsBefore).join("\n");
+  check("CAP: renew status reports the exhausted chain 8/8", /renewalsDone=8\/8/.test(rsTexts), rsTexts.split("\n").find((l) => /renewalsDone=/.test(l))?.slice(0, 180) ?? "(no renewalsDone line)");
+  await cap.shutdown();
+
   // ---- optional: ONE minimal real turn  // ---- optional: ONE minimal real turn (spends inference; off by default) ----
   if (process.env.GUARD_E2E_LLM === "1") {
     // LIVE delivery check (spends real inference; opt-in only). Uses the user's real
@@ -333,7 +366,7 @@ try {
   check("e2e driver completed without throwing", false, err instanceof Error ? err.stack ?? err.message : String(err));
 } finally {
   if (process.env.GUARD_E2E_KEEP !== "1") {
-    for (const d of [tree, auditTree, intree, root]) fs.rmSync(d, { recursive: true, force: true });
+    for (const d of [tree, auditTree, intree, capTree, root]) fs.rmSync(d, { recursive: true, force: true });
   } else {
     console.log(`kept artifacts: ${tree} ${auditTree} ${intree} ${root}`);
   }

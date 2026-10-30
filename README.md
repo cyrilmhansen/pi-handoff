@@ -123,6 +123,20 @@ Two things this reserve is **not**:
 source**, usable remaining, reserve fraction, provenance, inconsistencies) and flags a
 reserve above 25 % of the window.
 
+Since dev.2 D6 it also prints the **escalation crossings in estimated used tokens**
+(`crossingPoints` in `core.ts`): for each level the used-token point at which it fires
+(arithmetic: window − reserve − threshold, same formula as the live budget), with live
+reserve provenance and the enforced/advisory kind of the CURRENT closing policy (D5a
+honesty travels). The line states the boundary honestly: the guard **never changes the
+model window** — it belongs to the model/provider — and crossings are advisory policy
+budgets over Pi's *estimate*, not exact accounting. A crossing resolving to ≤ 0 (reserve
+plus threshold larger than the window) is flagged, not hidden: that level would already
+be active at session start. Example profile: `docs/profiles/experimental-95k.json`
+(window 95 000, reserve 5 000, thresholds 20k/12k/8k/5k → crossings at used ≥
+70k/78k/82k/85k); `test/d6.test.ts` D6x2 proves that file self-consistent through the
+real `mergeConfig` path, D6x1 reproduces the A-11 Sushi figures (124 464 / 134 464 /
+144 464 / 149 464) from the same function.
+
 **Experimental policy change (Phase 2, adopted for this project):** this project now uses
 `"generationReserve": 20000` (LEARNINGS P-7, adopted experimentally for renewal work).
 With the declared 220 000 window and default thresholds this moves nominal closing from

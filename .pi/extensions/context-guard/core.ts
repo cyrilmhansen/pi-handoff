@@ -348,6 +348,76 @@ export function nextThresholds(thresholds: Threshold[], remaining: number | null
   return { nextCrossing: wrap(candidates[0]), nextAlert: wrap(candidates.find((t) => !spent.has(t.level))) };
 }
 
+export interface CrossingPoint {
+  /** 1..4, higher = more pressure */
+  level: GuardLevel;
+  label: string;
+  /** Live policy kind — with enforceClosing:false L4 is advisory (D5a honesty). */
+  kind: ThresholdKind;
+  /** The level activates when usable remaining drops to or below this value. */
+  remainingBelow: number;
+  /**
+   * Estimated used tokens at which usable remaining reaches `remainingBelow`:
+   * `window − reserve − remainingBelow` — the SAME arithmetic as `computeBudget`.
+   * May be ≤ 0: the level would already be active at session start.
+   */
+  usedAt: number;
+}
+
+export interface CrossingReport {
+  /** The resolved reserve whose value went into the arithmetic (provenance). */
+  reserve: ReserveSelection;
+  /** Ascending by usedAt = escalation order; EMPTY when the window is unknown. */
+  crossings: CrossingPoint[];
+}
+
+/**
+ * dev.2 D6: express the thresholds as the practical question — "at which USED-token
+ * count does each level fire?" Pure arithmetic over the DECLARED window and the
+ * resolved reserve, sharing `computeBudget`'s formula (usable = window − used −
+ * reserve). The guard does not own the window: it comes from the runtime model /
+ * provider and the guard never changes it; `used` is a Pi ESTIMATE (A-1/A-18), so
+ * crossing points are advisory budgets, never exact accounting.
+ */
+export function crossingPoints(input: {
+  contextWindow: number | null | undefined;
+  reserve: ReserveSelection;
+  thresholds: Threshold[];
+}): CrossingReport {
+  const window = numOrNull(input.contextWindow);
+  const crossings: CrossingPoint[] =
+    window == null || window <= 0
+      ? []
+      : input.thresholds
+          .map((t) => ({
+            level: t.level,
+            label: t.label,
+            kind: t.kind,
+            remainingBelow: t.remainingBelow,
+            usedAt: window - input.reserve.selected - t.remainingBelow,
+          }))
+          .sort((a, b) => a.usedAt - b.usedAt);
+  return { reserve: input.reserve, crossings };
+}
+
+/** One-line operator rendering for `/guard status` (dev.2 D6). */
+export function crossingPointsLine(report: CrossingReport): string {
+  const n = (x: number) => x.toLocaleString("en-US");
+  if (report.crossings.length === 0) {
+    return "threshold crossings: unavailable (context window unknown — the guard only reports the window declared by the model/provider; it never changes it)";
+  }
+  const parts = report.crossings.map(
+    (c) =>
+      `L${c.level} ${c.label} (${c.kind}) at used ≥ ${n(c.usedAt)}` +
+      (c.usedAt <= 0 ? " (!! ≤ 0: this level would already be active at session start — the reserve/threshold budget is too tight for this window)" : ""),
+  );
+  return (
+    `threshold crossings (estimated used, escalation order): ${parts.join("; ")} — ` +
+    `arithmetic: window − reserve − threshold (reserve ${n(report.reserve.selected)}, source: ${report.reserve.source}). ` +
+    "The guard never changes the model window (owned by the model/provider); these points are advisory policy budgets computed from Pi's estimated usage, not exact accounting."
+  );
+}
+
 export interface Transition {
   previousLevel: GuardLevel;
   level: GuardLevel;

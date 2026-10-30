@@ -1,0 +1,8 @@
+{
+  "_description": "EXPERIMENTAL dev.2 D6 profile for a small (95 000 token) context window — e.g. a provider-declared budget far below Sushi's 220k. Copy into handoff.config.json (project root) ONLY as an explicit experiment: thresholds and reserves here are a POLICY choice, not a safe default. This file is an example; the guard loads ONLY handoff.config.json, never anything under docs/. The guard NEVER changes the model window — the window belongs to the model/provider and is what the runtime declares; these numbers are advisory policy budgets computed over Pi's ESTIMATED usage (chars/4-class estimate, LEARNINGS A-1/A-18). Arithmetic (PROTOCOL §1): usable = window - used - reserve, so a level with remainingBelow R crosses at used >= window - reserve - R. Verified by test/d6.test.ts D6x2 (this file merged through the real mergeConfig + crossingPoints). Do not use a reserve near the window: with generationReserve 'model' and a 65 536 max-output model on a 95k window EVERY threshold sits at used <= 0, i.e. level 4 would be active at session start (the '!! too tight' flag in /guard status).",
+  "_windowAssumption": 95000,
+  "_expectedCrossings": { "L1": 70000, "L2": 78000, "L3": 82000, "L4": 85000 },
+  "generationReserve": 5000,
+  "safetyReserve": 0,
+  "thresholds": { "advisory": 20000, "wrapUp": 12000, "handoff": 8000, "closing": 5000 }
+}

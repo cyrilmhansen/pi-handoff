@@ -13,7 +13,12 @@ per request (`pi-ai` `clampMaxTokensToContext`), so a long generation is truncat
 provider instead of overflowing the window. With Sushi's 220 000/65 536 that puts enforced
 closing at ≈150 k used, not 220 k — `/guard status` reports every component (raw remaining,
 reserve and its source, usable remaining, reserve fraction, provenance, inconsistencies) and
-flags a reserve above 25 % of the window.
+flags a reserve above 25 % of the window. `/guard status` additionally prints the
+escalation crossings in estimated used tokens (dev.2 D6, pure `crossingPoints`:
+window − reserve − threshold, identical to the live budget arithmetic) with live reserve
+provenance, the enforced/advisory kind under the CURRENT closing policy, a "too tight"
+flag for crossings ≤ 0, and the honest statement that the guard never changes the model
+window (it belongs to the model/provider). Example profiles: `docs/profiles/`.
 Estimation comes from Pi's `ctx.getContextUsage()` (see README §verified API); it is an
 estimate, so thresholds are advisory budgets, not guarantees.
 

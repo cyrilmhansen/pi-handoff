@@ -28,6 +28,8 @@ import pathDefault from "node:path";
 
 import {
   computeBudget,
+  crossingPoints,
+  crossingPointsLine,
   defaultThresholds,
   syntheticBudget,
   ContextPressureMachine,
@@ -320,6 +322,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       `  raw remaining: ${m.rawRemaining == null ? "unknown" : Math.floor(m.rawRemaining)} (window - used, no reserve subtracted)`,
       `  generation reserve: ${m.reserve.selected}${m.reserveFraction == null ? "" : ` = ${(m.reserveFraction * 100).toFixed(1)}% of the window`} (source: ${RESERVE_LABEL[m.reserve.source] ?? m.reserve.source}; safetyReserve ${m.reserve.safetyReserve})`,
       `  usable remaining: ${m.usableRemaining == null ? "unknown" : Math.floor(m.usableRemaining)} = window - used - reserve`,
+      `  ${crossingPointsLine(crossingPoints({ contextWindow: m.contextWindow, reserve: m.reserve, thresholds: defaultThresholds(g.config.thresholds, { enforceClosing: g.config.enforceClosing }) }))}`,
       `  guard level: ${s.currentLevel}${s.currentLevel >= 4 && g.config.enforceClosing ? ` (ENFORCED closing: only ${g.config.closingAllowlist.join(", ")} run)` : ""}; alerts spent [${s.alertedLevels.join(", ")}]; revoked notices [${(s.revokedLevels ?? []).join(", ")}]; evaluations ${s.evaluations}${s.degraded ? "; DEGRADED (measurements unavailable)" : ""}`,
       `  next threshold: ${nextText}`,
       `  measurement: ${m.status}${m.reason ? ` (${m.reason})` : ""}`,

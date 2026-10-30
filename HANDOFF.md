@@ -8,12 +8,15 @@
    D1 `6e61967`, D2 `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c` (runtime audit
    A-31 — active guard is the TREE CANDIDATE since the 08:15 process restart; pinned
    dev.1 byte-identical to the tag, stays the refresh ritual; cap 8 chain-safe A-32 +
-   RN15), D5 (A-33), D4 (A-34: lean recovery tiers recovery.lean opt-in + cost meter;
-   RC1-RC6; GREEN SUITE 184/185, E2E 32/32, PROBE 8/8 — BUT UNCOMMITTED: L4 closed the
-   session before bash could run; successor commits it FIRST — exact file list and
-   commands in PROGRESS.md top checkpoint block). REMAINING: D6 (95k profile crossings), dogfood
-   proofs (e2e-renew real inference on the candidate; capped-chain finalize;
-   recovery-cost vs A-27), CHANGELOG dev.2 + migration/rollback + release-readiness;
+   RN15), D5 `05379b0` (A-33), D4 `b86b0fe` (A-34 — committed by successor 01a18bef
+   after the parent session's L4 closed bash; verified green BEFORE commit), D6
+   committing now (A-35: pure crossingPoints + /guard status crossing line +
+   docs/profiles/experimental-95k.json + D6x1-3; suite 187/1 skip; real-runtime
+   e2e-rpc 38/38 INCLUDING the capped-chain finalization proof — 5 CAP checks, zero
+   inference — and the live crossing-line check). REMAINING: dogfood proofs
+   (e2e-renew real inference on the candidate with model-initiated hop 1 under the
+   D5b preview gate), recovery-cost before/after write-up vs A-27 (meter numbers
+   captured in A-35), CHANGELOG dev.2 + migration/rollback + release-readiness;
    STOP for operator review. Hard limits: DRPLi READ-ONLY (fixtures only, not on this
    machine); no push/tag/release/deploy without operator authorization; raw campaign
    logs outside Git. See PROGRESS.md "Next action" for the exact remaining steps.**
@@ -105,12 +108,12 @@ Outstanding (operator decisions and open proofs — NOT development tasks):
 - [ ] A-22 follow-up: "config-changed-since-session-start" notice (proposal, unbuilt).
 
 ## Next action
-**D4 committing now (A-34). Successor sequence (exact steps in PROGRESS.md "Next
-action"): D6 → dogfood proofs (e2e-renew real inference on the candidate incl.
-model-initiated hop 1 — note D5b: the RENEWAL AVAILABLE hint now requires a passing
-write-free preview; capped-chain finalize zero-inference proof; recovery-cost before/
-after vs A-27) → CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
-STOP for operator review. Gates: suite (≥184/1 skip), e2e-rpc (32/32), probe (8/8).
+**D4 + D6 committed; dogfood proofs + release docs remain (A-35). Successor
+sequence (exact steps in PROGRESS.md "Next action"): e2e-renew real inference on
+the candidate (model-initiated hop 1 under the D5b preview gate, byte-exact
+recovery checks) → recovery-cost write-up vs A-27 (meter numbers in A-35) →
+CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
+STOP for operator review. Gates: suite (≥187/1 skip), e2e-rpc (38/38), probe (8/8).
 Ritual: refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 — finalize is
 NOT available there, P-12; it stays the recovery infrastructure), commit managed
 blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.

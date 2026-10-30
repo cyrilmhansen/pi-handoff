@@ -2,20 +2,22 @@
 
 ## Current phase
 
-**Checkpoint (level 4, session 01a18baa, ~4.3k remaining): CLOSING — HANDOFF STATE:
-D1/D2/D3/D5 committed (`6e61967`, `8674c90`+`eb3bf5d`, `1d48de3`, D5+g19); pre-D5
-adjustments committed (`fcea69c`, `b6445aa`; A-31/A-32/RN15; cap 8 chain-safe, runtime
-identified). D4 IS COMPLETE AND GREEN BUT UNCOMMITTED (bash blocked at L4): files in
-the working tree — .pi/extensions/context-guard/recovery.ts (NEW), renewal.ts (lean
-body), config.ts (recovery block + CONTEXT_GUARD_LEAN), index.ts (meter in
-status/verify/finalize + lean in runRenewal), test/recovery.test.ts (RC1-RC6),
-README/PROTOCOL docs, LEARNINGS A-34, this + HANDOFF prose. Suite 184/185 (1 skip),
-e2e-rpc 32/32, probe 8/8 ALL VERIFIED ON THIS TREE. Successor action 0: re-run
-`node --test test/` (expect ≥184/1 skip), then `git add -A && git commit` with
-message "dev.2 D4: lean recovery tiers + recovery-cost meter (A-34)" + refresh ritual
-(g20+), THEN PROGRESS "Next action" (D6 → dogfood proofs → release docs → STOP for
-operator review). Renewals 1/8 used, chain chain:01a18a1a…, guard here = tree
-candidate (A-31).
+**Current (successor session 01a18bef, renewal 2/8): D4 COMMITTED (`b86b0fe`) and D6
+COMPLETE + VERIFYING (A-35).** The parent session (01a18baa) was closed at L4 with D4
+green-but-uncommitted; this successor re-ran the suite FIRST (184/185 pass, 1 skip),
+committed D4 with explicit paths, then implemented D6 test-first: pure `crossingPoints`/
+`crossingPointsLine` in `core.ts` (used-token crossings, identical arithmetic to
+`computeBudget`, provenance + kind + too-tight flag + "guard never changes the model
+window" wording), one `/guard status` line, `docs/profiles/experimental-95k.json`
+(the plan's 95k/5k profile → crossings 70k/78k/82k/85k, self-consistency asserted
+through the REAL mergeConfig path in D6x2), tests D6x1-3. The capped-chain
+finalization proof (A-27 closing scenario) now runs in the REAL runtime, zero
+inference: e2e-rpc CAP section 5 checks (pre-gate refusal BEFORE waitForIdle, finalize
+FINALIZED + chain byte-identical, no switch). Suite 187 pass / 1 skip; e2e-rpc 38/38;
+skill probe 8/8. Remaining: e2e-renew real-inference candidate proof → recovery-cost
+write-up vs A-27 → CHANGELOG dev.2 + migration/rollback + release-readiness → STOP
+for operator review. Renewals 2/8 used (this session), chain chain:01a18a1a…, guard
+here = tree candidate pre-D6 load (A-31); refresh ritual via pinned dev.1.
 
 **Mission v0.1.0-dev.2 (IN PROGRESS, started 2026-10-30).** Operator-authorized development
 mission on top of tag `v0.1.0-dev.1` (`2ea6219`): implement D1-D6 from the eight-renewal
@@ -33,7 +35,7 @@ Increments:
 | D3 | `scripts/durable_edit.py` targeted durable-doc editing | DONE — DE0-DE11 (12 tests: dry-run, byte-identity, fences, AMBIGUOUS/NOT_FOUND/CONFLICT/MANAGED/MISSING_REF, failed-write atomicity, JSON, guard round-trip stale→refresh, no-git); suite 158/159 |
 | D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | DONE — recovery.ts + config recovery.lean (default false) + tiers + cost meter in status/verify/finalize; RC1-RC6 6/6, suite 184/185, e2e 32/32, probe 8/8; A-34; committing now |
 | D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | DONE — test/d5.test.ts 19/19 (D5a/b, DG1-9, D5d), suite 178/179, e2e-rpc 32/32, skill probe 8/8; A-33; P-9 resolved (GUARD_VERSION banner) |
-| D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | pending |
+| D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | DONE — core.ts crossingPoints + status line + docs/profiles/experimental-95k.json; D6x1-3; suite 187/188, e2e-rpc 38/38 (CAP finalized proof + crossing-line check), probe 8/8; A-35; committing now |
 
 Dogfooding (corrected 2026-10-30, A-31): the pi process hosting this mission was
 RESTARTED at 08:15+01:00 (session 01a18a1a resumed → renewal into 01a18baa), so the
@@ -88,10 +90,9 @@ Documentation consolidation (this pass):
 
 ## Pending
 
-- [ ] **v0.1.0-dev.2 mission**: D1-D3 DONE and committed; pre-D5 adjustments (cap raise
-      verification A-32, runtime audit A-31, RN15) committed; D5 in progress (test-first);
-      D4, D6, deliverables 4-5 (recovery-cost measurements, migration/rollback docs,
-      dev.2 changelog + release readiness) pending.
+- [ ] **v0.1.0-dev.2 mission**: D1-D6 DONE (D6 committing now, A-35); remaining =
+      e2e-renew real-inference candidate proof, recovery-cost write-up, migration/
+      rollback docs from dev.1, dev.2 changelog + release readiness.
 - [ ] Operator review of the documentation consolidation, then separately
       authorized `drpli` integration (nothing deployed; blueprint = guide + bootstrap).
 - [ ] Operator decision: `renewal.autoRenew` default (stays OFF until decided).
@@ -107,7 +108,19 @@ Documentation consolidation (this pass):
 
 ## Verified evidence
 
-Current (this docs-consolidation pass, zero inference):
+Current (dev.2 D6 pass, this successor session, zero inference):
+- `node --test test/` → **188 tests: 187 pass, 0 fail, 1 skipped** (incl. test/d6.test.ts
+  D6x1-3; Node v26.12.1, no installs).
+- `node scripts/e2e-rpc-two-process.mjs` → **38/38** (real Pi 1.4.0 RPC; NEW: CAP section
+  — capped-chain finalization proof, renewal refused at the no-write pre-gate BEFORE
+  waitForIdle, finalize FINALIZED with chain bytes identical, no switch — plus the
+  crossing-line presence check; the isolated env observes the honest `unavailable`
+  branch because no model is declared).
+- `node scripts/check-skill-discovery.mjs` → **8/8**.
+- Recovery meter on this tree (A-35): full 114,839 chars ≈ 28,710 est. tokens; lean
+  operational 35,206 chars ≈ 8,802 est. tokens (chars/4 estimates).
+
+Historical (docs-consolidation pass, zero inference):
 - `node --test test/` → **132 tests: 131 pass, 0 fail, 1 skipped** (gated real-LLM
   branch), Node v26.12.1, no installs.
 - `node scripts/e2e-rpc-two-process.mjs` → **27/27** (real Pi 1.4.0 RPC, isolated
@@ -132,24 +145,26 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**D4 committing now (A-34). Remaining: D6, then dogfood proofs + release docs.**
-1. **D6**: pure `crossingPoints` in core.ts (window 95k, reserve 5k → used
-   70/78/82/85k), `/guard status` crossing line + provenance + honest "guard never
-   changes the model window" wording; `docs/profiles/experimental-95k.json` example;
-   tests D6x1-3 (pure + adapter).
-2. Dogfood: real-inference `node scripts/e2e-renew.mjs` on the CANDIDATE (hop-1
-   model-initiated via CONTEXT_GUARD_AUTO_RENEW=1, byte-exact recovery-message checks,
-   successor commits real work; D5b preview-gate now governs the hint — if the
-   predecessor checkpoint is current+attested the hint appears, else NOT AVAILABLE);
-   capped-chain finalize proof (zero inference); recovery-cost before/after vs A-27;
-   CHANGELOG dev.2 + migration/rollback from dev.1; release-readiness assessment.
-   STOP for operator review. NEVER push/tag/release.
-3. Gates after any extension edit: suite (≥184 pass / 1 skip), e2e-rpc-two-process
-   (32/32), skill probe (8/8). Post-commit ritual: prose via scripts/durable_edit.py
-   or direct edits; refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1,
-   `pi --mode rpc -ne -e <pinned>`, P-12); commit managed blocks. Renewal 1/8 used,
-   chain chain:01a18a1a…; D5b hint preview + diagnostics available for attribution.
-DRPLi untouched (fixtures generated in tests only); raw campaign logs outside Git.
+**D4 + D6 committed (A-34/A-35). Remaining: dogfood proofs + release docs, then STOP.**
+1. Real-inference `node scripts/e2e-renew.mjs` on the CANDIDATE (hop-1 model-initiated
+   via CONTEXT_GUARD_AUTO_RENEW=1 under the D5b WRITE-FREE PREVIEW gate — the hint
+   appears only if the clone's checkpoint is current+attested; byte-exact recovery-message
+   reconstruction check (D1); productive successor commits; with a REAL model declared,
+   `/guard status` in that run also gives the first live observation of the numeric
+   crossing line, D6). Spends inference — one run, no threshold hunting (O-3).
+2. Recovery-cost before/after vs A-27 (zero inference; numbers already measured —
+   A-35: this tree full 114,839 chars ≈ 28,710 est. tokens vs lean operational 35,206
+   chars ≈ 8,802; RC2 fixture ≈ 30.3k vs 10k; campaign actuals 13,077→100,563 chars/hop)
+   — write up in the release doc.
+3. CHANGELOG.md dev.2 section + migration/rollback notes from v0.1.0-dev.1 +
+   release-readiness assessment. Then STOP for operator review. NEVER push/tag/release.
+Gates after any extension edit: suite (≥187 pass / 1 skip), e2e-rpc-two-process
+(38/38), skill probe (8/8 — required after skills/guide edits, run anyway after
+extension edits). Post-commit ritual: prose via scripts/durable_edit.py or direct
+edits; refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1, `pi --mode
+rpc -ne -e <pinned>`, P-12); commit managed blocks. Renewals 2/8 used, chain
+chain:01a18a1a…; diagnostics trail (D5c) available for attribution; D4 lean tiers are
+OPT-IN (recovery.lean:false default — enabling for this project is an operator call).
 
 Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 2):
 

@@ -155,6 +155,41 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   full read-all hop ≈ 30.3k est. tokens vs lean operational ≈ 10–12k on the fixture
   shape (chars/4 estimates, NOT measured tokens). confidence: high. adopted: yes.
 
+- [A-35] **dev.2 D6 implemented (verified, committing; D2 capped-chain proof also
+  completed in the real runtime).** Pure `crossingPoints`/`crossingPointsLine` in
+  `core.ts`: thresholds expressed as crossings in estimated USED tokens
+  (`used = window − reserve − remainingBelow` — the SAME formula as `computeBudget`,
+  cross-verified in D6x1 by asserting `computeBudget` usable equals each `remainingBelow`
+  exactly AT the computed crossings). Printed in `/guard status` after `usable remaining`
+  as one line with live reserve provenance (`source: generationReserve|model-maxTokens|
+  safetyReserve|none`), the enforced/advisory kind of the CURRENT closing policy (D5a
+  honesty travels), a `!! too tight` flag for crossings ≤ 0 (level would be active at
+  session start), and the honest ownership statement — the guard NEVER changes the model
+  window (model/provider-owned) and crossings are advisory budgets over Pi's ESTIMATE
+  (A-1/A-18), never exact accounting; an unknown window prints an explicit `unavailable`
+  line, never a fabricated crossing set. Example profile `docs/profiles/
+  experimental-95k.json` (window 95 000, reserve 5 000, thresholds 20k/12k/8k/5k →
+  crossings 70k/78k/82k/85k — the D6 plan numbers; mergeConfig is whitelist-based so the
+  documentation `_*` keys never leak into the merged config; D6x2 merges the REAL file
+  through the real config path and asserts every documented value; D6x1 reproduces the
+  A-11 Sushi figures 124 464/134 464/144 464/149 464 from the same function).
+  CAPPED-CHAIN FINALIZATION PROOF (the A-27 campaign closing scenario) now exists in
+  the REAL runtime, zero inference (e2e-rpc CAP section, 5 checks): `/handoff renew`
+  refuses at the NO-WRITE pre-gate — `(capped) … cap reached (8/8)` — BEFORE
+  waitForIdle, so the refusal is provably inference-free and switch-free; `/handoff
+  finalize` on the exhausted 8/8 chain reports `readiness attested -> FINALIZED; chain
+  done=8/8 UNTOUCHED; no session switch`; renewal-state.json stays byte-identical
+  through the whole closing; renew status shows `renewalsDone=8/8`; the session id is
+  unchanged at the end. Evidence: test/d6.test.ts D6x1-3 (one test-arithmetic mistake
+  caught by RUNNING, A-14 class: with a 65 536 reserve on a 95k window only L1 sits at
+  −536, not every level ≤ 0); suite 187 pass / 1 skip; real-runtime e2e-rpc 38/38 incl.
+  the crossing-line check (isolated e2e agent dirs declare no model → the `unavailable`
+  branch was observed live; the numeric escalation line is mock-asserted in D6x3 and
+  will be observed with a real model in the scheduled e2e-renew run). Recovery meter
+  (D4) live on THIS project: full 114,839 chars ≈ 28,710 est. tokens; lean operational
+  tier 35,206 chars ≈ 8,802 est. tokens (chars/4 estimates, A-1 caveat). confidence:
+  high. adopted: yes.
+
 ## Proposed
 
 > **Status note (documentation consolidation, 2026-10-29).** The entries below keep
