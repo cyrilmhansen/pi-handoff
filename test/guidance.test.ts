@@ -98,3 +98,17 @@ test("G5: combined crossing produces one message whose text is deterministic", a
   assert.ok(a.includes("thresholds crossed in one step"), a);
   assert.ok(a.includes("LEARNINGS.md"));
 });
+
+test("G6 (issue #1): L3/L4 preserve evidence and prefer an authorized renewal over terminal stop", () => {
+  for (const enforceClosing of [true, false]) {
+    const th = defaultThresholds(T, { enforceClosing });
+    const l3 = th.find((t) => t.level === 3)!;
+    const l4 = th.find((t) => t.level === 4)!;
+    assert.match(l3.guidance, /handoff_renew/);
+    assert.match(l4.guidance, /handoff_renew/);
+    assert.match(l4.guidance, /safe boundary/);
+    assert.match(l4.guidance, /finalize and stop/);
+    assert.ok(l4.guidance.indexOf("handoff_renew") < l4.guidance.indexOf("finalize and stop"), "renewal preference precedes closing fallback");
+    assert.match(l4.guidance, /LEARNINGS\.md/);
+  }
+});
