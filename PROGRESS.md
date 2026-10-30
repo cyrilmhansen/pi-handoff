@@ -127,36 +127,44 @@ from v0.1.0-dev.1, recovery-cost before/after measurements (dev.1 baseline numbe
 A-27). Never push. DRPLi stays untouched (it is not on this machine; fixtures only).
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 11
-checkpoint-id: g11-69cf72e56bdd
+checkpoint-generation: 13
+checkpoint-id: g13-541624fd80ea
 checkpoint-kind: manual
-content-delta: none
+content-delta: new
 readiness: attested
 guard-level: 0
-checkpointed: 2026-10-29T15:23:52.744Z
+checkpointed: 2026-10-30T00:36:08.499Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: a9260cd606ed9b6129196ac1938a52de7a4e3de44cd3a6f4580448e5f1eb57e1
-source-handoff: f0a8eb66f2f9c08fc4b462672e315dfa794f1239d9ee8c063399e888f80d88db
-source-learnings: d9f5081486a8ea96d4e6da5076e5cf560b5b9a3ff60052d25d12c60237f4edb5
-source-config: 0b1e162bdbf7ec9946afab3d1dd8b0fa35b4e3972ba77214f68c9a55276fe606
-next-action: **Documentation consolidation is COMPLETE. Exact next action: operator review of this
-consolidation, then — separately — explicitly authorized `drpli` integration.**
+source-progress: d32ddf81ae261527dea21c7619cf26db8f787692f1988c9846976301587384a2
+source-handoff: dadb4650b381f077a1ccf1e9048de8797c8b2bd24ae944845d640b826bfd4fe6
+source-learnings: a6a1533afca4206da93b06db8f40cdcea54eec371563f4e35c87b62a4f649b1a
+source-config: 90397c2d23f26540ef43dceb7d38ec5adbe0b6609fae6d6609049fd591e1443d
+next-action: **Mission v0.1.0-dev.2 IN PROGRESS (session 01a18a1a…, started 2026-10-30; supersedes the
+docs-consolidation next action, which was operator review — that review is folded into the
+release assessment deliverable).** Exact continuation sequence (full brief in
+PROGRESS.md "Next action"; state in the table there):
 
-For the reviewing session:
+1. `node --test test/` (expect 146 pass / 1 skip; more after D3 tests),
+   `node scripts/e2e-rpc-two-process.mjs` (32/32), `node scripts/check-skill-discovery.mjs`
+   (8/8) — establish the tree is green before anything else.
+2. D3: write `test/durable-edit.test.ts` (spawn python3; plan-dry-run, byte-identity,
+   AMBIGUOUS/NOT_FOUND/CONFLICT/MANAGED_BLOCK/MISSING_REF, fenced headings, read-only-dir
+   IO failure, stale-prose -> /handoff refresh round trip); gates again; commit.
+3. D5 (accuracy + diagnostics), D4 (lean recovery + fixture), D6 (95k profile display) —
+   test-first per increment, local commits, real-runtime gates after each extension edit.
+4. Before release: real-inference `node scripts/e2e-renew.mjs` on the CANDIDATE (hop-1
+   model-initiated, byte-exact D1 recovery-message checks, productive successor commits) +
+   capped-chain finalization proof; recovery-cost before/after vs A-27 baseline; CHANGELOG
+   dev.2, migration/rollback doc from `v0.1.0-dev.1`, release readiness assessment.
+5. NEVER push/tag/release/deploy without operator authorization; DRPLi untouched (not on
+   this machine; fixtures only); raw campaign logs stay outside Git.
 
-1. `git log --oneline 06fbc71..HEAD` — inspect the consolidation commits; read README,
-   HANDOFF, PROGRESS, PROTOCOL, `.agents/skills/pi-handoff/`, `docs/long-project-guide.md`.
-2. Re-run the zero-inference gate: `node --test test/` → **131 pass / 1 skip**;
-   `node scripts/e2e-rpc-two-process.mjs` → **27/27**;
-   `node scripts/check-skill-discovery.mjs` → **8/8**. Do NOT re-run
-   `scripts/e2e-renew.mjs` (spends inference; nothing touched renewal wiring).
-3. Outstanding operator decisions: `renewal.autoRenew` default (stays OFF), and whether
-   to authorize the `drpli` integration (guide §7 + `references/bootstrap.md` are the
-   templates; applying them anywhere requires explicit approval).
-4. Commit ritual: commit first, then `/handoff` + `/handoff ready`; commit the
-   managed-block refresh separately if it dirties the tree. Never push — the operator
-   publishes.
-readiness-by: session:01a18842-a65e-7045-8cb0-5e63c293eb3a
-readiness-at: 2026-10-29T15:23:52.846Z
-readiness-checkpoint: g11-69cf72e56bdd
+Session guard note: this project's live sessions run the dev.1 guard (loaded at startup).
+Routine post-commit refresh uses the PINNED dev.1 wrapper: `node /tmp/refresh-pinned.mjs
+"notes"` (spawns `pi --mode rpc -ne -e <pinned index.ts>` — `-ne` is REQUIRED because
+project auto-load + explicit pinned copy otherwise conflict on tool/flag names; see
+LEARNINGS P-12). Validate the CANDIDATE only in separate explicit real-runtime runs.
+readiness-by: session:01a18a3c-4296-77af-9942-55360c8db910
+readiness-at: 2026-10-30T00:36:08.599Z
+readiness-checkpoint: g13-541624fd80ea
 <!-- guard:end checkpoint -->
