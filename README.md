@@ -98,6 +98,7 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 |---|---|---|
 | `thresholds` | 30000/20000/10000/5000 | remaining-token crossings for levels 1–4 |
 | `generationReserve` | `"model"` | subtract `ctx.model.maxTokens` (or fixed number) from remaining |
+| `workingContextWindow` | `null` | optional guard-only ceiling (e.g. `95000`) independent of Pi/Sushi's technical context window; positive integer, clamped to Pi's reported window |
 | `safetyReserve` | `0` | extra reserve; effective reserve = `max(generationReserve, safetyReserve)` |
 | `enforceClosing` | `true` | level 4 blocks new non-allowlisted tool calls |
 | `closingAllowlist` | `["write","edit","read"]` | tools permitted during enforced closing. Renewal-enabled projects should add `"handoff_renew"` so the model can still trigger renewal during closing (this project's config does); without it, closing leaves only checkpoint writes + the operator `/handoff renew` command |
@@ -123,6 +124,8 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 ```
 usable = contextWindow − estimatedTokensUsed − reserve
 reserve = max(generationReserveResolved, safetyReserve)
+workingWindow = min(PiPhysicalWindow, workingContextWindow ?? PiPhysicalWindow)
+# workingWindow is a policy budget; Pi max_tokens still uses PiPhysicalWindow
 generationReserveResolved = ctx.model.maxTokens when generationReserve === "model"
 ```
 

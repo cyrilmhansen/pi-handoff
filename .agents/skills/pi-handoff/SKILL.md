@@ -33,7 +33,8 @@ alone** — no transcript replay, no lossy compaction.
 ## During work — react to alert levels
 
 Alerts are advisory budgets, not exact accounting. Levels are measured on **usable
-remaining** = window − estimated used − max(generationReserve, safetyReserve).
+remaining** = working window − estimated used − max(generationReserve, safetyReserve).
+The working window is `min(Pi's physical contextWindow, recovery-independent workingContextWindow ?? Pi's physical contextWindow)`; this is a Handoff policy ceiling, never a Pi/Sushi model change.
 
 | Level | Meaning | Do |
 |---|---|---|
