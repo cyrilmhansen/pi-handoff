@@ -393,8 +393,13 @@ test("CL7e: check-skill-discovery with GUARD_E2E_KEEP=0 cleans up (defect 3: it 
   });
   assert.match(r.stdout, /checks passed/);
   assert.deepEqual(newEntries(beforeSet, "guard-skill-home-"), []);
-  // and the repo tree was never touched by the fake pi
-  assert.equal(fs.readdirSync(path.join(REPO, ".pi-guard", "sessions")).some((f) => f.startsWith("fake-")), false);
+  // and the repo tree was never touched by the fake pi.  In a fresh CI clone
+  // .pi-guard/sessions does not exist at all (it is gitignored runtime state);
+  // "absent" is the strongest form of "never touched", so treat it as empty
+  // instead of assuming a developer tree.
+  const sessDir = path.join(REPO, ".pi-guard", "sessions");
+  const sessFiles = fs.existsSync(sessDir) ? fs.readdirSync(sessDir) : [];
+  assert.equal(sessFiles.some((f) => f.startsWith("fake-")), false);
 });
 
 test("CL7f: the three scripts register artifacts ONLY through the tracker (no raw mkdtemp/rmSync remains)", () => {
