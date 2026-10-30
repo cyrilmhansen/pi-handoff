@@ -2,40 +2,46 @@
 
 ## Current phase
 
-**Current (successor session 01a18bef, renewal 2/8): D4 COMMITTED (`b86b0fe`) and D6
-COMPLETE + VERIFYING (A-35).** The parent session (01a18baa) was closed at L4 with D4
-green-but-uncommitted; this successor re-ran the suite FIRST (184/185 pass, 1 skip),
-committed D4 with explicit paths, then implemented D6 test-first: pure `crossingPoints`/
-`crossingPointsLine` in `core.ts` (used-token crossings, identical arithmetic to
-`computeBudget`, provenance + kind + too-tight flag + "guard never changes the model
-window" wording), one `/guard status` line, `docs/profiles/experimental-95k.json`
-(the plan's 95k/5k profile → crossings 70k/78k/82k/85k, self-consistency asserted
-through the REAL mergeConfig path in D6x2), tests D6x1-3. The capped-chain
-finalization proof (A-27 closing scenario) now runs in the REAL runtime, zero
-inference: e2e-rpc CAP section 5 checks (pre-gate refusal BEFORE waitForIdle, finalize
-FINALIZED + chain byte-identical, no switch). Suite 187 pass / 1 skip; e2e-rpc 38/38;
-skill probe 8/8. Remaining: e2e-renew real-inference candidate proof → recovery-cost
-write-up vs A-27 → CHANGELOG dev.2 + migration/rollback + release-readiness → STOP
-for operator review. Renewals 2/8 used (this session), chain chain:01a18a1a…, guard
-here = tree candidate pre-D6 load (A-31); refresh ritual via pinned dev.1.
+**Mission v0.1.0-dev.2 — COMPLETE, release-ready candidate, STOPPED at operator review
+(2026-10-30).** All six increments committed on tag `v0.1.0-dev.1` (`2ea6219`): D1
+`6e61967`, D2 `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c`+`b6445aa`
+(A-31/A-32/RN15), D5 `05379b0` (A-33), D4 `b86b0fe` (A-34), D6 `d77ef48` (A-35), plus
+checkpoint refreshes. D4 was verified green by the parent session (01a18baa) but L4
+closed bash before the commit; successor 01a18bef re-ran the suite FIRST (184/185
+pass) and committed it with explicit paths — the class of interruption this project
+exists to survive. DOGFOOD PROOF ALL DONE: real-inference `scripts/e2e-renew.mjs`
+**24/24 on the candidate** (model-initiated hop 1 under the D5b write-free preview
+gate — with a zero-inference attest-prep driver pass, since patching the clone config
+legitimately stales the checkpoint; BYTE-EXACT recovery message vs reconstruction
+incl. configured recoveryPrompt + testCommand — A-26 class proven fixed live;
+productive successor commits X-1/X-2, suite 187 in the clone; cap 2/2 pinned for the
+experiment, refusal verified; zero replay/compaction; D6 numeric crossings observed
+LIVE: 185k/195k/205k/210k at window 220k − reserve 5k) — A-36; capped-chain
+finalization proof in the REAL runtime, zero inference (e2e-rpc CAP section: renew
+refused `(capped)` BEFORE waitForIdle; finalize FINALIZED, chain bytes identical
+8/8, no switch) — A-35; recovery-cost comparison vs A-27 recorded (A-36). Release
+docs: CHANGELOG.md (dev.2 + migration + rollback + release readiness). Gates: suite
+187/1 skip, e2e-rpc 38/38, probe 8/8. Renewals 2/8 used (this session), chain
+chain:01a18a1a…; guard here = tree candidate pre-D6 load (A-31); a session restart
+picks up the tip.
 
-**Mission v0.1.0-dev.2 (IN PROGRESS, started 2026-10-30).** Operator-authorized development
+**Mission v0.1.0-dev.2 (COMPLETE, started 2026-10-30).** Operator-authorized development
 mission on top of tag `v0.1.0-dev.1` (`2ea6219`): implement D1-D6 from the eight-renewal
 DRPLi campaign audit (evidence reproduced in LEARNINGS A-26/A-27). Priority: useful
-scientific work per token + reliable unsupervised continuation. Hard limits: DRPLi is
-READ-ONLY for this mission (not on this machine — isolated fixtures only); no
-push/tag/release/deploy without operator authorization; raw campaign logs stay outside Git.
+scientific work per token + reliable unsupervised continuation. Hard limits (Held):
+DRPLi was READ-ONLY for this mission (not on this machine — isolated fixtures/clone
+only); nothing pushed/tagged/released/deployed; raw campaign logs stay outside Git.
 
 Increments:
 
 | # | Work | State |
 |---|---|---|
-| D1 | Recovery prompt: configured `renewal.recoveryPrompt` reaches the successor message (mandatory identity/safety kept); project-configured `renewal.testCommand`; hardcoded `node --test test/` removed; exact-message tests | DONE — commit `6e61967` (unit 137/138; real-runtime zero-inference 28/28; byte-exact real-inference check added to e2e-renew, live run scheduled) |
-| D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (capped/disabled/stopped OK; never switches, never touches chain state, never bypasses readiness; no waitForIdle) | IMPLEMENTED — FZ1-FZ9 9/9, suite 146/147, real runtime 32/32; docs updated; committing now |
+| D1 | Recovery prompt: configured `renewal.recoveryPrompt` reaches the successor message (mandatory identity/safety kept); project-configured `renewal.testCommand`; hardcoded `node --test test/` removed; exact-message tests | DONE — commit `6e61967` (unit 137/138; real-runtime zero-inference 28/28; byte-exact real-inference check EXECUTED on the candidate: 24/24, A-36) |
+| D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (capped/disabled/stopped OK; never switches, never touches chain state, never bypasses readiness; no waitForIdle) | DONE — FZ1-FZ9 9/9; commit `8674c90`; real-runtime capped-chain proof later completed (CAP 38/38, A-35) |
 | D3 | `scripts/durable_edit.py` targeted durable-doc editing | DONE — DE0-DE11 (12 tests: dry-run, byte-identity, fences, AMBIGUOUS/NOT_FOUND/CONFLICT/MANAGED/MISSING_REF, failed-write atomicity, JSON, guard round-trip stale→refresh, no-git); suite 158/159 |
-| D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | DONE — recovery.ts + config recovery.lean (default false) + tiers + cost meter in status/verify/finalize; RC1-RC6 6/6, suite 184/185, e2e 32/32, probe 8/8; A-34; committing now |
+| D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | DONE — recovery.ts + config recovery.lean (default false) + tiers + cost meter in status/verify/finalize; RC1-RC6 6/6; commit `b86b0fe` (successor committed after parent L4 closed bash; suite 184/185 verified green BEFORE commit) |
 | D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | DONE — test/d5.test.ts 19/19 (D5a/b, DG1-9, D5d), suite 178/179, e2e-rpc 32/32, skill probe 8/8; A-33; P-9 resolved (GUARD_VERSION banner) |
-| D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | DONE — core.ts crossingPoints + status line + docs/profiles/experimental-95k.json; D6x1-3; suite 187/188, e2e-rpc 38/38 (CAP finalized proof + crossing-line check), probe 8/8; A-35; committing now |
+| D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | DONE — core.ts crossingPoints + status line + docs/profiles/experimental-95k.json; D6x1-3; suite 187/188, e2e-rpc 38/38 (CAP finalize proof + crossing-line check), probe 8/8; numeric line observed LIVE with real model (A-36); commit `d77ef48` |
 
 Dogfooding (corrected 2026-10-30, A-31): the pi process hosting this mission was
 RESTARTED at 08:15+01:00 (session 01a18a1a resumed → renewal into 01a18baa), so the
@@ -44,10 +50,11 @@ proved by the live `handoff_finalize` tool registration). The pinned dev.1 copy 
 `/home/john/pi-handoff-pinned-v0.1.0-dev.1` is byte-identical to tag `v0.1.0-dev.1`
 (A-31) and remains the recovery infrastructure for the post-commit refresh ritual
 (`/tmp/refresh-pinned.mjs`, `pi --mode rpc -ne -e <pinned>`, P-12) — dev.1 has NO
-finalize; never claim it in pinned sessions. The candidate is validated in separate
-real Pi sessions: zero-inference e2e scripts now, plus the scheduled real-inference
-e2e-renew (model-initiated hop 1 + byte-exact recovery checks + productive continuation)
-and the capped-chain finalize proof before release.
+finalize; never claim it in pinned sessions. Candidate validation COMPLETED in
+separate real Pi sessions: zero-inference e2e-rpc 38/38 (incl. the capped-chain
+finalize proof, A-35) + skill probe 8/8, and the real-inference e2e-renew 24/24 on
+the candidate (model-initiated hop 1 + byte-exact recovery checks + productive
+continuation, A-36).
 ## Completed
 
 Phase 1 (original, `b2ccdac`):
@@ -90,9 +97,8 @@ Documentation consolidation (this pass):
 
 ## Pending
 
-- [ ] **v0.1.0-dev.2 mission**: D1-D6 DONE (D6 committing now, A-35); remaining =
-      e2e-renew real-inference candidate proof, recovery-cost write-up, migration/
-      rollback docs from dev.1, dev.2 changelog + release readiness.
+- [ ] **v0.1.0-dev.2 mission: COMPLETE** (D1-D6 + all proofs, A-28…A-36; CHANGELOG.md);
+      operator review + tag/push authorization + drpli-reuse authorization pending.
 - [ ] Operator review of the documentation consolidation, then separately
       authorized `drpli` integration (nothing deployed; blueprint = guide + bootstrap).
 - [ ] Operator decision: `renewal.autoRenew` default (stays OFF until decided).
@@ -108,7 +114,16 @@ Documentation consolidation (this pass):
 
 ## Verified evidence
 
-Current (dev.2 D6 pass, this successor session, zero inference):
+Current (dev.2 completion, this successor session):
+- Real inference (A-36): `node scripts/e2e-renew.mjs` on the CANDIDATE → **24/24**
+  (clone `b07e29b`, sushi/Qwen3.8-Flash-Next; model-initiated hop 1 under D5b, byte-exact
+  recovery message, cap 2/2 pinned + refusal, productive successors, zero replay/compaction,
+  D6 numeric crossings live). Driver fixes in the same commit (A-24 class).
+- Recovery-cost comparison (chars/4 ESTIMATES, A-36): campaign 13,077→100,563 chars/hop,
+  583,609 chars ≈ 145.9k est. tokens across 8 successors; fixture RC2 ≈ 30.3k vs
+  lean 10k; this tree full ≈ 28,710 vs lean operational ≈ 8,802 est. tokens.
+
+Earlier this milestone (zero inference):
 - `node --test test/` → **188 tests: 187 pass, 0 fail, 1 skipped** (incl. test/d6.test.ts
   D6x1-3; Node v26.12.1, no installs).
 - `node scripts/e2e-rpc-two-process.mjs` → **38/38** (real Pi 1.4.0 RPC; NEW: CAP section
@@ -145,26 +160,19 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**D4 + D6 committed (A-34/A-35). Remaining: dogfood proofs + release docs, then STOP.**
-1. Real-inference `node scripts/e2e-renew.mjs` on the CANDIDATE (hop-1 model-initiated
-   via CONTEXT_GUARD_AUTO_RENEW=1 under the D5b WRITE-FREE PREVIEW gate — the hint
-   appears only if the clone's checkpoint is current+attested; byte-exact recovery-message
-   reconstruction check (D1); productive successor commits; with a REAL model declared,
-   `/guard status` in that run also gives the first live observation of the numeric
-   crossing line, D6). Spends inference — one run, no threshold hunting (O-3).
-2. Recovery-cost before/after vs A-27 (zero inference; numbers already measured —
-   A-35: this tree full 114,839 chars ≈ 28,710 est. tokens vs lean operational 35,206
-   chars ≈ 8,802; RC2 fixture ≈ 30.3k vs 10k; campaign actuals 13,077→100,563 chars/hop)
-   — write up in the release doc.
-3. CHANGELOG.md dev.2 section + migration/rollback notes from v0.1.0-dev.1 +
-   release-readiness assessment. Then STOP for operator review. NEVER push/tag/release.
-Gates after any extension edit: suite (≥187 pass / 1 skip), e2e-rpc-two-process
-(38/38), skill probe (8/8 — required after skills/guide edits, run anyway after
-extension edits). Post-commit ritual: prose via scripts/durable_edit.py or direct
-edits; refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1, `pi --mode
-rpc -ne -e <pinned>`, P-12); commit managed blocks. Renewals 2/8 used, chain
-chain:01a18a1a…; diagnostics trail (D5c) available for attribution; D4 lean tiers are
-OPT-IN (recovery.lean:false default — enabling for this project is an operator call).
+**STOP — dev.2 COMPLETE; awaiting operator review (A-36 + CHANGELOG.md). No new
+implementation without operator direction.** If woken without operator input:
+1. Verify gates: `node --test test/` (187 pass / 1 skip),
+   `node scripts/e2e-rpc-two-process.mjs` (38/38),
+   `node scripts/check-skill-discovery.mjs` (8/8). Do NOT re-run
+   `scripts/e2e-renew.mjs` unless renewal wiring in `index.ts` changed (real inference).
+2. Operator decision points (HANDOFF "Next action"): dev.2 review; tag
+   `v0.1.0-dev.2` + push authorization; `drpli` reuse authorization (separate);
+   optional policy flips (`recovery.lean`, `renewal.autoRenew`, caps).
+3. Ritual if anything changes: prose via scripts/durable_edit.py or direct edits;
+   refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1, `pi --mode rpc
+   -ne -e <pinned>`, P-12 — finalize NOT available there); commit managed blocks.
+NEVER push/tag/release; DRPLi untouched; raw campaign logs outside Git.
 
 Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 2):
 

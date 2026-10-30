@@ -25,6 +25,12 @@
  *
  *   node scripts/e2e-renew.mjs              # spends real inference (few turns)
  *   GUARD_E2E_KEEP=1 node scripts/e2e-renew.mjs   # keep the clone for forensics
+ *
+ * Driver corrections baked in (LEARNINGS A-24 class): the clone's renewal cap is PINNED
+ * to 2 for the bounded experiment (the project's operational cap is 8 — A-32); a
+ * zero-inference prep session refreshes+attests the clone checkpoint AFTER the config
+ * patch so the dev.2 D5b write-free preview surfaces RENEWAL AVAILABLE; C7 asserts
+ * ancestry of the source HEAD instead of greping stale commit messages.
  */
 
 import { spawn } from "node:child_process";
@@ -56,6 +62,16 @@ const gitInit = spawn("git", ["clone", "--quiet", REPO, clone], { stdio: "inheri
 const gitCode = await new Promise((r) => gitInit.once("exit", (code) => r(code)));
 if (gitCode !== 0) throw new Error(`git clone failed (exit ${gitCode})`);
 const EXT = path.join(clone, ".pi/extensions/context-guard/index.ts");
+// HEAD of the source repo BEFORE the clone work: lineage assertion (C7). Captured via
+// rev-parse, then verified in the clone with `merge-base --is-ancestor` — substring
+// greps of old commit messages rot as the tip advances (A-24 driver-bug class).
+const repoHead = await new Promise((r) => {
+  const g = spawn("git", ["-C", REPO, "rev-parse", "HEAD"], { stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  g.stdout.on("data", (d) => (out += d));
+  g.once("exit", () => r(out.trim()));
+});
+if (!/^[0-9a-f]{40}$/.test(repoHead)) throw new Error(`git rev-parse HEAD failed: "${repoHead}"`);
 
 // dev.2 D1 (LEARNINGS A-26): the clone's config gets a CUSTOM recoveryPrompt (with a
 // random marker) and an explicit compound testCommand. The successor's recovery message
@@ -69,7 +85,11 @@ const configuredTestCommand = "node --test test/ && node scripts/check-skill-dis
 const cfgPath = path.join(clone, "handoff.config.json");
 {
   const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-  cfg.renewal = { ...(cfg.renewal ?? {}), enabled: true, recoveryPrompt: customRecoveryPrompt, testCommand: configuredTestCommand };
+  // The experiment is BOUNDED BY DESIGN (docstring): pin the CLONE's cap to 2 so the
+  // hop-1/hop-2/cap-refusal assertions (1/2, 2/2, capped) are deterministic regardless
+  // of the project's operational cap (currently 8 — A-32). The clone is isolated; the
+  // project config stays untouched.
+  cfg.renewal = { ...(cfg.renewal ?? {}), enabled: true, maxRenewals: 2, recoveryPrompt: customRecoveryPrompt, testCommand: configuredTestCommand };
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
 }
 
@@ -126,6 +146,29 @@ let exitCode = 0;
 const marker = `MARKER-${randomUUID().slice(0, 8)}`;
 const hops = [];
 try {
+  // ---- zero-inference ATTestation prep (dev.2 D5b preview gate) ----
+  // The config patch above changes handoff.config.json → the clone's checkpoint block
+  // is STALE (source-config fingerprint differs) → renewAuthorization fails → the D5b
+  // write-free preview REFUSES, so the level-3 alert would carry RENEWAL NOT AVAILABLE
+  // and hop 1 would exercise the wrong path. The real-world post-edit ritual (/handoff
+  // refresh + /handoff ready, zero inference — extension commands execute without a
+  // turn, A-19) restores current+attested in the CLONE; run it in a disposable session
+  // so the pressure alert deterministically surfaces RENEWAL AVAILABLE.
+  const prep = startRpc({ dir: clone, env: {}, label: "prep" });
+  for (;;) {
+    if (prep.uiTexts().some((t) => /context-guard status/.test(t))) break;
+    await new Promise((r) => setTimeout(r, 500));
+    const st = await prep.command({ id: `prep-probe-${Date.now()}`, type: "get_state" }).catch(() => null);
+    if (st) prep.send({ id: `prep-cmd-${Date.now()}`, type: "prompt", message: "/guard status" });
+    if (prep.child.exitCode != null) throw new Error("prep pi exited before the guard answered");
+  }
+  await prep.command({ id: "prep-ho", type: "prompt", message: "/handoff e2e-renew prep: config patch made the clone checkpoint stale; refresh+attest so the D5b preview passes" });
+  await prep.waitFor((r) => r.type === "extension_ui_request" && /context-guard \/handoff:/.test(String(r.message ?? "")), 60_000, "prep checkpoint notification");
+  await prep.command({ id: "prep-rd", type: "prompt", message: "/handoff ready" });
+  await prep.waitFor((r) => r.type === "extension_ui_request" && /READY/.test(String(r.message ?? "")), 60_000, "prep readiness attestation");
+  await prep.shutdown();
+  log("prep: clone checkpoint refreshed + attested (zero inference) — the D5b preview can now pass");
+
   // REAL user agent dir: real provider config, real model, compaction settings UNTOUCHED.
   const c = startRpc({ dir: clone, env: { CONTEXT_GUARD_AUTO_RENEW: "1" }, label: "renew" });
 
@@ -142,6 +185,13 @@ try {
   check("C0: real pi + guard loaded, REAL model selected", Boolean(idA.model?.id) && idA.model.id !== "unknown", `${idA.model?.provider}/${idA.model?.id}`);
   check("C0: identity banner carried the DETECTED runtime identity", c.uiTexts().some((t) => /\[context-guard identity\] harness: pi \d+\.\d+\.\d+/.test(t)), c.uiTexts().find((t) => /context-guard identity/.test(t))?.slice(0, 200) ?? "(none)");
   check("C0: compaction is disabled in the live runtime (invariant A-3)", idA.autoCompactionEnabled === false, `autoCompactionEnabled=${idA.autoCompactionEnabled}`);
+  {
+    // dev.2 D6 live observation: with a REAL model declared (isolated e2e dirs have no
+    // window → only the 'unavailable' branch there), the numeric escalation line and
+    // its honest ownership wording must appear in the real-runtime status report.
+    const statusText = c.uiTexts().find((t) => /context-guard status/.test(t)) ?? "";
+    check("D6: real-model /guard status prints the numeric crossing line with honest ownership", /threshold crossings \(estimated used, escalation order\)/.test(statusText) && /at used ≥ /.test(statusText) && /never changes the model window/.test(statusText), statusText.split("\n").find((l) => /threshold crossings/.test(l))?.slice(0, 240) ?? "(no crossing line)");
+  }
 
   // ---- real inference turn in A, with a transcript marker only A should contain ----
   const pA = await c.command({ id: "pA", type: "prompt", message: `Context probe (${marker}): reply with ONE short paragraph naming this project's objective. Use no tools beyond reading GOAL.md if you must.` }, 300_000);
@@ -273,7 +323,14 @@ try {
   });
   const succCommits = (gitlog.match(/e2e-renew: successor/g) ?? []).length;
   check("C6: successors did REAL work (committed) in the clone", succCommits >= 1, gitlog.split("\n").slice(0, 4).join(" | "));
-  check("C7: git history preserved in the clone (repo HEAD lineage intact)", gitlog.includes("increment B") || gitlog.includes("Phase 2"), gitlog.split("\n").pop()?.slice(0, 120) ?? "(empty)");
+  // C7 rewritten (A-24 driver class): substring-greping old commit MESSAGES rotted once
+  // dev.2 commits moved off the old tip; assert LINEAGE structurally instead — the
+  // source repo HEAD captured before cloning must be an ancestor of the clone tip.
+  const ancestor = await new Promise((r) => {
+    const g = spawn("git", ["-C", clone, "merge-base", "--is-ancestor", repoHead, "HEAD"], { stdio: ["ignore", "ignore", "pipe"] });
+    g.once("exit", (code) => r(code === 0));
+  });
+  check("C7: git history preserved in the clone (source HEAD is an ancestor of the successor tip)", ancestor, `${repoHead.slice(0, 10)} reachable from clone tip`);
 
   log(`summary: ${JSON.stringify(hops)}`);
   await c.shutdown();

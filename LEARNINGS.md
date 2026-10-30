@@ -190,6 +190,42 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   tier 35,206 chars ≈ 8,802 est. tokens (chars/4 estimates, A-1 caveat). confidence:
   high. adopted: yes.
 
+- [A-36] **dev.2 CANDIDATE proven live with real inference (24/24); recovery-cost
+  comparison measured; e2e-renew driver defects fixed (A-24 class).** (1)
+  `scripts/e2e-renew.mjs` re-run on the dev.2 candidate (full clone of `b07e29b`, real
+  sushi/Qwen3.8-Flash-Next inference, CONTEXT_GUARD_AUTO_RENEW=1): hop 1 MODEL-INITIATED
+  under the D5b hint gate — required a new ZERO-INFERENCE prep session in the driver
+  that runs `/handoff` + `/handoff ready` after the script's config patch, because the
+  patch legitimately makes the clone's checkpoint stale and the D5b write-free preview
+  correctly REFUSES to advertise a renewal the gate would not pass (honest product
+  behavior; the driver adapts, the product does not bend). The RENEWAL AVAILABLE hint
+  reached the model as a custom_message, the tool fired, the switch happened at settle,
+  and the successor's recovery message is BYTE-EXACT vs reconstruction (1565 chars;
+  configured recoveryPrompt verbatim; configured testCommand present; no hardcoded
+  build-verify line) — the A-26 defect class is now proven fixed in the real runtime
+  with real inference. Chain: three distinct sessions, ZERO replay/compaction, cap
+  PINNED to 2 in the clone for the bounded experiment (project cap stays 8 — A-32),
+  3rd attempt refused, successors B/C committed REAL work (suite 187 passing recorded
+  as X-1/X-2 inside the clone). The D6 numeric crossing line was observed LIVE with a
+  real model (closing A-35's open note): L1 ≥ 185,000 / L2 ≥ 195,000 / L3 ≥ 205,000 /
+  L4 (enforced) ≥ 210,000 (window 220 000 − reserve 5 000 − thresholds) — nominal
+  points; P-7 caveat unchanged: never REACHED under real token accounting. Driver fixes
+  (all three would have failed or mis-tested the run): stale cap expectations (script
+  assumed 2/2 while the project config is 8 — A-32), the attest-prep pass, and
+  structural lineage assertion (`merge-base --is-ancestor <source HEAD>`) replacing a
+  grep of old commit messages that rotted as the tip advanced. (2) RECOVERY-COST
+  before/after vs A-27 (basis chars/4 — an ESTIMATE, never measured tokens): campaign
+  actuals — per-hop durable reads 13,077 → 100,563 chars, 583,609 chars ≈ 145,900 est.
+  tokens across 8 successors; D4 fixture RC2 — full six-doc set ≈ 30,328 vs lean
+  operational 10,000 est. tokens; THIS tree live meter — full 114,839 chars ≈ 28,710
+  vs lean operational 35,206 chars ≈ 8,802 est. tokens (≈69 % less first-turn reading).
+  Lean remains OPT-IN (recovery.lean default false); live campaign benefit is NOT
+  claimed (fixture + meter projection only). Note: the experiment's session A
+  spontaneously wrote its own local "A-36"/X entries INSIDE the clone — initiative
+  within the disposable clone, not replay (A-24 class-4); this repo's numbering is
+  independent. confidence: high. adopted: yes — dev.2 is release-ready (pending
+  operator review; no tag/push without authorization).
+
 ## Proposed
 
 > **Status note (documentation consolidation, 2026-10-29).** The entries below keep

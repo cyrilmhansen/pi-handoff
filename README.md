@@ -32,11 +32,17 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
   checkpoint.ts  atomic writes, managed sections (schema v3: transactional identity +
                  source hashes), freshness/readiness validation, per-session state, v1
                  migration, inspection-only audit loads, dry runs
+  renewal.ts     Phase 2 renewal contract: pure gate decisions, chain state, recovery
+                 prompt builder (dev.2 D1: configured prompt/testCommand)
+  recovery.ts    dev.2 D4: lean recovery tiers + recovery-cost meter (pure)
+  diagnostics.ts dev.2 D5c: bounded structured event trail (no prompts/args/secrets)
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
+CHANGELOG.md    version history (dev.1, dev.2: migration + rollback + release readiness)
+docs/profiles/experimental-95k.json  dev.2 D6 example profile (asserted self-consistent)
+docs/long-project-guide.md  Phase 1d: integration guide for long-running projects (PL/I-80 case study)
 GOAL.md PROGRESS.md LEARNINGS.md HANDOFF.md   durable working memory
 AGENTS.md PROTOCOL.md  stable procedures
-docs/long-project-guide.md  Phase 1d: integration guide for long-running projects (PL/I-80 case study)
 .agents/skills/pi-handoff/  Phase 1d: Pi skill (SKILL.md + references/commands.md + references/bootstrap.md)
 .pi-guard/sessions/<sessionId>.json            per-session runtime state (ephemeral)
 ```

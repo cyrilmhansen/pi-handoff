@@ -2,24 +2,22 @@
 
 ## Recovery instructions
 
-0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 IN PROGRESS on top of tag
-   `v0.1.0-dev.1` (`2ea6219`) — operator-authorized D1-D6 reliability/recovery-efficiency
-   work from the eight-renewal DRPLi campaign audit (evidence: LEARNINGS A-26/A-27/P-10).
-   D1 `6e61967`, D2 `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c` (runtime audit
-   A-31 — active guard is the TREE CANDIDATE since the 08:15 process restart; pinned
-   dev.1 byte-identical to the tag, stays the refresh ritual; cap 8 chain-safe A-32 +
-   RN15), D5 `05379b0` (A-33), D4 `b86b0fe` (A-34 — committed by successor 01a18bef
-   after the parent session's L4 closed bash; verified green BEFORE commit), D6
-   committing now (A-35: pure crossingPoints + /guard status crossing line +
-   docs/profiles/experimental-95k.json + D6x1-3; suite 187/1 skip; real-runtime
-   e2e-rpc 38/38 INCLUDING the capped-chain finalization proof — 5 CAP checks, zero
-   inference — and the live crossing-line check). REMAINING: dogfood proofs
-   (e2e-renew real inference on the candidate with model-initiated hop 1 under the
-   D5b preview gate), recovery-cost before/after write-up vs A-27 (meter numbers
-   captured in A-35), CHANGELOG dev.2 + migration/rollback + release-readiness;
-   STOP for operator review. Hard limits: DRPLi READ-ONLY (fixtures only, not on this
-   machine); no push/tag/release/deploy without operator authorization; raw campaign
-   logs outside Git. See PROGRESS.md "Next action" for the exact remaining steps.**
+0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 COMPLETE — release-ready
+   candidate STOPPED at operator review; NOT tagged, NOT pushed.** All six increments
+   committed on tag `v0.1.0-dev.1` (`2ea6219`): D1 `6e61967`, D2 `8674c90`, D3
+   `1d48de3`, pre-D5 adjustments `fcea69c`+`b6445aa` (A-31/A-32/RN15), D5 `05379b0`
+   (A-33), D4 `b86b0fe` (A-34 — committed by successor 01a18bef after the parent L4
+   closed bash), D6 `d77ef48` (A-35) + checkpoint refreshes. ALL dogfood proofs
+   DONE: real-inference e2e-renew **24/24 on the candidate** (model-initiated hop 1
+   under the D5b preview gate; byte-exact recovery message incl. configured prompt +
+   testCommand; productive successor commits; cap refusal; zero replay/compaction; D6
+   numeric crossings observed live) — A-36; capped-chain finalize proof in the REAL
+   runtime zero-inference (e2e-rpc CAP section, 38/38) — A-35; recovery-cost
+   comparison vs A-27 (this tree: full ≈ 28.7k vs lean operational ≈ 8.8k est.
+   tokens, chars/4) — A-36. Release docs: **CHANGELOG.md** (dev.2 + migration/
+   rollback + release readiness). Gates: suite 187/1 skip, e2e-rpc 38/38, probe 8/8.
+   Hard limits held: DRPLi untouched (fixtures/clone proofs only); nothing pushed;
+   raw campaign logs outside Git.**
 
 1. Read `AGENTS.md`, then `PROTOCOL.md`, then this file, then `PROGRESS.md`, then
    `GOAL.md`/`LEARNINGS.md`. Do not replay transcripts.
@@ -34,11 +32,12 @@
    `session_start` notification) to see missing/corrupt/stale/current; if stale, refresh
    with `/handoff` (rewrites only managed blocks, never manual text). Attest with
    `/handoff ready`; renewal requires `current` ∧ identity-consistent ∧ attested.
-4. Verify the build: `node --test test/` (expect 132 tests: 131 pass, 1 gated skip,
-   Node 26, no installs); `node scripts/e2e-rpc-two-process.mjs` (27/27, real runtime,
-   zero inference); `node scripts/check-skill-discovery.mjs` (8/8, real runtime, zero
-   inference). `node scripts/e2e-renew.mjs` (20/20) SPENDS REAL INFERENCE — re-run only
-   after a change to the renewal wiring in `index.ts`.
+4. Verify the build: `node --test test/` (expect **188 tests: 187 pass, 0 fail, 1
+   gated skip**, Node 26, no installs); `node scripts/e2e-rpc-two-process.mjs`
+   (**38/38**, real runtime, zero inference); `node scripts/check-skill-discovery.mjs`
+   (8/8, real runtime, zero inference). `node scripts/e2e-renew.mjs` (**24/24** at the
+   dev.2 candidate — A-36) SPENDS REAL INFERENCE — re-run only after a change to the
+   renewal wiring in `index.ts`.
 5. Load the guard explicitly (no trust dependency): `pi -e .pi/extensions/context-guard/index.ts`.
    For a non-mutating audit session: `CONTEXT_GUARD_READONLY=1 CONTEXT_GUARD_STATE_DIR=/tmp/guard-state pi -e ...`
    (read-only mode can also be enabled with `--guard-readonly 1`; it protects the project
@@ -88,17 +87,27 @@ Completed milestones (history; evidence in LEARNINGS.md, code in git):
 - [x] Phase 1d: `.agents/skills/pi-handoff/` + `docs/long-project-guide.md` (PL/I-80
       blueprint — pli80 inspected read-only, NOT modified); skill discovery proven live,
       trust-gating documented (A-25); probe 8/8. Commits `61ed9be`, `06fbc71`.
-- [x] Documentation consolidation pass (this milestone) — README/PROTOCOL/AGENTS/HANDOFF/
+- [x] Documentation consolidation pass — README/PROTOCOL/AGENTS/HANDOFF/
       PROGRESS/LEARNINGS/skill/guide reconciled with the implementation; GOAL.md left
       untouched by design.
+- [x] **v0.1.0-dev.2 mission (COMPLETE 2026-10-30, release-ready candidate):** D1-D6
+      reliability + recovery-efficiency increments from the DRPLi campaign audit —
+      recovery-prompt fix (D1), finalize (D2), durable_edit.py (D3), lean tiers +
+      cost meter (D4), honest alerts + write-free preview + diagnostics (D5), crossing
+      points + 95k profile (D6); all dogfood proofs green incl. real-inference 24/24
+      on the candidate and the real-runtime capped-chain finalize proof (LEARNINGS
+      A-28…A-36; CHANGELOG.md). NOT tagged, NOT pushed.
 
 Outstanding (operator decisions and open proofs — NOT development tasks):
 
-- [ ] **Operator review** of the documentation consolidation.
+- [ ] **Operator review** of the v0.1.0-dev.2 candidate (and the earlier documentation
+      consolidation).
 - [ ] **`drpli` reuse: separate, explicitly authorized operator action. Nothing has been
       deployed there.**
 - [ ] Operator decision: `renewal.autoRenew` project default (currently false; enabling
       hands session-death timing to the model — mechanism proven, policy not decided).
+- [ ] Operator decision: `recovery.lean` (dev.2 D4 tiers default OFF; measured
+      projection ≈69 % less first-turn reading on this tree — A-36 — not activated).
 - [ ] P-5: generalized concurrent renewal safety — only the specific two-process
       invariants of A-16 were tested; do NOT claim concurrency is proven.
 - [ ] P-7: live observation of the ≈195 k closing point under real token accounting
@@ -108,15 +117,18 @@ Outstanding (operator decisions and open proofs — NOT development tasks):
 - [ ] A-22 follow-up: "config-changed-since-session-start" notice (proposal, unbuilt).
 
 ## Next action
-**D4 + D6 committed; dogfood proofs + release docs remain (A-35). Successor
-sequence (exact steps in PROGRESS.md "Next action"): e2e-renew real inference on
-the candidate (model-initiated hop 1 under the D5b preview gate, byte-exact
-recovery checks) → recovery-cost write-up vs A-27 (meter numbers in A-35) →
-CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
-STOP for operator review. Gates: suite (≥187/1 skip), e2e-rpc (38/38), probe (8/8).
-Ritual: refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 — finalize is
-NOT available there, P-12; it stays the recovery infrastructure), commit managed
-blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
+**STOP — dev.2 COMPLETE, awaiting OPERATOR REVIEW (A-36, CHANGELOG.md). No further
+implementation without operator direction.** Operator decision points: (1) review the
+dev.2 range `4df08a8..HEAD` (one commit per increment + refreshes); (2) authorize or
+withhold tag `v0.1.0-dev.2` + push (NEITHER is done); (3) separately authorize `drpli`
+reuse (blueprint: docs/long-project-guide.md §7 + skill bootstrap; CHANGELOG migration/
+rollback sections are the install notes); (4) optional policy calls: enable
+`recovery.lean`, raise `renewal.autoRenew`, adjust caps. Open caveats that travel with
+any release claim: P-5 concurrency NOT generalized; P-7 live closing point NOT observed
+under real accounting (nominal crossings printed live, never reached); lean-tier benefit
+is fixture/meter projection (chars/4), not campaign re-run. Successors: if woken without
+operator input, verify gates (`node --test test/`, e2e-rpc, probe), do NOT open new
+implementation, keep docs/checkpoints current.
 
 Historical successor sequence (superseded for D5/D4 by the above; D6 details live in
 PROGRESS.md):
