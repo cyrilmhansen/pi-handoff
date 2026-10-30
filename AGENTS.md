@@ -1,11 +1,12 @@
 # AGENTS.md — handoff prototype (Pi context-guard)
 
 Pi 1.4.0 context-guard extension + durable handoff files. **All development milestones
-are COMPLETE:** Phases 1, 1b, 1c, 1d, Phase 2 increments A+B+C, and the **v0.1.0-dev.2
+are COMPLETE:** Phases 1, 1b, 1c, 1d, Phase 2 increments A+B+C, the **v0.1.0-dev.2
 reliability/recovery-efficiency mission** (D1-D6 + all dogfood proofs — LEARNINGS
-A-28…A-36, CHANGELOG.md). Current next action: **STOP — operator review of the dev.2
-release-ready candidate**; tagging/push and `drpli` reuse each require separate explicit
-authorization. No implementation work is pending.
+A-28…A-36, CHANGELOG.md) and the **D7 test-artifact lifecycle increment** (cleanup
+reliability for the e2e scripts — LEARNINGS A-37). Current next action: **STOP —
+operator review of the dev.2 + D7 release-ready candidate**; tagging/push and `drpli`
+reuse each require separate explicit authorization. No implementation work is pending.
 
 Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
 false; this project sets `enabled: true, autoRenew: false, maxRenewals: 8` with
@@ -19,11 +20,15 @@ Every fresh session:
 1. Read `AGENTS.md`, `PROTOCOL.md`, `GOAL.md`, `HANDOFF.md`, `PROGRESS.md` (in that
    order; manual prose in HANDOFF/PROGRESS wins over `guard:begin checkpoint` managed
    blocks — schema v3; freshness is reported at `session_start` and via `/handoff verify`).
-2. Verify with `node --test test/` (expect **187 pass / 1 gated skip**) before touching
+2. Verify with `node --test test/` (expect **200 pass / 1 gated skip**) before touching
    code. Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs`
    (**38/38**, incl. the capped-chain finalize proof), `node scripts/check-skill-discovery.mjs`
-   (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last run on the dev.2 candidate —
-   A-36) spends REAL inference — re-run only after renewal-wiring changes in `index.ts`.
+   (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate
+   `b07e29b` — A-36) spends REAL inference — re-run only after renewal-wiring changes in
+   `index.ts` (the D7 driver changes are lifecycle-only and covered by
+   `test/cleanup.test.ts` with a fake-pi stub, zero inference). The e2e scripts clean
+   their own /tmp artifacts via `scripts/lib/e2e-cleanup.mjs`; `GUARD_E2E_KEEP=1` (and
+   ONLY `1`) retains them for forensics.
 3. Never rewrite `GOAL.md`; propose goal changes in `LEARNINGS.md` (Proposed) instead.
    The guard never writes `LEARNINGS.md`; keep discoveries there, classified
    (accepted / proposed / falsified).

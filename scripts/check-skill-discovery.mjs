@@ -18,17 +18,26 @@
  * no inference. Extension commands are dispatched via `prompt` (handled without a
  * turn — A-19); we only read responses and ui notifications.
  *
+ * Artifact lifecycle (D7): the isolated agent dir is registered with the shared
+ * ArtifactTracker AT CREATION; the pi child is tracked and shut down BEFORE the dir
+ * is removed. GUARD_E2E_KEEP === "1" is the ONLY retention value — the historical
+ * `if (!process.env.GUARD_E2E_KEEP)` truthiness check treated GUARD_E2E_KEEP=0 as
+ * "keep" and leaked guard-skill-home-* directories (fixed here; see LEARNINGS A-37).
+ * SIGKILL/crashes cannot be handled and are NOT swept by later runs.
+ *
  *   node scripts/check-skill-discovery.mjs
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ArtifactTracker, onceExited } from "./lib/e2e-cleanup.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXT = path.join(REPO, ".pi/extensions/context-guard/index.ts");
 const SKILL_DIR = path.join(REPO, ".agents/skills/pi-handoff");
+const tracker = new ArtifactTracker({ prefix: "guard-skill-home-" });
+tracker.installHandlers(); // SIGINT/SIGTERM/SIGHUP + 'exit' safety net, before any artifact exists
 
 const results = [];
 const check = (name, ok, detail = "") => {
@@ -36,7 +45,7 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
-const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-skill-home-"));
+const agentDir = tracker.createTempDir(); // owned from the instant it exists (D7)
 // Project skills (and .pi/extensions auto-load) are TRUST-GATED:
 // package-manager.js loads .agents/skills only when settingsManager.isProjectTrusted();
 // trust store = <agentDir>/trust.json, keys canonicalized via realpath (trust-manager.js).
@@ -45,11 +54,17 @@ const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-skill-home-"));
 fs.writeFileSync(path.join(agentDir, "trust.json"), JSON.stringify({ [fs.realpathSync(REPO)]: true }, null, 2) + "\n");
 // No `-e`: the trusted project auto-loads .pi/extensions/context-guard/ — exactly the
 // permanent-install path the guide documents.
-const child = spawn("pi", ["--mode", "rpc"], {
+let spawnFailed = false;
+const child = tracker.trackChild(spawn("pi", ["--mode", "rpc"], {
   cwd: REPO,
   env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
   stdio: ["pipe", "pipe", "pipe"],
+}));
+child.on("error", (e) => {
+  spawnFailed = true;
+  stderr.push(`spawn error: ${e?.message ?? e}`);
 });
+const dead = () => child.exitCode != null || child.signalCode != null || spawnFailed;
 let buf = "";
 const records = [];
 child.stdout.on("data", (chunk) => {
@@ -74,7 +89,7 @@ const waitFor = async (pred, ms, what) => {
   for (;;) {
     const hit = records.find(pred);
     if (hit) return hit;
-    if (child.exitCode != null) throw new Error(`pi exited early (code ${child.exitCode}):\n${stderr.join("")}`);
+    if (dead()) throw new Error(`pi exited early (code ${child.exitCode ?? "spawn-failed"}):\n${stderr.join("")}`);
     if (Date.now() > deadline) throw new Error(`timeout waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 25));
   }
@@ -134,12 +149,14 @@ try {
   try {
     child.stdin.end();
   } catch {}
-  await new Promise((r) => (child.exitCode == null ? child.once("exit", r) : r()));
-  if (!process.env.GUARD_E2E_KEEP) {
-    try {
-      fs.rmSync(agentDir, { recursive: true, force: true });
-    } catch {}
-  }
+  await onceExited(child);
+}
+{
+  // D7: single cleanup owner — the tracked pi child is already gone here; GUARD_E2E_KEEP
+  // === "1" is the ONLY retention value ("0" and everything else REMOVES).
+  const report = await tracker.cleanup();
+  if (report.kept && report.retained.length) console.log(`kept artifacts: ${report.retained.join(" ")}`);
+  if (report.errors.length) console.log(`cleanup errors: ${report.errors.join("; ")}`);
 }
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed${failed ? ` (${failed} FAILED)` : ""}`);

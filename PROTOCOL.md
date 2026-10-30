@@ -312,3 +312,12 @@ The switch (increments B+C, implemented; proven live A→B→C with real inferen
   `scripts/e2e-renew.mjs` (LEARNINGS A-23), re-run solely after changes to the renewal
   wiring in `index.ts`. Mock-only tests once masked a real-runtime crash (A-9) and a
   module-load failure (A-15): a green suite never substitutes for a real-runtime load.
+- E2E test artifacts (D7): every temp workspace created by the out-of-band scripts is
+  registered with `scripts/lib/e2e-cleanup.mjs` AT creation and removed on success,
+  failure, timeout, setup error and SIGINT/SIGTERM/SIGHUP; tracked child processes are
+  shut down before their workspaces are deleted. `GUARD_E2E_KEEP=1` is the only
+  retention value; removal covers ONLY the exact directories the same invocation
+  created — no global `/tmp/guard-*` sweeper ever (a sweeper could destroy a
+  concurrent run's artifacts or retained forensics). SIGKILL and machine crashes are
+  NOT coverable by in-process code and may leave artifacts (stated honestly, never
+  "guaranteed").

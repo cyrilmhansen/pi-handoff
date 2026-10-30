@@ -33,9 +33,39 @@ LEARNINGS A-26/A-27/P-10; metrics reproduced from the local read-only audit).
   bounded experiment; zero-inference attest-prep session so the D5b preview passes
   after the driver's config patch; lineage asserted structurally
   (`merge-base --is-ancestor`) instead of greping old commit messages.
+- **D7 — test-artifact lifecycle** (operator-authorized cleanup increment; test scripts
+  only, production guard untouched): four confirmed defect classes fixed —
+  (1) temp directories created BEFORE the protecting `try/finally` leaked on early
+  setup failures; (2) the optional `guard-e2e-llm-*` workspace from the opt-in
+  `GUARD_E2E_LLM=1` branch was missing from `e2e-rpc-two-process.mjs`'s final cleanup
+  list (leaked `/tmp/guard-e2e-llm-*` observed); (3) `check-skill-discovery.mjs` kept
+  artifacts for ANY truthy `GUARD_E2E_KEEP` — `GUARD_E2E_KEEP=0` retained instead of
+  removing, unlike the other drivers; (4) abrupt termination (SIGINT/SIGTERM/SIGHUP)
+  could orphan both artifacts and live `pi` children. Now: every test-owned temp dir
+  is registered at creation; cleanup covers setup errors, successes, failed
+  assertions, timeouts and signals; tracked children are shut down BEFORE their
+  workspaces are removed; removal is restricted to the exact directories the same
+  invocation created (NO global `/tmp/guard-*` sweeper); `GUARD_E2E_KEEP === "1"` is
+  the ONLY retention value; SIGKILL and machine crashes are stated as NOT coverable
+  (LEARNINGS A-37).
 
 ### Added
 
+- **D7 — `scripts/lib/e2e-cleanup.mjs`**: shared `ArtifactTracker` (exclusive-mkdtemp
+  ownership registered at creation; child-process tracking with graceful
+  stdin-close → SIGTERM → SIGKILL shutdown ordered BEFORE workspace removal; sync
+  signal/exit safety-net path; prefix + tmpdir containment floor `guard-*`; injectable
+  deps for testing) + `keepRequested()` + `onceExited()` (spawn-error-safe exit wait).
+  `test/cleanup.test.ts` CL1–CL8: 13 zero-inference tests — worker subprocesses (real
+  fs) for normal cleanup, setup crash, KEEP=0/KEEP=1, SIGTERM with live children,
+  child-before-workspace ordering, ownership safety (same-prefix and foreign
+  sentinels must survive: no-sweeper proof) — plus the THREE REAL driver scripts
+  executed against a protocol-minimal FAKE-`pi` stub on PATH: the optional LLM
+  workspace is cleaned with everything else; KEEP=1 retains all six artifacts
+  (incl. `guard-e2e-llm-*`); SIGTERM mid-run of `e2e-rpc-two-process.mjs` exits 143
+  with all fake-pi children dead and zero workspaces left; `e2e-renew.mjs` with git
+  unreachable reports a setup failure and removes its clone parent;
+  `check-skill-discovery.mjs` with KEEP=0 cleans up (the exact historical defect).
 - **D2 — finalization**: `/handoff finalize [notes]` (operator) and the
   `handoff_finalize` tool (model): refresh-if-stale + readiness evaluation +
   attestation in ONE synchronous step. Works with renewal disabled, capped or durably
@@ -110,15 +140,19 @@ disposable; dev.1 ignores the new config keys (whitelist merge skips unknowns).
 
 ### Release readiness
 
-- Gates on the candidate (this milestone, zero inference): unit suite **187 pass /
-  1 gated skip**; real-runtime `scripts/e2e-rpc-two-process.mjs` **38/38**; skill
-  discovery probe **8/8**.
-- Real inference: `scripts/e2e-renew.mjs` **24/24** on the candidate — model-initiated
-  hop 1 under the D5b preview gate, byte-exact recovery message (D1), productive
-  successor commits, cap refusal, zero replay, zero compaction (A-36).
-- Evidence trail: LEARNINGS A-28…A-36; commits `6e61967` (D1), `8674c90` (D2),
+- Gates on the candidate (zero inference): unit suite **200 pass / 1 gated skip**
+  (incl. D7 `test/cleanup.test.ts`); real-runtime
+  `scripts/e2e-rpc-two-process.mjs` **38/38**; skill discovery probe **8/8** — both
+  re-run green AFTER the D7 driver refactor with the REAL pi.
+- Real inference: `scripts/e2e-renew.mjs` **24/24** on the pre-D7 candidate `b07e29b`
+  — model-initiated hop 1 under the D5b preview gate, byte-exact recovery message
+  (D1), productive successor commits, cap refusal, zero replay, zero compaction
+  (A-36). D7 changed only the driver's artifact lifecycle, NOT the renewal wiring;
+  the live 24-check re-run after D7 has NOT been spent (operator decision — the
+  real-inference budget rule applies).
+- Evidence trail: LEARNINGS A-28…A-37; commits `6e61967` (D1), `8674c90` (D2),
   `1d48de3` (D3), `fcea69c`/`b6445aa` (pre-D5 adjustments), `05379b0` (D5),
-  `b86b0fe` (D4), `d77ef48` (D6) + checkpoint refreshes.
+  `b86b0fe` (D4), `d77ef48` (D6) + checkpoint refreshes + D7.
 - NOT claimed (open, stated honestly): P-5 generalized concurrent renewal safety;
   P-7 live closing point under real token accounting (nominal crossings are printed
   live but were never REACHED); scripted full-audit procedure (P-3 gap); live campaign

@@ -2,6 +2,29 @@
 
 ## Current phase
 
+**Mission D7 (test-artifact lifecycle) — COMPLETE (2026-10-30, this session,
+operator-authorized, on top of the dev.2 candidate `a05289c`).** Four confirmed
+cleanup defects in the out-of-band e2e scripts, all fixed via the new shared
+`scripts/lib/e2e-cleanup.mjs` (`ArtifactTracker`): (1) temp dirs created BEFORE the
+protecting `try/finally` leaked on early setup failures (e2e-renew parent, e2e-rpc
+home/tree/audit); (2) `guard-e2e-llm-*` (optional `GUARD_E2E_LLM=1` workspace) was
+missing from e2e-rpc's hardcoded cleanup list — leaked dir observed in /tmp; (3)
+`check-skill-discovery.mjs` kept artifacts for ANY truthy `GUARD_E2E_KEEP` — `=0`
+retained instead of removing (now: `"1"` is the ONLY retention value everywhere);
+(4) SIGINT/SIGTERM/SIGHUP orphaned artifacts and live pi children — signal handlers +
+`'exit'` safety net now shut tracked children down BEFORE workspace removal.
+Ownership rule: only the exact dirs THIS invocation created (exclusive mkdtemp,
+tmpdir-contained, `guard-*` prefix floor) are ever removed; NO global `/tmp/guard-*`
+sweeper; SIGKILL/machine-crash honestly stated as uncoverable. `test/cleanup.test.ts`
+CL1–CL8: 13 zero-inference tests incl. the THREE REAL drivers against a fake-pi stub
+on PATH (LLM-workspace cleanup + retention, KEEP=0/1, SIGTERM mid-run exit 143 with
+children dead and workspaces gone, git-less setup failure, same-prefix/foreign
+sentinel survival). Two harness defects found (TDZ on synchronous child exit in the
+grace path; unref for the safety-net worker) — A-37. Production guard/renewal wiring
+NOT touched; live e2e-renew 24/24 remains at pre-D7 `b07e29b` (lifecycle-only change;
+re-run is an operator spend decision). Gates: suite **200 pass / 1 skip** (201),
+real-pi e2e-rpc **38/38**, probe **8/8** — both re-run after the refactor.
+
 **Mission v0.1.0-dev.2 — COMPLETE, release-ready candidate, STOPPED at operator review
 (2026-10-30).** All six increments committed on tag `v0.1.0-dev.1` (`2ea6219`): D1
 `6e61967`, D2 `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c`+`b6445aa`
@@ -42,6 +65,7 @@ Increments:
 | D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | DONE — recovery.ts + config recovery.lean (default false) + tiers + cost meter in status/verify/finalize; RC1-RC6 6/6; commit `b86b0fe` (successor committed after parent L4 closed bash; suite 184/185 verified green BEFORE commit) |
 | D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | DONE — test/d5.test.ts 19/19 (D5a/b, DG1-9, D5d), suite 178/179, e2e-rpc 32/32, skill probe 8/8; A-33; P-9 resolved (GUARD_VERSION banner) |
 | D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | DONE — core.ts crossingPoints + status line + docs/profiles/experimental-95k.json; D6x1-3; suite 187/188, e2e-rpc 38/38 (CAP finalize proof + crossing-line check), probe 8/8; numeric line observed LIVE with real model (A-36); commit `d77ef48` |
+| D7 | Temporary test-artifact lifecycle: register-at-creation cleanup ownership, llm-workspace coverage, GUARD_E2E_KEEP semantics, signal-safe child shutdown (e2e scripts only) | DONE — scripts/lib/e2e-cleanup.mjs + test/cleanup.test.ts CL1–CL8 (13 tests); A-37; suite 200/1 skip, real-pi e2e-rpc 38/38 + probe 8/8 re-run green on refactored drivers |
 
 Dogfooding (corrected 2026-10-30, A-31): the pi process hosting this mission was
 RESTARTED at 08:15+01:00 (session 01a18a1a resumed → renewal into 01a18baa), so the
@@ -95,6 +119,19 @@ Documentation consolidation (this pass):
 - [x] All confirmed inconsistencies corrected (see Current phase); verification
       baselines re-run green; managed checkpoint refreshed + re-attested after commit.
 
+D7 — test-artifact lifecycle (this session):
+- [x] `scripts/lib/e2e-cleanup.mjs`: ArtifactTracker (register-at-creation; graceful
+      stdin→SIGTERM→SIGKILL child shutdown BEFORE removal; sync signal/exit safety
+      nets; per-invocation tmpdir+prefix ownership; keepRequested `=== "1"` only);
+      two real harness defects found and fixed via worker tests (A-37).
+- [x] All three e2e scripts refactored onto the tracker (setup inside reported
+      failures; spawn-error-safe waits; llm workspace owned; no hardcoded lists;
+      check-skill-discovery KEEP=0 defect fixed; signal handling live).
+- [x] `test/cleanup.test.ts` 13 tests, zero inference — workers (real fs) + the REAL
+      drivers against a fake-pi stub (CL7a–f); no-sweeper/ownership sentinels proven.
+- [x] Docs: PROTOCOL §7 invariant, README §Run tests + status, AGENTS.md baselines,
+      CHANGELOG D7 (Fixed/Added/readiness), LEARNINGS A-37.
+
 ## Pending
 
 - [ ] **v0.1.0-dev.2 mission: COMPLETE** (D1-D6 + all proofs, A-28…A-36; CHANGELOG.md);
@@ -113,6 +150,23 @@ Documentation consolidation (this pass):
       proposed in LEARNINGS.
 
 ## Verified evidence
+
+Current (D7, this session, zero inference):
+- `node --test test/` → **201 tests: 200 pass, 0 fail, 1 skipped** (incl.
+  test/cleanup.test.ts CL1–CL8; Node v26.12.1, no installs).
+- `node scripts/e2e-rpc-two-process.mjs` → **38/38** with the REFACTORED driver (real
+  pi), and zero `guard-e2e-*` created after 10:20 remaining in /tmp afterwards.
+- `node scripts/check-skill-discovery.mjs` → **8/8** (real pi, refactored probe);
+  manual `GUARD_E2E_KEEP=0` run removed its dir; `GUARD_E2E_KEEP=1` retained
+  (verified live, artifact removed afterwards by hand).
+- Fake-pi integration (in-suite, zero inference): LLM=1 run removed EVERY workspace
+  incl. `guard-e2e-llm-*`; KEEP=1 retained all six incl. the llm forensics; SIGTERM
+  mid-run → driver exit 143, all fake-pi children dead, no workspaces left;
+  e2e-renew with git unreachable → reported setup FAIL, clone parent removed;
+  same-prefix + foreign sentinels survived every path (no sweeper).
+- Pre-D7 leak evidence kept on disk (operator decision to delete; scripts never
+  sweep): `/tmp/guard-e2e-llm-0APEll` (29 Oct LLM run), `guard-renew-FMDq7E`/
+  `guard-renew-zy3GFF` (interrupted runs), several `guard-e2e-home/tree/audit-*`.
 
 Current (dev.2 completion, this successor session):
 - Real inference (A-36): `node scripts/e2e-renew.mjs` on the CANDIDATE → **24/24**
@@ -160,12 +214,13 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**STOP — dev.2 COMPLETE; awaiting operator review (A-36 + CHANGELOG.md). No new
-implementation without operator direction.** If woken without operator input:
-1. Verify gates: `node --test test/` (187 pass / 1 skip),
+**STOP — dev.2 + D7 COMPLETE; awaiting operator review (A-36/A-37 + CHANGELOG.md).
+No new implementation without operator direction.** If woken without operator input:
+1. Verify gates: `node --test test/` (200 pass / 1 skip),
    `node scripts/e2e-rpc-two-process.mjs` (38/38),
    `node scripts/check-skill-discovery.mjs` (8/8). Do NOT re-run
-   `scripts/e2e-renew.mjs` unless renewal wiring in `index.ts` changed (real inference).
+   `scripts/e2e-renew.mjs` unless renewal wiring in `index.ts` changed (real
+   inference; the post-D7 live re-run is an explicit operator spend decision).
 2. Operator decision points (HANDOFF "Next action"): dev.2 review; tag
    `v0.1.0-dev.2` + push authorization; `drpli` reuse authorization (separate);
    optional policy flips (`recovery.lean`, `renewal.autoRenew`, caps).

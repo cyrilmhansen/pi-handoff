@@ -225,6 +225,49 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   within the disposable clone, not replay (A-24 class-4); this repo's numbering is
   independent. confidence: high. adopted: yes — dev.2 is release-ready (pending
   operator review; no tag/push without authorization).
+- [A-37] **D7 test-artifact lifecycle: four leak classes, one shared owner; truthiness
+  env flags and TDZ-in-callback are real defect classes.** Verified on this tree
+  (2026-10-30, operator-authorized D7). (1) *Creation-before-protection*: temp dirs
+  created with `fs.mkdtempSync` BEFORE the enclosing `try/finally` leak whenever
+  early setup throws — reproduced structurally in the three e2e drivers; historical
+  `/tmp/guard-renew-*` pairs (29 Oct, interrupted dev.2 runs) and `guard-e2e-*`/home
+  dirs are live evidence on this machine. (2) *Hardcoded cleanup lists rot*: the
+  optional `GUARD_E2E_LLM=1` workspace (`guard-e2e-llm-*`) was never added to
+  e2e-rpc-two-process.mjs's final list — `/tmp/guard-e2e-llm-0APEll` from the 29 Oct
+  LLM run is the leaked proof. Fix pattern: register every artifact AT CREATION with
+  one owner (`scripts/lib/e2e-cleanup.mjs` `ArtifactTracker`), never maintain a list.
+  (3) *Truthiness of env flags*: `if (!process.env.GUARD_E2E_KEEP)` treats the STRING
+  `"0"` as keep (env vars are strings; `"0"` is truthy in JS) — the exact opposite of
+  the operator's intent, and inconsistent with the other drivers' `!== "1"`. Adopted
+  rule: retention is requested ONLY by the exact value `"1"`; everything else removes
+  (`keepRequested()`). (4) *Abrupt termination*: default SIGINT/SIGTERM disposition
+  kills a Node process without running `finally`/`exit` logic — orphaned workspaces
+  AND live `pi` children. Signal handlers + the `'exit'` safety net now shut tracked
+  children down (graceful stdin-close → SIGTERM → SIGKILL on the async path;
+  SIGTERM+SIGKILL on the sync path) BEFORE any removal. Honest limit, stated in code
+  and docs: SIGKILL and machine crashes cannot be handled by in-process code — no
+  test claims them; a killed run may leak, and later runs deliberately do NOT sweep
+  `/tmp/guard-*` (a sweeper could destroy a concurrent run's or a retained forensic
+  directory — ownership is per-invocation, exclusive-mkdtemp-created, tmpdir+prefix
+  contained). HARNESS DEFECTS found while writing the tests (same "verify the harness
+  before the product" rule as A-14): (a) a TDZ ReferenceError inside the cleanup
+  resolve-callback when a child exits SYNCHRONOUSLY on `stdin.end()` (timers were
+  `const`-declared after the end() call; the throw was swallowed by the surrounding
+  try/catch and the promise never resolved — a mock/worker-only discovery, invisible
+  to real async children); (b) a spawnSync worker test whose tracked child kept the
+  parent's event loop alive never reached the `'exit'` safety net — required
+  `child.unref()`. Integration proof WITHOUT inference: the three real driver scripts
+  run against a protocol-minimal fake-`pi` stub on PATH (its guard-behavior check
+  failures are expected and NOT asserted); what is proven is lifecycle — normal
+  cleanup, KEEP=0 vs KEEP=1, llm-workspace cleanup + retention, SIGTERM mid-run
+  (driver exit 143, fake children dead, zero workspaces left), git-less e2e-renew
+  setup failure, same-prefix and foreign sentinels surviving every run (no-sweeper).
+  Gates after D7: suite 200 pass / 1 skip; real-pi e2e-rpc 38/38 and probe 8/8
+  re-run green on the refactored drivers. NOT re-run live: `e2e-renew.mjs` real-
+  inference 24/24 still stands at pre-D7 `b07e29b` — the renewal wiring did not
+  change; the driver change is lifecycle-level (honestly recorded, operator decision
+  to spend the re-run). confidence: high. adopted: yes (PROTOCOL §7 invariant;
+  CHANGELOG D7).
 
 ## Proposed
 

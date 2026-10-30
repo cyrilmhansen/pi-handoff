@@ -2,12 +2,15 @@
 
 ## Recovery instructions
 
-0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 COMPLETE — release-ready
-   candidate STOPPED at operator review; NOT tagged, NOT pushed.** All six increments
-   committed on tag `v0.1.0-dev.1` (`2ea6219`): D1 `6e61967`, D2 `8674c90`, D3
-   `1d48de3`, pre-D5 adjustments `fcea69c`+`b6445aa` (A-31/A-32/RN15), D5 `05379b0`
-   (A-33), D4 `b86b0fe` (A-34 — committed by successor 01a18bef after the parent L4
-   closed bash), D6 `d77ef48` (A-35) + checkpoint refreshes. ALL dogfood proofs
+0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 + D7 COMPLETE — release-ready
+   candidate STOPPED at operator review; NOT tagged, NOT pushed.** All six dev.2
+   increments committed on tag `v0.1.0-dev.1` (`2ea6219`): D1 `6e61967`, D2
+   `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c`+`b6445aa` (A-31/A-32/RN15), D5
+   `05379b0` (A-33), D4 `b86b0fe` (A-34 — committed by successor 01a18bef after the
+   parent L4 closed bash), D6 `d77ef48` (A-35) + checkpoint refreshes; then the
+   operator-authorized **D7 test-artifact lifecycle increment** (all four e2e cleanup
+   defects fixed via `scripts/lib/e2e-cleanup.mjs`; 13 new zero-inference tests in
+   `test/cleanup.test.ts`; A-37). ALL dogfood proofs
    DONE: real-inference e2e-renew **24/24 on the candidate** (model-initiated hop 1
    under the D5b preview gate; byte-exact recovery message incl. configured prompt +
    testCommand; productive successor commits; cap refusal; zero replay/compaction; D6
@@ -15,8 +18,10 @@
    runtime zero-inference (e2e-rpc CAP section, 38/38) — A-35; recovery-cost
    comparison vs A-27 (this tree: full ≈ 28.7k vs lean operational ≈ 8.8k est.
    tokens, chars/4) — A-36. Release docs: **CHANGELOG.md** (dev.2 + migration/
-   rollback + release readiness). Gates: suite 187/1 skip, e2e-rpc 38/38, probe 8/8.
-   Hard limits held: DRPLi untouched (fixtures/clone proofs only); nothing pushed;
+   rollback + release readiness). Gates after D7: suite 200/1 skip (201 tests),
+   real-pi e2e-rpc 38/38, probe 8/8 (both re-run green on the REFACTORED drivers);
+   e2e-renew live re-run NOT spent post-D7 (lifecycle-only change; A-37). Hard
+   limits held: DRPLi untouched (fixtures/clone proofs only); nothing pushed;
    raw campaign logs outside Git.**
 
 1. Read `AGENTS.md`, then `PROTOCOL.md`, then this file, then `PROGRESS.md`, then
@@ -32,12 +37,17 @@
    `session_start` notification) to see missing/corrupt/stale/current; if stale, refresh
    with `/handoff` (rewrites only managed blocks, never manual text). Attest with
    `/handoff ready`; renewal requires `current` ∧ identity-consistent ∧ attested.
-4. Verify the build: `node --test test/` (expect **188 tests: 187 pass, 0 fail, 1
-   gated skip**, Node 26, no installs); `node scripts/e2e-rpc-two-process.mjs`
+4. Verify the build: `node --test test/` (expect **201 tests: 200 pass, 0 fail, 1
+   gated skip**, Node 26, no installs; incl. D7 `test/cleanup.test.ts` — 13
+   zero-inference lifecycle tests that drive the REAL e2e scripts against a fake-pi
+   stub on PATH); `node scripts/e2e-rpc-two-process.mjs`
    (**38/38**, real runtime, zero inference); `node scripts/check-skill-discovery.mjs`
    (8/8, real runtime, zero inference). `node scripts/e2e-renew.mjs` (**24/24** at the
-   dev.2 candidate — A-36) SPENDS REAL INFERENCE — re-run only after a change to the
-   renewal wiring in `index.ts`.
+   dev.2 candidate `b07e29b` — A-36; lifecycle-only D7 driver changes are covered
+   zero-inference, the live re-run awaits an authorized real-inference pass) SPENDS
+   REAL INFERENCE — re-run only after a change to the renewal wiring in `index.ts`.
+   E2E artifacts self-clean (scripts/lib/e2e-cleanup.mjs; `GUARD_E2E_KEEP=1` is the
+   ONLY retention value; SIGKILL/crashes may leak and are NOT swept).
 5. Load the guard explicitly (no trust dependency): `pi -e .pi/extensions/context-guard/index.ts`.
    For a non-mutating audit session: `CONTEXT_GUARD_READONLY=1 CONTEXT_GUARD_STATE_DIR=/tmp/guard-state pi -e ...`
    (read-only mode can also be enabled with `--guard-readonly 1`; it protects the project
@@ -46,6 +56,16 @@
 
 ## Last verified state
 
+- **D7 (2026-10-30, this session): test-artifact lifecycle increment COMPLETE.**
+  `scripts/lib/e2e-cleanup.mjs` (ArtifactTracker: register-at-creation, child shutdown
+  BEFORE workspace removal, signal + 'exit' safety nets, per-invocation ownership —
+  no sweeper, `GUARD_E2E_KEEP=1`-only retention) wired into all three e2e scripts;
+  `test/cleanup.test.ts` CL1–CL8 (13 tests, zero inference incl. real scripts driven
+  by a fake-pi stub: LLM-workspace cleanup, KEEP=0/1 semantics, SIGTERM mid-run, setup
+  failure, sentinel/no-sweeper proofs). Two harness defects found en route (TDZ in a
+  synchronous-exit cleanup callback; unref needed for the exit-safety-net worker) —
+  A-37. Production guard, renewal wiring, scientific evidence and DRPLi NOT touched.
+  Gates: suite 200 pass / 1 skip; real-pi e2e-rpc 38/38; probe 8/8.
 - Documentation consolidation (committed on top of `06fbc71`): README retitled and
   de-scoped from "Phase 1"; schema v3 stated as current everywhere (v2 marked historical);
   HANDOFF/PROGRESS restructured current-first with obsolete Phase 1c repair instructions
@@ -90,13 +110,18 @@ Completed milestones (history; evidence in LEARNINGS.md, code in git):
 - [x] Documentation consolidation pass — README/PROTOCOL/AGENTS/HANDOFF/
       PROGRESS/LEARNINGS/skill/guide reconciled with the implementation; GOAL.md left
       untouched by design.
-- [x] **v0.1.0-dev.2 mission (COMPLETE 2026-10-30, release-ready candidate):** D1-D6
+- [x] **v0.1.0-dev.2 mission (COMPLETE 2026-10-30):** D1-D6
       reliability + recovery-efficiency increments from the DRPLi campaign audit —
       recovery-prompt fix (D1), finalize (D2), durable_edit.py (D3), lean tiers +
       cost meter (D4), honest alerts + write-free preview + diagnostics (D5), crossing
       points + 95k profile (D6); all dogfood proofs green incl. real-inference 24/24
       on the candidate and the real-runtime capped-chain finalize proof (LEARNINGS
-      A-28…A-36; CHANGELOG.md). NOT tagged, NOT pushed.
+      A-28…A-36; CHANGELOG.md).
+- [x] **D7 test-artifact lifecycle (COMPLETE 2026-10-30, operator-authorized):** four
+      e2e cleanup defects fixed (creation-before-try leaks, missing `guard-e2e-llm-*`
+      in the cleanup list, `GUARD_E2E_KEEP=0` truthiness bug, orphaned children/artifacts
+      on signals); shared `scripts/lib/e2e-cleanup.mjs`; 13 lifecycle tests;
+      LEARNINGS A-37; CHANGELOG.md. NOT tagged, NOT pushed.
 
 Outstanding (operator decisions and open proofs — NOT development tasks):
 
@@ -117,16 +142,21 @@ Outstanding (operator decisions and open proofs — NOT development tasks):
 - [ ] A-22 follow-up: "config-changed-since-session-start" notice (proposal, unbuilt).
 
 ## Next action
-**STOP — dev.2 COMPLETE, awaiting OPERATOR REVIEW (A-36, CHANGELOG.md). No further
-implementation without operator direction.** Operator decision points: (1) review the
-dev.2 range `4df08a8..HEAD` (one commit per increment + refreshes); (2) authorize or
-withhold tag `v0.1.0-dev.2` + push (NEITHER is done); (3) separately authorize `drpli`
+**STOP — dev.2 + D7 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37, CHANGELOG.md). No
+further implementation without operator direction.** Operator decision points: (1)
+review the dev.2+D7 range `4df08a8..HEAD` (one commit per increment + refreshes);
+(2) authorize or withhold tag `v0.1.0-dev.2` + push (NEITHER is done; D7 is included
+in the candidate); (3) separately authorize `drpli`
 reuse (blueprint: docs/long-project-guide.md §7 + skill bootstrap; CHANGELOG migration/
 rollback sections are the install notes); (4) optional policy calls: enable
-`recovery.lean`, raise `renewal.autoRenew`, adjust caps. Open caveats that travel with
-any release claim: P-5 concurrency NOT generalized; P-7 live closing point NOT observed
+`recovery.lean`, raise `renewal.autoRenew`, adjust caps; (5) optional authorized
+real-inference pass: re-run `node scripts/e2e-renew.mjs` (24/24) to move the live
+renewal proof onto the post-D7 tip — not required by D7 (renewal wiring unchanged).
+Open caveats that travel with any release claim: P-5 concurrency NOT generalized; P-7 live closing point NOT observed
 under real accounting (nominal crossings printed live, never reached); lean-tier benefit
-is fixture/meter projection (chars/4), not campaign re-run. Successors: if woken without
+is fixture/meter projection (chars/4), not campaign re-run. Historical `/tmp/guard-*`
+leaks from pre-D7 interrupted runs remain on this machine (A-37 evidence; deleting them
+is an operator action — scripts never sweep). Successors: if woken without
 operator input, verify gates (`node --test test/`, e2e-rpc, probe), do NOT open new
 implementation, keep docs/checkpoints current.
 

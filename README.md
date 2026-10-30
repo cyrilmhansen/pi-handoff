@@ -7,12 +7,15 @@ recovers from files alone (no transcript replay, no lossy compaction). No third-
 dependencies, no LLM involvement in the guard itself.
 
 **Current status.** Phases 1, 1b, 1c, 1d and Phase 2 (increments A+B+C) are COMPLETE;
-renewal is proven live with real inference (LEARNINGS A-23). Verification baselines:
-`node --test test/` → 131 pass / 0 fail / 1 gated skip; `node
-scripts/e2e-rpc-two-process.mjs` → 27/27 (real runtime, zero inference); `node
+renewal is proven live with real inference (LEARNINGS A-23); the v0.1.0-dev.2 mission
+(D1–D6) plus the D7 test-artifact lifecycle increment are COMPLETE (pending operator
+review; not tagged/pushed). Verification baselines:
+`node --test test/` → 200 pass / 0 fail / 1 gated skip; `node
+scripts/e2e-rpc-two-process.mjs` → 38/38 (real runtime, zero inference); `node
 scripts/check-skill-discovery.mjs` → 8/8 (real runtime, zero inference); `node
-scripts/e2e-renew.mjs` → 20/20 (spends real inference — re-run only after renewal-wiring
-changes). `GOAL.md` still describes the *original* Phase 1 scope ("no automatic session
+scripts/e2e-renew.mjs` → 24/24 (spends real inference — last live run on the dev.2
+candidate `b07e29b`, A-36; re-run after renewal-wiring changes). `GOAL.md` still
+describes the *original* Phase 1 scope ("no automatic session
 switching"): that is historically correct, the file is protected, and it is deliberately
 left untouched — subsequent phases (1b/1c/1d and Phase 2) extended the original scope
 under explicit operator authorization; the history lives in `PROGRESS.md` /
@@ -66,11 +69,22 @@ sibling modules. Pi loads it through `jiti` (verified).
 ## Run tests
 
 ```bash
-node --test test/          # 132 tests (1 skipped: gated real-Pi e2e), no inference, no installs
-node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (27 checks)
+node --test test/          # 201 tests (200 pass + 1 skipped: gated real-Pi e2e), no inference, no installs
+node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (38 checks)
 node scripts/check-skill-discovery.mjs # real pi 1.4.0: project skill discovery + trust-gated extension auto-load, zero inference (8 checks)
-node scripts/e2e-renew.mjs             # REAL inference: A→B→C renewal chain proof (20 checks); re-run after any renewal-wiring change
+node scripts/e2e-renew.mjs             # REAL inference: A→B→C renewal chain proof (24 checks); re-run after any renewal-wiring change
 ```
+
+**E2E artifact lifecycle (D7).** All three out-of-band scripts create their temp
+workspaces through `scripts/lib/e2e-cleanup.mjs`: every directory is registered AT
+creation and removed on success, assertion failure, timeout, setup error and
+SIGINT/SIGTERM/SIGHUP — tracked `pi` children are shut down BEFORE their workspaces
+are deleted. `GUARD_E2E_KEEP=1` (and ONLY `1`; `0` removes like anything else) retains
+the artifacts for forensics. Removal is restricted to the exact directories that the
+same invocation created (`guard-*` under the OS tmp dir); there is deliberately no
+global `/tmp/guard-*` sweeper. SIGKILL and machine crashes cannot be handled by any
+in-process code — a killed run may leak artifacts, and later runs do not sweep them.
+Covered by `test/cleanup.test.ts` (CL1–CL8, zero inference).
 
 Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use mocks of
 `ExtensionAPI`/`ExtensionContext` and synthetic token budgets.
@@ -203,7 +217,7 @@ proof (A-23), stated precisely: the experiment verified **one** model-initiated 
 then a cap refusal — not two independently spontaneous renewals, and not real-pressure
 threshold accuracy. Verify the whole chain yourself with `node scripts/e2e-renew.mjs`
 (spends real inference on an isolated git clone; `GUARD_E2E_KEEP=1` keeps the clone for
-forensics).
+forensics — the ONLY retention value; see §Run tests for the artifact lifecycle).
 
 ## Finalization (dev.2 D2) — closing WITHOUT renewal
 

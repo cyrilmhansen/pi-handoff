@@ -26,6 +26,14 @@
  *   node scripts/e2e-renew.mjs              # spends real inference (few turns)
  *   GUARD_E2E_KEEP=1 node scripts/e2e-renew.mjs   # keep the clone for forensics
  *
+ * Artifact lifecycle (D7): the temp clone parent is registered with the shared
+ * ArtifactTracker IMMEDIATELY at creation; cleanup covers setup errors, failures,
+ * timeouts and SIGINT/SIGTERM/SIGHUP (tracked pi children are shut down BEFORE the
+ * workspaces are removed). GUARD_E2E_KEEP === "1" is the ONLY retention value —
+ * "0" or any other value REMOVES. SIGKILL and machine crashes cannot be handled
+ * by any in-process code; a killed run may leave artifacts (deliberately NOT swept
+ * by later runs — scripts/lib/e2e-cleanup.mjs).
+ *
  * Driver corrections baked in (LEARNINGS A-24 class): the clone's renewal cap is PINNED
  * to 2 for the bounded experiment (the project's operational cap is 8 — A-32); a
  * zero-inference prep session refreshes+attests the clone checkpoint AFTER the config
@@ -36,11 +44,13 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ArtifactTracker, onceExited } from "./lib/e2e-cleanup.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const tracker = new ArtifactTracker({ prefix: "guard-renew-" });
+tracker.installHandlers(); // SIGINT/SIGTERM/SIGHUP + 'exit' safety net, before any artifact exists
 const results = [];
 const t0 = Date.now();
 const el = () => `${((Date.now() - t0) / 1000).toFixed(1)}s`;
@@ -51,53 +61,79 @@ const check = (name, ok, detail = "") => {
 };
 
 // ---- isolated full clone (history preserved, nothing of the real tree is mutated) ----
-// git clone refuses a pre-existing (non-empty) dir: make a fresh parent with mkdtemp,
-// clone into <parent>/work so the clone path is stable for cleanup.
-const parent = fs.mkdtempSync(path.join(os.tmpdir(), "guard-renew-"));
-const clone = path.join(parent, "work");
-if (process.env.GUARD_E2E_KEEP === "1") console.log(`clone dir: ${clone}`);
-const gitInit = spawn("git", ["clone", "--quiet", REPO, clone], { stdio: "inherit" });
-// .code is only populated once the exit event fires WITH its code; `child.code` can be
-// undefined at that point depending on stdio mode — capture the event argument instead.
-const gitCode = await new Promise((r) => gitInit.once("exit", (code) => r(code)));
-if (gitCode !== 0) throw new Error(`git clone failed (exit ${gitCode})`);
-const EXT = path.join(clone, ".pi/extensions/context-guard/index.ts");
-// HEAD of the source repo BEFORE the clone work: lineage assertion (C7). Captured via
-// rev-parse, then verified in the clone with `merge-base --is-ancestor` — substring
-// greps of old commit messages rot as the tip advances (A-24 driver-bug class).
-const repoHead = await new Promise((r) => {
-  const g = spawn("git", ["-C", REPO, "rev-parse", "HEAD"], { stdio: ["ignore", "pipe", "pipe"] });
-  let out = "";
-  g.stdout.on("data", (d) => (out += d));
-  g.once("exit", () => r(out.trim()));
-});
-if (!/^[0-9a-f]{40}$/.test(repoHead)) throw new Error(`git rev-parse HEAD failed: "${repoHead}"`);
-
-// dev.2 D1 (LEARNINGS A-26): the clone's config gets a CUSTOM recoveryPrompt (with a
-// random marker) and an explicit compound testCommand. The successor's recovery message
-// is later asserted BYTE-EXACT against buildRecoveryPrompt's reconstruction, proving the
-// configured text and command reach the message ACTUALLY SENT through the Pi runtime,
-// and that no generic `node --test test/` line exists unless the project configured it.
-const { buildRecoveryPrompt } = await import(path.join(clone, ".pi/extensions/context-guard/renewal.ts"));
-const promptMarker = `E2E-CUSTOM-PROMPT-${randomUUID().slice(0, 8)}`;
-const customRecoveryPrompt = `${promptMarker} — project-configured recovery: recover from the durable files NOW, in this order: read AGENTS.md, PROTOCOL.md, GOAL.md, HANDOFF.md, PROGRESS.md, LEARNINGS.md.`;
-const configuredTestCommand = "node --test test/ && node scripts/check-skill-discovery.mjs";
-const cfgPath = path.join(clone, "handoff.config.json");
-{
-  const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
-  // The experiment is BOUNDED BY DESIGN (docstring): pin the CLONE's cap to 2 so the
-  // hop-1/hop-2/cap-refusal assertions (1/2, 2/2, capped) are deterministic regardless
-  // of the project's operational cap (currently 8 — A-32). The clone is isolated; the
-  // project config stays untouched.
-  cfg.renewal = { ...(cfg.renewal ?? {}), enabled: true, maxRenewals: 2, recoveryPrompt: customRecoveryPrompt, testCommand: configuredTestCommand };
-  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
+// git clone refuses a pre-existing (non-empty) dir: make a fresh parent via the tracker
+// (registered AT creation — a failure anywhere in setup can no longer leak it), clone
+// into <parent>/work so the clone path is stable.
+let clone = "";
+let EXT = "";
+let repoHead = "";
+let promptMarker = "";
+let customRecoveryPrompt = "";
+let configuredTestCommand = "";
+let buildRecoveryPrompt = null;
+let setupError = null;
+try {
+  const parent = tracker.createTempDir();
+  clone = path.join(parent, "work");
+  EXT = path.join(clone, ".pi/extensions/context-guard/index.ts");
+  const gitInit = tracker.trackChild(spawn("git", ["clone", "--quiet", REPO, clone], { stdio: "inherit" }));
+  // .code is only populated once the exit event fires WITH its code; `child.code` can be
+  // undefined at that point depending on stdio mode — capture the event argument instead.
+  // A spawn ERROR (missing git) resolves -1 so we fail fast instead of hanging on 'exit'.
+  const gitCode = await new Promise((r) => {
+    gitInit.once("exit", (code) => r(code));
+    gitInit.once("error", () => r(-1));
+  });
+  if (gitCode !== 0) throw new Error(`git clone failed (exit ${gitCode})`);
+  // HEAD of the source repo BEFORE the clone work: lineage assertion (C7). Captured via
+  // rev-parse, then verified in the clone with `merge-base --is-ancestor` — substring
+  // greps of old commit messages rot as the tip advances (A-24 driver-bug class).
+  repoHead = await new Promise((r) => {
+    const g = tracker.trackChild(spawn("git", ["-C", REPO, "rev-parse", "HEAD"], { stdio: ["ignore", "pipe", "pipe"] }));
+    let out = "";
+    g.stdout.on("data", (d) => (out += d));
+    g.once("exit", () => r(out.trim()));
+    g.once("error", () => r(""));
+  });
+  if (!/^[0-9a-f]{40}$/.test(repoHead)) throw new Error(`git rev-parse HEAD failed: "${repoHead}"`);
+  // dev.2 D1 (LEARNINGS A-26): the clone's config gets a CUSTOM recoveryPrompt (with a
+  // random marker) and an explicit compound testCommand. The successor's recovery message
+  // is later asserted BYTE-EXACT against buildRecoveryPrompt's reconstruction, proving the
+  // configured text and command reach the message ACTUALLY SENT through the Pi runtime,
+  // and that no generic `node --test test/` line exists unless the project configured it.
+  ({ buildRecoveryPrompt } = await import(path.join(clone, ".pi/extensions/context-guard/renewal.ts")));
+  promptMarker = `E2E-CUSTOM-PROMPT-${randomUUID().slice(0, 8)}`;
+  customRecoveryPrompt = `${promptMarker} — project-configured recovery: recover from the durable files NOW, in this order: read AGENTS.md, PROTOCOL.md, GOAL.md, HANDOFF.md, PROGRESS.md, LEARNINGS.md.`;
+  configuredTestCommand = "node --test test/ && node scripts/check-skill-discovery.mjs";
+  const cfgPath = path.join(clone, "handoff.config.json");
+  {
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+    // The experiment is BOUNDED BY DESIGN (docstring): pin the CLONE's cap to 2 so the
+    // hop-1/hop-2/cap-refusal assertions (1/2, 2/2, capped) are deterministic regardless
+    // of the project's operational cap (currently 8 — A-32). The clone is isolated; the
+    // project config stays untouched.
+    cfg.renewal = { ...(cfg.renewal ?? {}), enabled: true, maxRenewals: 2, recoveryPrompt: customRecoveryPrompt, testCommand: configuredTestCommand };
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
+  }
+  if (process.env.GUARD_E2E_KEEP === "1") console.log(`clone dir: ${clone}`);
+} catch (err) {
+  setupError = err;
 }
 
-/** Minimal RPC client (same protocol as e2e-rpc-two-process.mjs). */
+/** Minimal RPC client (same protocol as e2e-rpc-two-process.mjs). Children are tracked
+ *  by the artifact tracker so signal/abrupt cleanup can shut them down BEFORE their
+ *  workspace directories are removed (D7). */
 function startRpc({ dir, env, label }) {
   const records = [];
   const waiters = [];
-  const child = spawn("pi", ["--mode", "rpc", "-e", EXT], { cwd: dir, env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] });
+  const stderr = [];
+  let spawnFailed = false;
+  const child = tracker.trackChild(spawn("pi", ["--mode", "rpc", "-e", EXT], { cwd: dir, env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "pipe"] }));
+  child.on("error", (e) => {
+    spawnFailed = true;
+    stderr.push(`spawn error: ${e?.message ?? e}`);
+  });
+  const dead = () => child.exitCode != null || child.signalCode != null || spawnFailed;
   let buf = "";
   child.stdout.on("data", (c) => {
     buf += String(c);
@@ -114,7 +150,6 @@ function startRpc({ dir, env, label }) {
       }
     }
   });
-  const stderr = [];
   child.stderr.on("data", (c) => stderr.push(String(c)));
   const send = (o) => child.stdin.write(JSON.stringify(o) + "\n");
   const waitFor = async (pred, timeoutMs = 300_000, what = "event") => {
@@ -122,7 +157,7 @@ function startRpc({ dir, env, label }) {
     for (;;) {
       const hit = records.find(pred);
       if (hit) return hit;
-      if (child.exitCode != null) throw new Error(`${label}: pi exited (code ${child.exitCode}) before ${what}; stderr: ${stderr.join("").slice(0, 300)}`);
+      if (dead()) throw new Error(`${label}: pi exited (code ${child.exitCode ?? "spawn-failed"}) before ${what}; stderr: ${stderr.join("").slice(0, 300)}`);
       if (Date.now() > deadline) throw new Error(`${label}: timeout waiting for ${what} (records: ${records.length})`);
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -137,7 +172,7 @@ function startRpc({ dir, env, label }) {
     try {
       child.stdin.end();
     } catch {}
-    await new Promise((r) => (child.exitCode == null ? child.once("exit", r) : r()));
+    await onceExited(child);
   };
   return { child, records, stderr, send, waitFor, command, uiTexts, count, shutdown, label };
 }
@@ -145,7 +180,13 @@ function startRpc({ dir, env, label }) {
 let exitCode = 0;
 const marker = `MARKER-${randomUUID().slice(0, 8)}`;
 const hops = [];
-try {
+if (setupError) {
+  // D7: a setup failure (git missing, clone error, bad config) is a REPORTED failure;
+  // the tracker owns the temp parent, so cleanup below removes it.
+  exitCode = 1;
+  check("e2e-renew setup completed", false, setupError instanceof Error ? setupError.stack ?? setupError.message : String(setupError));
+}
+if (!setupError) try {
   // ---- zero-inference ATTestation prep (dev.2 D5b preview gate) ----
   // The config patch above changes handoff.config.json → the clone's checkpoint block
   // is STALE (source-config fingerprint differs) → renewAuthorization fails → the D5b
@@ -160,7 +201,7 @@ try {
     await new Promise((r) => setTimeout(r, 500));
     const st = await prep.command({ id: `prep-probe-${Date.now()}`, type: "get_state" }).catch(() => null);
     if (st) prep.send({ id: `prep-cmd-${Date.now()}`, type: "prompt", message: "/guard status" });
-    if (prep.child.exitCode != null) throw new Error("prep pi exited before the guard answered");
+    if (prep.child.exitCode != null || prep.child.signalCode != null) throw new Error("prep pi exited before the guard answered");
   }
   await prep.command({ id: "prep-ho", type: "prompt", message: "/handoff e2e-renew prep: config patch made the clone checkpoint stale; refresh+attest so the D5b preview passes" });
   await prep.waitFor((r) => r.type === "extension_ui_request" && /context-guard \/handoff:/.test(String(r.message ?? "")), 60_000, "prep checkpoint notification");
@@ -178,7 +219,7 @@ try {
     await new Promise((r) => setTimeout(r, 500));
     const st = await c.command({ id: `probe-${Date.now()}`, type: "get_state" }).catch(() => null);
     if (st) c.send({ id: `probe-cmd-${Date.now()}`, type: "prompt", message: "/guard status" });
-    if (c.child.exitCode != null) throw new Error("pi exited before the guard answered");
+    if (c.child.exitCode != null || c.child.signalCode != null) throw new Error("pi exited before the guard answered");
   }
   const idA = (await c.command({ id: "sA", type: "get_state" })).data;
   log(`session A: ${idA.sessionId} model=${idA.model?.id} provider=${idA.model?.provider} window=${idA.model?.contextWindow} autoCompaction=${idA.autoCompactionEnabled}`);
@@ -316,10 +357,11 @@ try {
   const compact = allFiles.filter(([, t]) => /"type":"compaction"|"compaction"/.test(t));
   check("C5: ZERO compaction across the chain", compact.length === 0, compact.map(([f]) => path.basename(f)).join(","));
   const gitlog = await new Promise((r) => {
-    const g = spawn("git", ["-C", clone, "log", "--oneline", "-6"], { stdio: ["ignore", "pipe", "pipe"] });
+    const g = tracker.trackChild(spawn("git", ["-C", clone, "log", "--oneline", "-6"], { stdio: ["ignore", "pipe", "pipe"] }));
     let out = "";
     g.stdout.on("data", (d) => (out += d));
     g.once("exit", () => r(out.trim()));
+    g.once("error", () => r(""));
   });
   const succCommits = (gitlog.match(/e2e-renew: successor/g) ?? []).length;
   check("C6: successors did REAL work (committed) in the clone", succCommits >= 1, gitlog.split("\n").slice(0, 4).join(" | "));
@@ -327,8 +369,9 @@ try {
   // dev.2 commits moved off the old tip; assert LINEAGE structurally instead — the
   // source repo HEAD captured before cloning must be an ancestor of the clone tip.
   const ancestor = await new Promise((r) => {
-    const g = spawn("git", ["-C", clone, "merge-base", "--is-ancestor", repoHead, "HEAD"], { stdio: ["ignore", "ignore", "pipe"] });
+    const g = tracker.trackChild(spawn("git", ["-C", clone, "merge-base", "--is-ancestor", repoHead, "HEAD"], { stdio: ["ignore", "ignore", "pipe"] }));
     g.once("exit", (code) => r(code === 0));
+    g.once("error", () => r(false));
   });
   check("C7: git history preserved in the clone (source HEAD is an ancestor of the successor tip)", ancestor, `${repoHead.slice(0, 10)} reachable from clone tip`);
 
@@ -338,9 +381,13 @@ try {
   exitCode = 1;
   check("e2e-renew driver completed without throwing", false, err instanceof Error ? err.stack ?? err.message : String(err));
   log(`partial hops observed: ${JSON.stringify(hops)}`);
-} finally {
-  if (process.env.GUARD_E2E_KEEP !== "1") fs.rmSync(parent, { recursive: true, force: true });
-  else console.log(`kept clone: ${clone}`);
+}
+{
+  // D7: single cleanup owner — shuts down any still-live tracked child before
+  // removing the invocation-owned temp tree; GUARD_E2E_KEEP === "1" retains it.
+  const report = await tracker.cleanup();
+  if (report.kept && report.retained.length) console.log(`kept artifacts: ${report.retained.join(" ")}`);
+  if (report.errors.length) console.log(`cleanup errors: ${report.errors.join("; ")}`);
 }
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} renew-e2e checks passed${failed.length ? " — FAILURES:\n" + failed.map((f) => `  * ${f.name}: ${f.detail}`).join("\n") : ""}`);

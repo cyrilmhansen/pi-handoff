@@ -19,17 +19,28 @@
  *
  *   node scripts/e2e-rpc-two-process.mjs          # deterministic, no token spend
  *   GUARD_E2E=1 node --test test/processes.test.ts  # runs this file from the suite
+ *
+ * Artifact lifecycle (D7): every temp workspace (tree/audit/audit-intree/capped AND
+ * the optional guard-e2e-llm-* workspace) is registered with the shared ArtifactTracker
+ * AT CREATION, so cleanup covers setup errors, assertion failures, timeouts, normal
+ * termination and SIGINT/SIGTERM/SIGHUP (tracked pi children are shut down BEFORE
+ * their workspaces are removed). GUARD_E2E_KEEP === "1" is the ONLY retention value
+ * ("0" removes, like every other value). SIGKILL and machine crashes cannot be
+ * handled by any in-process code — a killed run may leak artifacts; later runs
+ * deliberately do NOT sweep them (scripts/lib/e2e-cleanup.mjs).
  */
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ArtifactTracker, onceExited } from "./lib/e2e-cleanup.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EXT = path.join(REPO, ".pi/extensions/context-guard/index.ts");
+const tracker = new ArtifactTracker({ prefix: "guard-e2e-" });
+tracker.installHandlers(); // SIGINT/SIGTERM/SIGHUP + 'exit' safety net, before any artifact exists
 const { createLocalFs, validateCheckpoint, renewAuthorization, extractManagedSection, readBlockIdentity } = await import(path.join(REPO, ".pi/extensions/context-guard/checkpoint.ts"));
 
 const DURABLE = ["GOAL.md", "PROGRESS.md", "LEARNINGS.md", "HANDOFF.md", "AGENTS.md", "handoff.config.json"];
@@ -41,7 +52,10 @@ const check = (name, ok, detail = "") => {
 };
 
 function makeProject(tag) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `guard-e2e-${tag}-`));
+  // Registered with the tracker AT CREATION: if a validation below throws, the
+  // half-built workspace is still owned and will be removed (D7 — previously dirs
+  // created before the try/finally leaked on setup errors).
+  const dir = tracker.createTempDir(tag);
   for (const f of DURABLE) {
     const src = path.join(REPO, f);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, f));
@@ -73,17 +87,25 @@ function manifest(dir) {
   return out.sort();
 }
 
-/** Minimal RPC client: JSONL on stdout, LF framing, correlated by request id. */
+/** Minimal RPC client: JSONL on stdout, LF framing, correlated by request id.
+ *  Children are tracked so cleanup shuts them down before removing workspaces. */
 function startRpc({ dir, agentDir, env, label }) {
   const records = [];
   const waiters = [];
-  const child = spawn("pi", ["--mode", "rpc", "-e", EXT], {
+  const stderr = [];
+  let spawnFailed = false;
+  const child = tracker.trackChild(spawn("pi", ["--mode", "rpc", "-e", EXT], {
     cwd: dir,
     // agentDir === null => inherit the user's real PI_CODING_AGENT_DIR (needed for the
     // optional real-model branch); never mutated, only used to create a session.
     env: { ...process.env, ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}), ...env },
     stdio: ["pipe", "pipe", "pipe"],
+  }));
+  child.on("error", (e) => {
+    spawnFailed = true;
+    stderr.push(`spawn error: ${e?.message ?? e}`);
   });
+  const dead = () => child.exitCode != null || child.signalCode != null || spawnFailed;
   let buf = "";
   child.stdout.on("data", (chunk) => {
     buf += chunk.toString("utf8");
@@ -102,7 +124,6 @@ function startRpc({ dir, agentDir, env, label }) {
       for (const w of waiters.splice(0)) w();
     }
   });
-  const stderr = [];
   child.stderr.on("data", (c) => stderr.push(String(c)));
   const send = (obj) => child.stdin.write(JSON.stringify(obj) + "\n");
   const waitFor = async (pred, timeoutMs = 45_000) => {
@@ -110,6 +131,7 @@ function startRpc({ dir, agentDir, env, label }) {
     for (;;) {
       const hit = records.find(pred);
       if (hit) return hit;
+      if (dead()) throw new Error(`${label}: pi exited (code ${child.exitCode ?? "spawn-failed"}) while waiting; stderr: ${stderr.join("").slice(0, 300)}`);
       if (Date.now() > deadline) throw new Error(`${label}: timeout waiting for ${pred.toString().slice(0, 60)}; got ${records.map((r) => r.type).join(",")}`);
       await new Promise((r) => setTimeout(r, 25));
     }
@@ -125,7 +147,7 @@ function startRpc({ dir, agentDir, env, label }) {
     } catch {
       /* already closed */
     }
-    await new Promise((r) => (child.exitCode == null ? child.once("exit", r) : r()));
+    await onceExited(child);
   };
   return { child, records, stderr, send, waitFor, command, uiTexts, shutdown, label };
 }
@@ -140,7 +162,7 @@ async function awaitReady(c) {
   let n = 0;
   for (;;) {
     if (c.uiTexts().some((t) => /context-guard status/.test(t))) return true;
-    if (c.child.exitCode != null) throw new Error(`${c.label}: pi exited early (code ${c.child.exitCode}):\n${c.stderr.join("")}`);
+    if (c.child.exitCode != null || c.child.signalCode != null) throw new Error(`${c.label}: pi exited early (code ${c.child.exitCode} signal ${c.child.signalCode}):\n${c.stderr.join("")}`);
     if (Date.now() > deadline) throw new Error(`${c.label}: guard never answered /guard status within 90s; stderr:\n${c.stderr.join("")}`);
     if (n++ % 8 === 0) {
       try {
@@ -153,21 +175,21 @@ async function awaitReady(c) {
   }
 }
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "guard-e2e-home-"));
-const agentA = path.join(root, "agent-a");
-const agentB = path.join(root, "agent-b");
-const agentAudit = path.join(root, "agent-audit");
-const auditState = path.join(root, "audit-state");
-
-for (const d of [agentA, agentB, agentAudit, auditState]) fs.mkdirSync(d, { recursive: true });
-
-const tree = makeProject("tree");
-const auditTree = makeProject("audit");
-
 let exitCode = 0;
-let intree = "";
-let capTree = "";
 try {
+  // All artifacts are created INSIDE the try and registered with the tracker at
+  // creation (D7): a setup throw (missing GOAL.md, mkdir failure) can no longer
+  // leak a directory that predates the try/finally.
+  const root = tracker.createTempDir("home");
+  const agentA = path.join(root, "agent-a");
+  const agentB = path.join(root, "agent-b");
+  const agentAudit = path.join(root, "agent-audit");
+  const auditState = path.join(root, "audit-state");
+
+  for (const d of [agentA, agentB, agentAudit, auditState]) fs.mkdirSync(d, { recursive: true });
+
+  const tree = makeProject("tree");
+  const auditTree = makeProject("audit");
   // ---- two normal sessions racing on ONE tree ----
   const a = startRpc({ dir: tree, agentDir: agentA, label: "A" });
   const b = startRpc({ dir: tree, agentDir: agentB, label: "B" });
@@ -280,7 +302,7 @@ try {
 
   // ---- read-only audit session whose stateDir is INSIDE the audited tree: the
   // guard must neither repair nor announce a write (LEARNINGS A-10, real runtime) ----
-  intree = makeProject("audit-intree");
+  const intree = makeProject("audit-intree");
   const beforeIntree = manifest(intree);
   const audit2 = startRpc({ dir: intree, agentDir: path.join(root, "agent-audit2"), env: { CONTEXT_GUARD_READONLY: "1" }, label: "AUDIT-IN-TREE" });
   await awaitReady(audit2);
@@ -299,7 +321,7 @@ try {
   // ---- exhausted, obsolete checkpoint. Renewal must refuse at the cap BEFORE        ----
   // ---- waitForIdle (so the refusal itself is provably zero-inference), and finalize  ----
   // ---- must succeed anyway WITHOUT touching chain bytes or switching sessions.       ----
-  capTree = makeProject("capped");
+  const capTree = makeProject("capped");
   const capAgent = path.join(root, "agent-cap");
   fs.mkdirSync(capAgent, { recursive: true });
   const capStatePath = path.join(capTree, ".pi-guard", "renewal-state.json");
@@ -325,10 +347,12 @@ try {
   check("CAP: renew status reports the exhausted chain 8/8", /renewalsDone=8\/8/.test(rsTexts), rsTexts.split("\n").find((l) => /renewalsDone=/.test(l))?.slice(0, 180) ?? "(no renewalsDone line)");
   await cap.shutdown();
 
-  // ---- optional: ONE minimal real turn  // ---- optional: ONE minimal real turn (spends inference; off by default) ----
+  // ---- optional: ONE minimal real turn (spends inference; off by default) ----
   if (process.env.GUARD_E2E_LLM === "1") {
     // LIVE delivery check (spends real inference; opt-in only). Uses the user's real
     // agent dir read-only (a new session file is created; no settings are touched).
+    // makeProject registers the guard-e2e-llm-* workspace with the tracker, so the
+    // D7 cleanup removes it too (it was missing from the old hardcoded list).
     const llmTree = makeProject("llm");
     const llm = startRpc({ dir: llmTree, agentDir: null, label: "LLM" });
     await awaitReady(llm);
@@ -364,12 +388,15 @@ try {
 } catch (err) {
   exitCode = 1;
   check("e2e driver completed without throwing", false, err instanceof Error ? err.stack ?? err.message : String(err));
-} finally {
-  if (process.env.GUARD_E2E_KEEP !== "1") {
-    for (const d of [tree, auditTree, intree, capTree, root]) fs.rmSync(d, { recursive: true, force: true });
-  } else {
-    console.log(`kept artifacts: ${tree} ${auditTree} ${intree} ${root}`);
-  }
+}
+{
+  // D7: single cleanup owner — shuts down any still-live tracked pi child BEFORE
+  // removing the invocation-owned workspaces (tree, audit, audit-intree, capped,
+  // llm-optional, home-root — ALL registered at creation, no hardcoded list);
+  // GUARD_E2E_KEEP === "1" retains them for forensics.
+  const report = await tracker.cleanup();
+  if (report.kept && report.retained.length) console.log(`kept artifacts: ${report.retained.join(" ")}`);
+  if (report.errors.length) console.log(`cleanup errors: ${report.errors.join("; ")}`);
 }
 
 const failed = results.filter((r) => !r.ok);
