@@ -40,7 +40,7 @@ remaining** = window − estimated used − max(generationReserve, safetyReserve
 | 1 (~≤30k remaining) | checkpoint | update PROGRESS.md (completed, blockers, exact next action) |
 | 2 (~≤20k) | wrap up | finish the current substantial task; open no new work |
 | 3 (~≤10k) | handoff | prioritize durable handoff: update HANDOFF.md before anything else; the guard also auto-checkpoints |
-| 4 (~≤5k) | **enforced closing** | only tools in `closingAllowlist` run (default write/edit/read; renewal-enabled projects add `handoff_renew`); finish checkpoints and stop. With `enforceClosing:false` the same crossing alerts with ADVISORY wording and blocks nothing — alert text always matches live policy |
+| 4 (~≤5k) | **enforced closing** | only tools in `closingAllowlist` run (default write/edit/read; renewal-enabled projects add `handoff_renew`); preserve the durable state; if the objective continues and renewal is allowed/preparable, request `handoff_renew` at a safe boundary; otherwise finalize and stop. With `enforceClosing:false` the same crossing alerts with ADVISORY wording and blocks nothing — alert text always matches live policy |
 
 A revocation notice means pressure dropped and a previous closing instruction is
 **historical**, not current policy.
@@ -65,6 +65,7 @@ A revocation notice means pressure dropped and a previous closing instruction is
 
 ## Renewal (Phase 2, if configured)
 
+- **Continuation precedence (issue #1):** when the objective remains unfinished, a live, permitted renewal takes precedence over terminal finalization. L3/L4 mean finish current bounded work and preserve evidence, then request `handoff_renew` at a safe boundary if permitted or safely preparable. A stale checkpoint may be refreshed and attested by that tool; a preview refusal means NOT authorized now, not necessarily permanently impossible. Use `handoff_finalize` for intentional non-renewing closure (disabled/stopped/capped/irreparable refusal). No threshold forces a switch.
 - `/handoff renew [notes]` (operator) or the `handoff_renew` tool (model; needs
   `renewal.autoRenew: true`): waits for a safe boundary, refreshes + attests, persists
   chain state, then replaces the session. The successor starts **fresh** — identity

@@ -61,7 +61,8 @@ export function defaultThresholds(t: ThresholdsInput, opts: { enforceClosing?: b
       guidance:
         "CONTEXT PRESSURE (advisory): prioritize durable handoff above new work. PROGRESS.md, LEARNINGS.md and HANDOFF.md must all carry the latest relevant state: the exact next " +
         "action, the evidence behind each claim, and the unfinished work. " +
-        "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
+        "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven). " +
+        "At the next safe boundary, if an unfinished objective and the live renewal gate permit it, prefer handoff_renew over terminal finalization.",
     },
     {
       level: 4,
@@ -69,11 +70,13 @@ export function defaultThresholds(t: ThresholdsInput, opts: { enforceClosing?: b
       kind: enforcing ? "enforced" : "advisory",
       label: "closing",
       guidance: enforcing
-        ? "CONTEXT CRITICAL (enforced): closing phase active — tools outside the checkpoint allowlist are blocked. Finalize and validate the handoff (/handoff, then /handoff verify), record any " +
-          "unresolved finding in LEARNINGS.md, do not start new experiments, and stop after this closing phase — a fresh session resumes from the files. " +
+        ? "CONTEXT CRITICAL (enforced): closing phase active — tools outside the checkpoint allowlist are blocked. Preserve and validate the handoff; record unresolved findings in LEARNINGS.md; " +
+          "do not start new experiments. If the objective continues and renewal is permitted or safely preparable, request handoff_renew at a safe boundary. " +
+          "If renewal is disabled, stopped, capped or refused after preparation, finalize and stop; the next session can recover from durable files. " +
           "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven)."
-        : "CONTEXT CRITICAL (advisory — enforcement is disabled, the guard blocks nothing, closing is YOUR responsibility): finalize and validate the handoff now (/handoff, then /handoff verify), record any " +
-          "unresolved finding in LEARNINGS.md, do not start new experiments, and stop; a fresh session resumes from the files. " +
+        : "CONTEXT CRITICAL (advisory — enforcement is disabled, the guard blocks nothing, closing is YOUR responsibility): preserve and validate the handoff; record unresolved findings in LEARNINGS.md; " +
+          "do not start new experiments. If the objective continues and renewal is permitted or safely preparable, request handoff_renew at a safe boundary. " +
+          "If renewal is disabled, stopped, capped or refused after preparation, finalize and stop; the next session can recover from durable files. " +
           "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },
   ];

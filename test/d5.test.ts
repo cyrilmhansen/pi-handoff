@@ -353,3 +353,15 @@ test("D5d1: banner carries GUARD_VERSION, NOT the hardcoded milestone label; env
   assert.equal(guardVersion({}), DEFAULT_GUARD_VERSION);
   assert.equal(guardVersion({ GUARD_VERSION: " 1.2.3 " }), "1.2.3");
 });
+
+test("D5b6 (issue #1): recoverable missing checkpoint must not make terminal finalize the default", async () => {
+  const h = harness({ config: renewCfg({ autoCheckpointAtHandoffLevel: false }), env: { CONTEXT_GUARD_SYNTHETIC_REMAINING: "4000" } });
+  await h.start();
+  await h.turnEnd();
+  const alert = h.alerts();
+  assert.match(alert, /RENEWAL NOT AVAILABLE \(not-authorized\)/);
+  assert.match(alert, /not authorized NOW/i);
+  assert.match(alert, /handoff_renew refreshes/i);
+  assert.ok(!/meanwhile.*close with handoff_finalize/i.test(alert), "a preparable renewal should not be steered to terminal close");
+  assert.equal(h.mc.newSessionCalls, 0, "no forced transition");
+});

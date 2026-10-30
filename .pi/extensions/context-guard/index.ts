@@ -103,7 +103,7 @@ function renewalSafeInstructions(why: string, done: number, max: number): string
     case "already-renewed":
       return "This checkpoint already seeded a successor: refresh (/handoff) and re-attest (/handoff ready) before renewing again, or close with handoff_finalize.";
     case "not-authorized":
-      return "Renewal needs a current + attested checkpoint: run /handoff, then /handoff ready; meanwhile finish the durable prose and close with handoff_finalize.";
+      return "Renewal is not authorized NOW: preserve the durable prose and write the exact next action. This may be preparable: handoff_renew refreshes a missing/stale checkpoint and attempts attestation before the real gate. If readiness fails, correct the blocking checks or finalize and stop; do not infer permanent refusal from staleness alone.";
     case "stopped":
       return "The operator stop is durable on this chain (renewal stays refused until an operator /handoff renew resume); close with handoff_finalize.";
     case "read-only":
