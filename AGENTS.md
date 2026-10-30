@@ -3,10 +3,13 @@
 Pi 1.4.0 context-guard extension + durable handoff files. **All development milestones
 are COMPLETE:** Phases 1, 1b, 1c, 1d, Phase 2 increments A+B+C, the **v0.1.0-dev.2
 reliability/recovery-efficiency mission** (D1-D6 + all dogfood proofs — LEARNINGS
-A-28…A-36, CHANGELOG.md) and the **D7 test-artifact lifecycle increment** (cleanup
-reliability for the e2e scripts — LEARNINGS A-37). Current next action: **STOP —
-operator review of the dev.2 + D7 release-ready candidate**; tagging/push and `drpli`
-reuse each require separate explicit authorization. No implementation work is pending.
+A-28…A-36, CHANGELOG.md), the **D7 test-artifact lifecycle increment** (LEARNINGS
+A-37) and the **D8 Rune CI integration** (async integration builds on the existing
+Buildbot — LEARNINGS A-38/A-39; runner/test evidence in CHANGELOG Unreleased; the
+CL7e dev-tree-dependency fix `435c294` came out of the first real CI build bs54).
+Current next action: **STOP — operator review of the dev.2 + D7 + D8 candidate**;
+tagging/push, the authorized live-suite spend and `drpli` reuse each require
+separate explicit authorization. No implementation work is pending.
 
 Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
 false; this project sets `enabled: true, autoRenew: false, maxRenewals: 8` with
@@ -40,8 +43,14 @@ Every fresh session:
    instruction alone does NOT make a session read-only (trusted project extensions
    write; audit mode protects the project TREE only, not an OS-level snapshot).
 
-Hard scope limits: do not modify `pli80`, `drpli`, Rune CI, the global Pi install, or
-compaction settings. Reusing the guard elsewhere (e.g. `drpli`) requires separate explicit
+Hard scope limits: do not modify `pli80`, `drpli`, the global Pi install, or
+compaction settings. **Rune CI (D8 exception, operator-authorized 2026-10-30):** the
+handoff builders/suites may be extended ONLY inside the handoff files
+(`ci/handoff_*.py`, `master/handoff_builders.py`, `master/buildbot.tac`,
+`bin/handoff_ci_lib.py`, `bin/rune-ci-handoff`, `tests/test_handoff.py`); the DRPLi
+fingerprint inputs (`master/master.cfg`, the four hashed `ci/*.py`, `fixtures/`) and
+the scientific gate semantics stay byte-identical — `tests/test_handoff.py` fails if
+that is ever broken. Reusing the guard elsewhere (e.g. `drpli`) requires separate explicit
 operator authorization; `docs/long-project-guide.md` §7 is a blueprint, not an install.
 After editing the extension, ALWAYS load it in the real runtime (`pi --mode rpc -e
 .pi/extensions/context-guard/index.ts` or `node scripts/e2e-rpc-two-process.mjs`); mock

@@ -2,7 +2,54 @@
 
 ## Current phase
 
-**Mission D7 (test-artifact lifecycle) — COMPLETE (2026-10-30, this session,
+**Mission D8 (Rune CI integration — COMPLETE this session, operator-authorized,
+baseline `deb8d82`, current handoff HEAD `deb8d82` + uncommitted test fix).**
+Goal: run the handoff integration/live suites asynchronously on the existing
+rune-ci Buildbot. Design (all verified): DRPLi fingerprint inputs
+(master.cfg, ci/*.py fingerprinted four, fixtures manifest) stay **byte-identical**
+— handoff builders are injected via `master/buildbot.tac` (NOT fingerprinted)
+wrapping `FileLoader.loadConfig`; handoff has its own fingerprint domain
+`handoff-ci/1` over ci/handoff_ci.py, ci/handoff_runner.py,
+master/handoff_builders.py, master/buildbot.tac; client = separate CLI
+`bin/rune-ci-handoff` + `bin/handoff_ci_lib.py` reusing rune_ci_lib's Master/auth
+but with its OWN store `state/handoff-jobs.json`; job identity =
+(project, sha, suite, handoff fp, env fp=node+pi versions); suites
+`integration` (unit `node --test test/`, `e2e-rpc`, `skill-discovery`; zero
+inference) and `live` (adds `e2e-renew`, REAL inference — client refuses without
+`--allow-inference`; nothing schedules anything automatically; worker
+max_builds=1 serializes vs DRPLi). Runner `ci/handoff_runner.py`: HEAD verified
+before AND after, bounded per-command timeouts with process-GROUP kill (no
+orphans), isolated PI_CODING_AGENT_DIR under build/ci/pi-agent seeded from user
+config files (sessions stay isolated), real counts parsed from node spec
+reporter + `X/Y checks passed` lines, classification passed(0)/failed(1)/
+timeout→incomplete(124)/infra(125)/build_failed(126); uncountable runs are
+infra, never green; `ci/verify_revision.py` REUSED unmodified.
+**Live proof so far:** master restarted while IDLE (verified 0 in-flight); API
+shows builders 4 handoff-integration + 5 handoff-live, schedulers
+manual-handoff-{integration,live}; worker attached. **bs54** (integration on
+`deb8d82`) ran 33s and reported **failed — 199/201 unit FAILED 1** with the
+failing test NAMED — this is the required FAILED-not-infra proof AND exposed a
+REAL portability defect: handoff `test/cleanup.test.ts` CL7e assumes
+`.pi-guard/sessions` exists in the tree (dev-tree-only, gitignored) → ENOENT in
+a fresh clone. Fix applied locally (existsSync→empty list), 13/13 cleanup
+tests pass; NOT yet committed. e2e-rpc 38/38 + probe 8/8 passed inside CI.
+ALL DONE: rune-ci suite 133 OK (92 DRPLi unchanged + 41 new
+tests/test_handoff.py); CL7e fix committed `435c294`; probe build **bs55**
+(77ff8d3 side branch, deleted after) FAILED 33s naming
+`D8-PROBE: deliberate failure — expects 1+1=3` (unit 200/202 FAILED 1, e2e
+38/38, probe 8/8 — failed, never infra, never green); **bs56** on fixed tip
+435c294 PASSED 33s (200/201 skip1 | 38/38 | 8/8), warnings [], idempotent
+re-submit `reused bs56` in 0.5s; **bs57** DRPLi smoke passed 3s with NO
+fingerprint warning (DRPLi fp still sha256:6729fc4b… == bs50-53 recorded).
+Leak audit: zero new D8-owned temp dirs (hoff-test-* = 0; runner's pi-agent
+lives inside the clobbered build tree; e2e scripts self-clean per D7); the
++3/build `guard-test-*`/`guard-state-*` residue is PRE-EXISTING unit-suite
+fixture behavior — proposal A-40, not implemented under D8. Live suite NOT
+spent (real-inference run awaits explicit operator authorization; opt-in gate
++ pi-preflight + stub classification proven by tests). Docs: rune-ci README
+§14, CHANGELOG Unreleased/D8.
+
+**Mission D7 (test-artifact lifecycle) — COMPLETE (2026-10-30, prior session,
 operator-authorized, on top of the dev.2 candidate `a05289c`).** Four confirmed
 cleanup defects in the out-of-band e2e scripts, all fixed via the new shared
 `scripts/lib/e2e-cleanup.mjs` (`ArtifactTracker`): (1) temp dirs created BEFORE the
@@ -264,20 +311,25 @@ Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 25
-checkpoint-id: g25-d9fd8f8821f6
-checkpoint-kind: manual
+checkpoint-generation: 26
+checkpoint-id: g26-84672f2b0c81
+checkpoint-kind: auto
 content-delta: new
-readiness: attested
-guard-level: 0
-checkpointed: 2026-10-30T10:20:22.800Z
+readiness: unattested
+guard-level: 3
+checkpointed: 2026-10-30T11:54:18.484Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: bc3d0a389af51eef5bbf2157b07c8f9235c1afd6b802d2c2298fd7356505ebd9
-source-handoff: eb6691864aaf2893dec1708a4f646a659ecaa07ca9105a4344db551b32b95fe7
-source-learnings: 221a05eeddbc566f70b1b172a282e42580ff08c83c42a42702a1e2252b586e95
+source-progress: 67f820070b265cb39a8ec67cc0a1d365cb31bfa8d831941d7484c47c6bce0968
+source-handoff: d36b5cfa90e2eee2d390d689fc93df129104f0a027c0903592fe48ad592b3a81
+source-learnings: 4fd55adc56216d341ccc9377174eec10d52479f963ed5ce7eb485d6d8bce3a25
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
-next-action: **STOP — dev.2 + D7 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37, CHANGELOG.md). No
-further implementation without operator direction.** Operator decision points: (1)
+next-action: **STOP — dev.2 + D7 + D8 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37/A-38/A-39,
+CHANGELOG.md). No further implementation without operator direction.** D8 adds
+decision points: authorize a `--suite live` spend (real inference; do not run it
+alongside interactive Pi sessions on Sushi), decide whether to keep/extend the
+tac-injection design, and optionally greenlight A-40 (unit-fixture /tmp cleanup).
+A handoff CI build can now be requested with
+`/home/john/services/rune-ci/bin/rune-ci-handoff submit $(git rev-parse HEAD) --suite integration`. Operator decision points: (1)
 review the dev.2+D7 range `4df08a8..HEAD` (one commit per increment + refreshes);
 (2) authorize or withhold tag `v0.1.0-dev.2` + push (NEITHER is done; D7 is included
 in the candidate); (3) separately authorize `drpli`
@@ -328,7 +380,4 @@ PROGRESS.md):
    `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
    <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
-readiness-by: session:01a18c53-2578-7430-b964-ea80c59c0cfa
-readiness-at: 2026-10-30T10:20:22.901Z
-readiness-checkpoint: g25-d9fd8f8821f6
 <!-- guard:end checkpoint -->

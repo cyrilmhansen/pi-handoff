@@ -269,6 +269,36 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   to spend the re-run). confidence: high. adopted: yes (PROTOCOL §7 invariant;
   CHANGELOG D7).
 
+- [A-38] **Rune-CI integration exposed a real dev-tree dependency in
+  `test/cleanup.test.ts` CL7e (D8, accepted 2026-10-30).** The assertion
+  `fs.readdirSync(REPO/.pi-guard/sessions)` passed on the developer tree only
+  because live guard sessions had created that directory; `.pi-guard/` is
+  gitignored, so a fresh clone (the CI checkout) has no such dir → ENOENT →
+  the suite legitimately failed in CI (bs54: 199/201 FAILED 1, failure named,
+  exit 1 — the FAILED-vs-infra distinction worked exactly as designed). Fixed
+  test-only: absent dir is treated as empty (the strongest form of "tree never
+  touched"); 13/13 cleanup tests pass after. Lesson generalized: **any test
+  that inspects paths outside its own fixture must tolerate a pristine
+  clone** — the CI clone is the honest environment, the dev tree is not.
+  RE-VERIFIED: bs56 on the fixed tip `435c294` passed in CI (unit 200/201 skip 1,
+  e2e-rpc 38/38, probe 8/8).
+- [A-39] **Adding builders to a fingerprint-hashed Buildbot install without
+  invalidating cached verdicts requires out-of-band injection (D8, accepted).**
+  rune-ci's CI fingerprint hashes `master/master.cfg` byte-for-byte (one of
+  six FINGERPRINT_FILES); editing it would change every DRPLi job identity and
+  orphan every cached green — explicitly forbidden by D8 requirement 6/7. The
+  supported gap: `master/buildbot.tac` is NOT fingerprinted and BuildMaster
+  consumes the FINAL `MasterConfig` (builders list / schedulers dict) at
+  reconfig, so wrapping `FileLoader.loadConfig` there appends handoff builders
+  while the DRPLi inputs stay byte-identical. PROVEN live: post-change
+  `C.ci_fingerprint()` == `sha256:6729fc4b…` == the value bs50-53 recorded;
+  restart on an idle master registered builders 4/5 + both force schedulers;
+  worker attached. Handoff got its own fingerprint domain (`handoff-ci/1` over
+  handoff_ci.py/handoff_runner.py/handoff_builders.py/buildbot.tac) and its own
+  state store (`state/handoff-jobs.json`) so the two clients can never reuse
+  each other's results. A broken handoff module degrades to "master starts
+  without handoff builders" (try/except in tac), never to "DRPLi is down".
+
 ## Proposed
 
 > **Status note (documentation consolidation, 2026-10-29).** The entries below keep
@@ -297,6 +327,20 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
 - [P-5] Concurrency: per-session state files + atomic tmp/rename *should* make parallel sessions safe (each writer owns one file; readers are per-id), but this is untested with real simultaneous processes — Node test runner is single-process and serial. Proposal: a two-process integration check (e.g. two `pi --mode rpc` instances racing on one temp tree) before trusting Phase 2 with parallel renewal. evidence: none yet — explicitly NOT claimed. value: removes the main open risk of auto-renewal. cost: one brittle-by-design integration script; keep out of the deterministic suite. confidence: low until run. status: proposed. — **status update (docs consolidation 2026-10-29): PARTIALLY answered for the tested invariants** — the two-process check was built and runs (A-16, `scripts/e2e-rpc-two-process.mjs` 27/27): distinct sessions own their state files, no cross-overwrite, concurrent checkpoint writes yield one intact block per file. What remains UNPROVEN (still open as P-5): simultaneous interleaved writes under load, and two sessions racing to renew one chain. Do not claim generalized concurrent renewal safety.
 - [P-9] Finding from the documentation-consolidation pass (2026-10-29, docs-only scope — NOT fixed here): the identity banner hardcodes the milestone label `context-guard (project-local, Phase 2 increment B)` (index.ts:311) although increment C is complete (A-23); every fresh session therefore sees a stale self-description, including this session's own banner. Value: one-line string change (or derive the label from package metadata); cost: trivial, but it is an `index.ts` edit and requires the real-runtime load gate (A-15). status: proposed (recorded as a finding; awaiting an authorized implementation pass).
 - [P-10] **Unproven hypothesis (NOT a rule): the two `Operation aborted` interruptions in the DRPLi campaign were caused by Sushi/Metal OOM.** The audit searched OOM signatures and found NONE (`sushi_oom_signatures: []`); the two incident timestamps are operator-reported; 15 of 17 structured abort events were in earlier sessions and self-recovered within turns. dev.2 must therefore (a) NOT add automatic retries of aborted generations, and (b) add compact diagnostic events so a future incident can be classified (known refusal reason vs unknown cause). evidence: A-27 + the mission brief. value: attribution instead of speculation. cost: small diagnostics module. confidence: LOW for the OOM attribution (by design); high for the constraint. status: proposed (constraint adopted per mission; attribution remains open).
+
+- [A-40] **PROPOSED (D8 observation, unverified value): the unit suite itself
+  leaves /tmp fixtures behind.** `guard-test-*` / `guard-state-*` dirs (created by
+  audit-tree/checkpoint tests via mkdtemp) persist — 256 on this machine BEFORE D8,
+  +3 per integration CI build (16K each); the e2e D7 tracker never covers unit-test
+  fixtures and never sweeps (correctly). Proposal: add after()/finally cleanup in
+  those two test files (test-only change, zero production impact). Not implemented
+  under D8 (scope: CI integration); cost: small test edit + one suite re-run.
+- [P-13] **PROPOSED (goal-record keeping): GOAL.md's acceptance line "No
+  modification to pli80, Rune CI, …" was overtaken by the operator-authorized D8
+  (scoped Rune CI changes FORBIDDEN→CONDITIONAL).** GOAL stays untouched by rule;
+  the durable scope now lives in AGENTS.md ("D8 exception") and this entry. If the
+  operator wants the goal text itself amended, that is an explicit operator edit,
+  never a silent agent rewrite.
 
 ## Phase 2 increment-A open questions (to settle before/during Increment B)
 

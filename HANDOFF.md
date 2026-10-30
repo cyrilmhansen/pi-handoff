@@ -2,8 +2,12 @@
 
 ## Recovery instructions
 
-0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 + D7 COMPLETE — release-ready
-   candidate STOPPED at operator review; NOT tagged, NOT pushed.** All six dev.2
+0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 + D7 + D8 COMPLETE — release-ready
+   candidate STOPPED at operator review; NOT tagged, NOT pushed. D8 = Pi Handoff builders
+   on the Rune CI Buildbot (`rune-ci-handoff submit <sha> --suite integration`; evidence
+   bs54–bs57, LEARNINGS A-38/A-39, rune-ci README §14; CL7e fix commit `435c294`;
+   Rune CI touched ONLY inside the D8 handoff files, DRPLi fingerprint byte-stable;
+   live-suite spend still requires explicit operator authorization).** All six dev.2
    increments committed on tag `v0.1.0-dev.1` (`2ea6219`): D1 `6e61967`, D2
    `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c`+`b6445aa` (A-31/A-32/RN15), D5
    `05379b0` (A-33), D4 `b86b0fe` (A-34 — committed by successor 01a18bef after the
@@ -142,8 +146,13 @@ Outstanding (operator decisions and open proofs — NOT development tasks):
 - [ ] A-22 follow-up: "config-changed-since-session-start" notice (proposal, unbuilt).
 
 ## Next action
-**STOP — dev.2 + D7 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37, CHANGELOG.md). No
-further implementation without operator direction.** Operator decision points: (1)
+**STOP — dev.2 + D7 + D8 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37/A-38/A-39,
+CHANGELOG.md). No further implementation without operator direction.** D8 adds
+decision points: authorize a `--suite live` spend (real inference; do not run it
+alongside interactive Pi sessions on Sushi), decide whether to keep/extend the
+tac-injection design, and optionally greenlight A-40 (unit-fixture /tmp cleanup).
+A handoff CI build can now be requested with
+`/home/john/services/rune-ci/bin/rune-ci-handoff submit $(git rev-parse HEAD) --suite integration`. Operator decision points: (1)
 review the dev.2+D7 range `4df08a8..HEAD` (one commit per increment + refreshes);
 (2) authorize or withhold tag `v0.1.0-dev.2` + push (NEITHER is done; D7 is included
 in the candidate); (3) separately authorize `drpli`
@@ -222,25 +231,22 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 25
-checkpoint-id: g25-d9fd8f8821f6
-checkpoint-kind: manual
+checkpoint-generation: 26
+checkpoint-id: g26-84672f2b0c81
+checkpoint-kind: auto
 content-delta: new
-readiness: attested
-status: checkpoint (guard level 0, remaining ~214902, session 01a18c53-2578-7430-b964-ea80c59c0cfa)
-checkpointed: 2026-10-30T10:20:22.800Z
+readiness: unattested
+status: checkpoint (guard level 3, remaining ~8801, session 01a18c81-ea0e-75b4-9677-ba93b22bf32e)
+checkpointed: 2026-10-30T11:54:18.484Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: bc3d0a389af51eef5bbf2157b07c8f9235c1afd6b802d2c2298fd7356505ebd9
-source-handoff: eb6691864aaf2893dec1708a4f646a659ecaa07ca9105a4344db551b32b95fe7
-source-learnings: 221a05eeddbc566f70b1b172a282e42580ff08c83c42a42702a1e2252b586e95
+source-progress: 67f820070b265cb39a8ec67cc0a1d365cb31bfa8d831941d7484c47c6bce0968
+source-handoff: d36b5cfa90e2eee2d390d689fc93df129104f0a027c0903592fe48ad592b3a81
+source-learnings: 4fd55adc56216d341ccc9377174eec10d52479f963ed5ce7eb485d6d8bce3a25
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 
 
-readiness-by: session:01a18c53-2578-7430-b964-ea80c59c0cfa
-readiness-at: 2026-10-30T10:20:22.901Z
-readiness-checkpoint: g25-d9fd8f8821f6
 ### Last verified state
-guard level 0; checkpoint requested (D7 COMPLETE (f399fce, A-37): test-artifact lifecycle — ArtifactTracker register-at-creation cleanup for all three e2e scripts; llm-workspace + KEEP=0/1 semantics + signal-safe child shutdown fixed; 13 zero-inference tests; suite 200/1 skip, real-pi e2e-rpc 38/38, probe 8/8; production guard untouched; STOP for operator review; not tagged/pushed)
+guard level 3; checkpoint requested (auto at level 3)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -257,8 +263,13 @@ guard level 0; checkpoint requested (D7 COMPLETE (f399fce, A-37): test-artifact 
 - [x] All confirmed inconsistencies corrected (see Current phase); verification
 
 ### Next action
-**STOP — dev.2 + D7 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37, CHANGELOG.md). No
-further implementation without operator direction.** Operator decision points: (1)
+**STOP — dev.2 + D7 + D8 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37/A-38/A-39,
+CHANGELOG.md). No further implementation without operator direction.** D8 adds
+decision points: authorize a `--suite live` spend (real inference; do not run it
+alongside interactive Pi sessions on Sushi), decide whether to keep/extend the
+tac-injection design, and optionally greenlight A-40 (unit-fixture /tmp cleanup).
+A handoff CI build can now be requested with
+`/home/john/services/rune-ci/bin/rune-ci-handoff submit $(git rev-parse HEAD) --suite integration`. Operator decision points: (1)
 review the dev.2+D7 range `4df08a8..HEAD` (one commit per increment + refreshes);
 (2) authorize or withhold tag `v0.1.0-dev.2` + push (NEITHER is done; D7 is included
 in the candidate); (3) separately authorize `drpli`

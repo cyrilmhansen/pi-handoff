@@ -3,6 +3,56 @@
 All notable changes. Versions are pre-1.0 development tags; the guard ships as
 project-local files (`.pi/extensions/context-guard/`), no package registry.
 
+## Unreleased — D8: Rune CI integration (operator-authorized; no guard behavior change)
+
+Pi Handoff now has two builders on the existing local Rune CI Buildbot
+(`/home/john/services/rune-ci`), running its suites off the agent's critical
+path. **Production context-guard code is untouched**; this entry records the
+CI integration only.
+
+### Added
+- **`handoff-integration` builder** — `node --test test/` +
+  `scripts/e2e-rpc-two-process.mjs` + `scripts/check-skill-discovery.mjs`
+  (zero inference, ~33 s measured). Non-blocking submit/status/failures/logs
+  via `bin/rune-ci-handoff`; exact-SHA pinning (verify-revision reused
+  unmodified + HEAD before/after in the runner); isolated per-build Pi agent
+  state; bounded per-command timeouts with process-group kill (no orphans);
+  verdicts `passed | failed | build_failed | infra_error | incomplete(timeout)`
+  kept distinct; infra runs carry NO counts; counts are always the numbers the
+  tools printed.
+- **`handoff-live` builder** — adds `scripts/e2e-renew.mjs` (REAL Pi/Sushi
+  inference). Never automatic; the client refuses without `--allow-inference`.
+  Validated by unit/stub tests only; the first live-spending run is an
+  explicit operator decision (concurrency with interactive Pi sessions on the
+  same Sushi server is the exact case the opt-in guards).
+- **Namespace guarantees**: handoff builders are injected via
+  `master/buildbot.tac` (NOT fingerprinted) so every DRPLi fingerprint input —
+  `master.cfg` and the hashed CI scripts — stays byte-identical and cached
+  DRPLi verdicts/job identities are unchanged (asserted by
+  `tests/test_handoff.py`). Handoff has its own fingerprint domain
+  (`handoff-ci/1`), its own job store (`state/handoff-jobs.json`) and its own
+  project-keyed idempotency; a DRPLi result can never be reused for handoff.
+- **rune-ci test suite**: +41 tests (`tests/test_handoff.py`): DRPLi
+  backward-compatibility, revision pinning (match/mismatch/moved/unpinned),
+  the full classification table against stub commands, orphan-kill proof,
+  count parsing, live-suite opt-in gate, store separation. Full run:
+  133 tests OK (92 DRPLi unchanged + 41 new).
+
+### Fixed
+- `test/cleanup.test.ts` CL7e assumed the gitignored `.pi-guard/sessions`
+  existed in the project tree — ENOENT in a fresh CI clone. The first real
+  integration build (bs54) reported it as FAILED with the test named
+  (199/201 FAILED 1) — the CI doing exactly its job; test-only fix,
+  re-verified green on the fixed tip in CI (bs56: 200/201 skip 1,
+  e2e 38/38, probe 8/8). LEARNINGS A-38.
+
+### Evidence (live master, 2026-10-30)
+- bs54 failed 33s (found the CL7e defect) · bs55 probe `77ff8d3c` FAILED 33s
+  with `D8-PROBE: deliberate failure` named, exit-class `failed` not
+  `infra_error` · bs56 `435c294` PASSED 33s, warnings [], idempotent re-submit
+  returned `reused bs56` in 0.5s · bs57 DRPLi smoke still passed, no
+  fingerprint warning (cached-verdict semantics preserved).
+
 ## v0.1.0-dev.2 — RELEASE-READY CANDIDATE (pending operator review; NOT tagged/pushed)
 
 Baseline: tag `v0.1.0-dev.1` (`2ea6219`). Operator-authorized mission: reliability and
