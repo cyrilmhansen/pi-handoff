@@ -252,12 +252,13 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const config = g?.config ?? DEFAULT_CONFIG;
     const usage = ctx.getContextUsage?.();
     if (config.syntheticRemaining != null) {
-      return syntheticBudget(config.syntheticRemaining, usage?.contextWindow ?? ctx.model?.contextWindow ?? 0);
+      return syntheticBudget(config.syntheticRemaining, usage?.contextWindow ?? ctx.model?.contextWindow ?? 0, config.workingContextWindow);
     }
     return computeBudget({
       modelId: (ctx.model as { id?: string } | undefined)?.id ?? null,
       contextWindow: usage?.contextWindow ?? null,
       modelContextWindow: ctx.model?.contextWindow ?? null,
+      workingContextWindow: config.workingContextWindow,
       modelMaxOutputTokens: ctx.model?.maxTokens ?? null,
       tokens: usage?.tokens ?? null,
       percent: usage?.percent ?? null,
@@ -317,9 +318,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       `context-guard status (session ${g.sessionId})`,
       `  mode: ${g.config.readOnly ? "READ-ONLY audit mode (no writes inside the project tree)" : canPersistState() ? "normal (runtime state persists)" : "normal (runtime state persistence disabled)"}${g.config.enabled ? "" : " — guard DISABLED"}`,
       `  model: ${m.modelId ?? "unknown"}`,
-      `  context window: ${m.contextWindow ?? "unknown"} (source: ${m.contextWindowSource}${m.modelContextWindow != null && m.modelContextWindow !== m.contextWindow ? `, ctx.model declares ${m.modelContextWindow}` : ""})`,
+      `  physical context window: ${m.physicalContextWindow ?? "unknown"} (Pi/provider; ctx.model declares ${m.modelContextWindow ?? "unknown"})`,
+      `  working context window: ${m.contextWindow ?? "unknown"} (source: ${m.contextWindowSource}${m.configuredWorkingContextWindow != null ? `, configured ${m.configuredWorkingContextWindow}` : ", inherited from Pi"}) — POLICY ONLY; Pi/Sushi window unchanged`,
       `  estimated used: ${m.tokensUsed ?? "unknown"} tokens (Pi estimate: last reported usage + chars/4 heuristic, not exact)`,
-      `  raw remaining: ${m.rawRemaining == null ? "unknown" : Math.floor(m.rawRemaining)} (window - used, no reserve subtracted)`,
+      `  raw remaining: ${m.rawRemaining == null ? "unknown" : Math.floor(m.rawRemaining)} (working window - used, no reserve subtracted)`,
+      `  physical raw remaining: ${m.physicalContextWindow == null || m.tokensUsed == null ? "unknown" : Math.floor(m.physicalContextWindow - m.tokensUsed)} (Pi physical window - used, does not subtract Pi's own safety margin)`,
       `  generation reserve: ${m.reserve.selected}${m.reserveFraction == null ? "" : ` = ${(m.reserveFraction * 100).toFixed(1)}% of the window`} (source: ${RESERVE_LABEL[m.reserve.source] ?? m.reserve.source}; safetyReserve ${m.reserve.safetyReserve})`,
       `  usable remaining: ${m.usableRemaining == null ? "unknown" : Math.floor(m.usableRemaining)} = window - used - reserve`,
       `  ${crossingPointsLine(crossingPoints({ contextWindow: m.contextWindow, reserve: m.reserve, thresholds: defaultThresholds(g.config.thresholds, { enforceClosing: g.config.enforceClosing }) }))}`,

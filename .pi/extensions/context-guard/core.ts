@@ -136,8 +136,12 @@ export interface BudgetBreakdown extends Measurement {
   /** contextWindow - tokensUsed - reserve.selected (same as `remaining` when status is ok). */
   usableRemaining: number | null;
   modelId: string | undefined;
-  /** Where the effective window came from. */
-  contextWindowSource: "usage" | "model" | "unknown";
+  /** Where the effective policy window came from (not necessarily Pi's physical limit). */
+  contextWindowSource: "usage" | "model" | "working-policy" | "unknown";
+  /** Pi's actual declared/reported technical window; this value is never changed by the guard. */
+  physicalContextWindow: number | null;
+  /** Configured policy ceiling; null means the Pi window is used for guard thresholds. */
+  configuredWorkingContextWindow: number | null;
   /** ctx.model.contextWindow (declared), cross-checked against the usage value. */
   modelContextWindow: number | null;
   /** ctx.model.maxTokens (declared maximum output). */
@@ -155,6 +159,8 @@ export interface BudgetInput {
   contextWindow?: number | null;
   /** ctx.model.contextWindow */
   modelContextWindow?: number | null;
+  /** Guard-only work budget; does not alter ctx.model, Pi provider requests or Sushi. */
+  workingContextWindow?: number | null;
   /** ctx.model.maxTokens */
   modelMaxOutputTokens?: number | null;
   /** ctx.getContextUsage().tokens — a Pi 1.4.0 estimate, not an exact count. */
@@ -187,12 +193,20 @@ export function computeBudget(input: BudgetInput): BudgetBreakdown {
   const inconsistencies: string[] = [];
   const usageWindow = numOrNull(input.contextWindow);
   const declaredWindow = numOrNull(input.modelContextWindow);
-  const effectiveWindow = usageWindow != null && usageWindow > 0 ? usageWindow : declaredWindow != null && declaredWindow > 0 ? declaredWindow : null;
+  const physicalWindow = usageWindow != null && usageWindow > 0 ? usageWindow : declaredWindow != null && declaredWindow > 0 ? declaredWindow : null;
+  const requestedWorkingWindow = typeof input.workingContextWindow === "number" && Number.isSafeInteger(input.workingContextWindow) && input.workingContextWindow > 0
+    ? input.workingContextWindow : null;
+  // A policy ceiling must NEVER expand the physical model window. If Pi reports no
+  // technical window, do not manufacture safe headroom from a configured target.
+  const effectiveWindow = physicalWindow == null ? null : Math.min(physicalWindow, requestedWorkingWindow ?? physicalWindow);
   const contextWindowSource: BudgetBreakdown["contextWindowSource"] =
-    usageWindow != null && usageWindow > 0 ? "usage" : declaredWindow != null && declaredWindow > 0 ? "model" : "unknown";
+    physicalWindow == null ? "unknown" : requestedWorkingWindow != null ? "working-policy" : usageWindow != null && usageWindow > 0 ? "usage" : "model";
   const rawTokens = numOrNull(input.tokens);
   const tokens = rawTokens != null && rawTokens >= 0 ? rawTokens : null;
 
+  if (requestedWorkingWindow != null && physicalWindow != null && requestedWorkingWindow > physicalWindow) {
+    inconsistencies.push(`workingContextWindow ${requestedWorkingWindow} exceeds Pi physical window ${physicalWindow}; guard policy clamped to ${physicalWindow}`);
+  }
   if (usageWindow != null && declaredWindow != null && usageWindow !== declaredWindow) {
     inconsistencies.push(`inconsistent context window: Pi usage reports ${usageWindow}, ctx.model declares ${declaredWindow}`);
   }
@@ -217,9 +231,10 @@ export function computeBudget(input: BudgetInput): BudgetBreakdown {
     inconsistencies.push(`usable budget is exhausted (negative remaining ${usableRemaining}): used + reserve >= window, enforced closing is unavoidable`);
   }
   const percent = numOrNull(input.percent);
-  if (percent != null && tokens != null && effectiveWindow != null && effectiveWindow > 0) {
-    const implied = (percent / 100) * effectiveWindow;
-    if (Math.abs(implied - tokens) > Math.max(1000, effectiveWindow * 0.02)) {
+  if (percent != null && tokens != null && physicalWindow != null && physicalWindow > 0) {
+    // Pi reports usage percent relative to its PHYSICAL window, not our policy ceiling.
+    const implied = (percent / 100) * physicalWindow;
+    if (Math.abs(implied - tokens) > Math.max(1000, physicalWindow * 0.02)) {
       inconsistencies.push(`inconsistent measurement: Pi's percent (${percent.toFixed(1)}%) implies ~${Math.round(implied)} tokens used while the estimate says ${tokens}`);
     }
   }
@@ -242,6 +257,8 @@ export function computeBudget(input: BudgetInput): BudgetBreakdown {
     inconsistencies,
     modelId: input.modelId ?? undefined,
     contextWindowSource,
+    physicalContextWindow: physicalWindow,
+    configuredWorkingContextWindow: requestedWorkingWindow,
     modelContextWindow: declaredWindow,
     modelMaxOutputTokens: reserve.modelMaxOutputTokens,
     reserve,
@@ -251,10 +268,12 @@ export function computeBudget(input: BudgetInput): BudgetBreakdown {
 }
 
 /** Synthetic budget for test mode: bypasses real accounting and declares itself. */
-export function syntheticBudget(remaining: number, contextWindow?: number | null): BudgetBreakdown {
-  const window = numOr(contextWindow, 0) > 0 ? (contextWindow as number) : null;
+export function syntheticBudget(remaining: number, contextWindow?: number | null, workingContextWindow?: number | null): BudgetBreakdown {
+  const physical = numOr(contextWindow, 0) > 0 ? (contextWindow as number) : null;
+  const requested = typeof workingContextWindow === "number" && Number.isSafeInteger(workingContextWindow) && workingContextWindow > 0 ? workingContextWindow : null;
+  const window = physical == null ? null : Math.min(physical, requested ?? physical);
   if (!Number.isFinite(remaining)) {
-    return { ...computeBudget({ contextWindow: window }), status: "unknown", reason: "invalid-measurement", remaining: null, usableRemaining: null, provenance: "unknown" };
+    return { ...computeBudget({ contextWindow: physical, workingContextWindow: requested }), status: "unknown", reason: "invalid-measurement", remaining: null, usableRemaining: null, provenance: "unknown" };
   }
   return {
     status: "ok",
@@ -269,7 +288,9 @@ export function syntheticBudget(remaining: number, contextWindow?: number | null
     reserveSource: "none",
     inconsistencies: ["synthetic measurement: test-injected remaining; real token accounting is NOT proven by this session"],
     modelId: undefined,
-    contextWindowSource: window != null ? "usage" : "unknown",
+    contextWindowSource: window == null ? "unknown" : requested != null ? "working-policy" : "usage",
+    physicalContextWindow: physical,
+    configuredWorkingContextWindow: requested,
     modelContextWindow: null,
     modelMaxOutputTokens: null,
     reserve: selectGenerationReserve({ generationReserve: 0, safetyReserve: 0 }),
@@ -308,12 +329,14 @@ export function computeMeasurement(input: {
   generationReserve?: "model" | number;
   modelId?: string | null;
   modelContextWindow?: number | null;
+  workingContextWindow?: number | null;
   percent?: number | null;
 }): Measurement {
   return measurementFromBudget(
     computeBudget({
       contextWindow: input.contextWindow,
       modelContextWindow: input.modelContextWindow ?? input.contextWindow,
+      workingContextWindow: input.workingContextWindow,
       modelMaxOutputTokens: input.maxOutputTokens,
       tokens: input.tokens,
       percent: input.percent,

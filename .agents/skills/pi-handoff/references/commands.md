@@ -43,6 +43,7 @@ managed blocks). At the exhausted renewal cap this is the safe path: finalize, t
 |---|---|---|
 | `thresholds` | `{advisory:30000, wrapUp:20000, handoff:10000, closing:5000}` | usable-remaining crossings for levels 1–4 |
 | `generationReserve` | `"model"` (or number) | budget subtracted for the next completion; `"model"` = `ctx.model.maxTokens` |
+| `workingContextWindow` | `null` | optional guard-only positive integer work ceiling; clamped at the physical Pi window; no change to model config or Sushi |
 | `safetyReserve` | `0` | extra floor; effective reserve = `max(generationReserveResolved, safetyReserve)` |
 | `enforceClosing` | `true` | level 4 gates non-allowlisted tool calls |
 | `closingAllowlist` | `["write","edit","read"]` | tools permitted during enforced closing (add `handoff_renew` for renewal projects) |
@@ -72,7 +73,7 @@ for probes/forensics, dev.2 D5d). CLI flags: `--guard-synthetic <n>`,
 ## Budget arithmetic
 
 ```
-usable remaining = contextWindow − estimatedTokensUsed − max(generationReserveResolved, safetyReserve)
+usable remaining = min(Pi physical contextWindow, workingContextWindow ?? Pi physical contextWindow) − estimatedTokensUsed − max(generationReserveResolved, safetyReserve)
 ```
 
 - Pi 1.4.0 has **no exact remaining-context API**; `getContextUsage().tokens` is an

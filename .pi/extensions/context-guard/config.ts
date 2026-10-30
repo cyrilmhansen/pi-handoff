@@ -19,6 +19,8 @@ export interface GuardConfig {
   thresholds: ThresholdsInput;
   /** "model" = subtract ctx.model.maxTokens; number = fixed reserve. */
   generationReserve: "model" | number;
+  /** Optional policy budget independent from Pi's physical contextWindow; null = use Pi's window. */
+  workingContextWindow: number | null;
   safetyReserve: number;
   enforceClosing: boolean;
   closingAllowlist: string[];
@@ -60,6 +62,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
   enabled: true,
   thresholds: { advisory: 30000, wrapUp: 20000, handoff: 10000, closing: 5000 },
   generationReserve: "model",
+  workingContextWindow: null,
   safetyReserve: 0,
   enforceClosing: true,
   closingAllowlist: ["write", "edit", "read"],
@@ -103,6 +106,9 @@ export function mergeConfig(base: GuardConfig, override: Json | null | undefined
   }
   if (override.generationReserve === "model" || isPositiveInt(override.generationReserve) || override.generationReserve === 0) {
     next.generationReserve = override.generationReserve as GuardConfig["generationReserve"];
+  }
+  if (override.workingContextWindow === null || (typeof override.workingContextWindow === "number" && Number.isSafeInteger(override.workingContextWindow) && override.workingContextWindow > 0)) {
+    next.workingContextWindow = override.workingContextWindow as number | null;
   }
   if (typeof override.safetyReserve === "number" && Number.isFinite(override.safetyReserve) && override.safetyReserve >= 0) next.safetyReserve = override.safetyReserve;
   if (typeof override.enforceClosing === "boolean") next.enforceClosing = override.enforceClosing;
