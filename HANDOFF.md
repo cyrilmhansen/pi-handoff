@@ -8,12 +8,15 @@
    D1 `6e61967`, D2 `8674c90`, D3 `1d48de3`, pre-D5 adjustments `fcea69c` (runtime audit
    A-31 — active guard is the TREE CANDIDATE since the 08:15 process restart; pinned
    dev.1 byte-identical to the tag, stays the refresh ritual; cap 8 chain-safe A-32 +
-   RN15), D5 (A-33: honest level-4 wording, write-free renewal preview + finalize-at-cap
-   guidance, diagnostics.jsonl + /guard events, GUARD_VERSION banner — P-9 resolved)
-   committing now; D4, D6 pending. Hard limits: DRPLi READ-ONLY (fixtures only, it is not
-   on this machine); no push/tag/release/deploy without operator authorization; raw
-   campaign logs outside Git. See PROGRESS.md Current-phase table and this file's
-   Next action.**
+   RN15), D5 (A-33), D4 (A-34: lean recovery tiers recovery.lean opt-in + cost meter;
+   RC1-RC6; GREEN SUITE 184/185, E2E 32/32, PROBE 8/8 — BUT UNCOMMITTED: L4 closed the
+   session before bash could run; successor commits it FIRST — exact file list and
+   commands in PROGRESS.md top checkpoint block). REMAINING: D6 (95k profile crossings), dogfood
+   proofs (e2e-renew real inference on the candidate; capped-chain finalize;
+   recovery-cost vs A-27), CHANGELOG dev.2 + migration/rollback + release-readiness;
+   STOP for operator review. Hard limits: DRPLi READ-ONLY (fixtures only, not on this
+   machine); no push/tag/release/deploy without operator authorization; raw campaign
+   logs outside Git. See PROGRESS.md "Next action" for the exact remaining steps.**
 
 1. Read `AGENTS.md`, then `PROTOCOL.md`, then this file, then `PROGRESS.md`, then
    `GOAL.md`/`LEARNINGS.md`. Do not replay transcripts.
@@ -102,20 +105,17 @@ Outstanding (operator decisions and open proofs — NOT development tasks):
 - [ ] A-22 follow-up: "config-changed-since-session-start" notice (proposal, unbuilt).
 
 ## Next action
-**D5 DONE and committing (A-33). Next: D4 lean-recovery tiers, then D6 95k profile,**
-then dogfood proofs (real-inference e2e-renew on the candidate incl. model-initiated
-hop 1 + byte-exact recovery checks + productive continuation; capped-chain finalize
-zero-inference proof; recovery-cost before/after vs A-27) and release docs (CHANGELOG
-dev.2, migration/rollback from dev.1); STOP for operator review.
-D4/D6 scope details: PROGRESS.md "Next action" (exact parameters, fixtures, budgets).
-Gates after any extension edit: suite (≥178 pass / 1 skip), e2e-rpc-two-process (32/32),
-skill probe (8/8 — required after `.agents/skills/` edits); e2e-renew ONLY as the
-scheduled candidate proof. Post-commit ritual: prose via `scripts/durable_edit.py`;
-refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard, `pi --mode rpc
--ne -e <pinned>` — `-ne` required, P-12); commit managed blocks. NEVER push/tag/release;
-DRPLi untouched; raw logs outside Git.
+**D4 committing now (A-34). Successor sequence (exact steps in PROGRESS.md "Next
+action"): D6 → dogfood proofs (e2e-renew real inference on the candidate incl.
+model-initiated hop 1 — note D5b: the RENEWAL AVAILABLE hint now requires a passing
+write-free preview; capped-chain finalize zero-inference proof; recovery-cost before/
+after vs A-27) → CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
+STOP for operator review. Gates: suite (≥184/1 skip), e2e-rpc (32/32), probe (8/8).
+Ritual: refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 — finalize is
+NOT available there, P-12; it stays the recovery infrastructure), commit managed
+blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
-Historical successor sequence (superseded for D5 by the above; D4/D6 details live in
+Historical successor sequence (superseded for D5/D4 by the above; D6 details live in
 PROGRESS.md):
 
 1. Gates first: `node --test test/` (expect **158 pass / 1 skip**),
@@ -177,25 +177,25 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 19
-checkpoint-id: g19-a7eb3e62bdf2
+checkpoint-generation: 22
+checkpoint-id: g22-f048debad0d3
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-status: checkpoint (guard level 0, remaining ~214902, session 01a18bc9-f635-7118-8d26-9cd40ad10ca2)
-checkpointed: 2026-10-30T07:50:32.313Z
+status: checkpoint (guard level 4, remaining ~2631, session 01a18baa-c73d-75ce-9c51-f56adc860ff2)
+checkpointed: 2026-10-30T07:59:32.671Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: c6d5de43dfd0c534d23986ba6a4846c13dfed47b46a074a9b7864c64c57c8128
-source-handoff: d2d5744743360d5fae99497ed65bd0a84358518ea4de6eba7e30550ff0847acc
-source-learnings: b8d10e4f5d1e6ac827a514ba511d83ffd1224c69dffe62178210b6896e36820e
+source-progress: 785264f461d68c8889d68f6cdaa7b8e1d3bdf5575fe8a08aeed7a2ed0bccd906
+source-handoff: 268067809b4c37f2ea8c1620e2b7c169c4f2518a9e7f85c610e1ca449c0a2a01
+source-learnings: 2add3b1a046777e1a4d8cff27497e8320dc423be3d593e0878257a478dab2f9a
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 
 
-readiness-by: session:01a18bc9-f635-7118-8d26-9cd40ad10ca2
-readiness-at: 2026-10-30T07:50:32.413Z
-readiness-checkpoint: g19-a7eb3e62bdf2
+readiness-by: session:01a18baa-c73d-75ce-9c51-f56adc860ff2
+readiness-at: 2026-10-30T07:59:32.675Z
+readiness-checkpoint: g22-f048debad0d3
 ### Last verified state
-guard level 0; checkpoint requested (D5 committed (A-33); D4 next)
+guard level 4; checkpoint requested (finalize: L4 closing, session 01a18baa: D4 complete+verified but UNCOMMITTED (bash gated); successor commits D4 first (file list + commands in PROGRESS top block), then D6, dogfood proofs, release docs; renewals 1/8, chain chain:01a18a1a…)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -212,20 +212,17 @@ guard level 0; checkpoint requested (D5 committed (A-33); D4 next)
 - [x] All confirmed inconsistencies corrected (see Current phase); verification
 
 ### Next action
-**D5 DONE and committing (A-33). Next: D4 lean-recovery tiers, then D6 95k profile,**
-then dogfood proofs (real-inference e2e-renew on the candidate incl. model-initiated
-hop 1 + byte-exact recovery checks + productive continuation; capped-chain finalize
-zero-inference proof; recovery-cost before/after vs A-27) and release docs (CHANGELOG
-dev.2, migration/rollback from dev.1); STOP for operator review.
-D4/D6 scope details: PROGRESS.md "Next action" (exact parameters, fixtures, budgets).
-Gates after any extension edit: suite (≥178 pass / 1 skip), e2e-rpc-two-process (32/32),
-skill probe (8/8 — required after `.agents/skills/` edits); e2e-renew ONLY as the
-scheduled candidate proof. Post-commit ritual: prose via `scripts/durable_edit.py`;
-refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard, `pi --mode rpc
--ne -e <pinned>` — `-ne` required, P-12); commit managed blocks. NEVER push/tag/release;
-DRPLi untouched; raw logs outside Git.
+**D4 committing now (A-34). Successor sequence (exact steps in PROGRESS.md "Next
+action"): D6 → dogfood proofs (e2e-renew real inference on the candidate incl.
+model-initiated hop 1 — note D5b: the RENEWAL AVAILABLE hint now requires a passing
+write-free preview; capped-chain finalize zero-inference proof; recovery-cost before/
+after vs A-27) → CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
+STOP for operator review. Gates: suite (≥184/1 skip), e2e-rpc (32/32), probe (8/8).
+Ritual: refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 — finalize is
+NOT available there, P-12; it stays the recovery infrastructure), commit managed
+blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
-Historical successor sequence (superseded for D5 by the above; D4/D6 details live in
+Historical successor sequence (superseded for D5/D4 by the above; D6 details live in
 PROGRESS.md):
 
 1. Gates first: `node --test test/` (expect **158 pass / 1 skip**),
@@ -261,5 +258,5 @@ PROGRESS.md):
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
 ### Guard notes
-D5 committed (A-33); D4 next
+L4 closing, session 01a18baa: D4 complete+verified but UNCOMMITTED (bash gated); successor commits D4 first (file list + commands in PROGRESS top block), then D6, dogfood proofs, release docs; renewals 1/8, chain chain:01a18a1a…
 <!-- guard:end checkpoint -->

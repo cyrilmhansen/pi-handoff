@@ -135,6 +135,26 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   confidence: high (unit + real-runtime zero-inference; the real-inference candidate
   proof remains scheduled). adopted: yes.
 
+- [A-34] **dev.2 D4 implemented (verified, committing).** Lean recovery tiers
+  (`recovery.ts` pure module + config `recovery.lean:false` default / `budgetTokens:
+  12000`, env `CONTEXT_GUARD_LEAN=1|0`): the successor recovery body becomes
+  OPERATIONAL (HANDOFF/PROGRESS — "read them NOW") → METHODOLOGY (AGENTS/PROTOCOL — on
+  procedure need) → ARCHIVE (GOAL/LEARNINGS — by reference, on demand). All six durable
+  files remain named and authoritative — tiering DEFERS reading, never drops authority;
+  manual-prose precedence restated; explicit `renewal.recoveryPrompt` still beats the
+  tiered body; mandatory identity header + safety trailer byte-identical between
+  variants (RC4). Cost meter (`recoveryCost`/`recoveryCostLine`, chars/4 ESTIMATE with
+  the A-1 caveat in the line itself) reported by `/guard status`, `/handoff verify` and
+  `/handoff finalize`. Schema v3 untouched. Motivation measured with a GENERATED
+  DRPLi-shaped fixture (RC2: six docs summing to EXACTLY the audited 121,312 chars —
+  full set ≈ 30,328 est. tokens >> 12,000 budget; operational tier 40,000 chars =
+  10,000 est. tokens fits; archive refs asserted present in the lean body).
+  Evidence: test/recovery.test.ts RC1-RC6 (6/6; one test-writing arithmetic bug caught
+  by running — A-14 class), suite 184 pass / 1 skip, real-runtime e2e-rpc 32/32,
+  skill probe 8/8. Before/after recovery-cost comparison vs A-27 for the release doc:
+  full read-all hop ≈ 30.3k est. tokens vs lean operational ≈ 10–12k on the fixture
+  shape (chars/4 estimates, NOT measured tokens). confidence: high. adopted: yes.
+
 ## Proposed
 
 > **Status note (documentation consolidation, 2026-10-29).** The entries below keep

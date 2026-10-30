@@ -5,6 +5,7 @@
 
 import type { ThresholdsInput } from "./core.ts";
 import { DEFAULT_RENEWAL, mergeRenewal, type RenewalConfig } from "./renewal.ts";
+import { DEFAULT_RECOVERY, mergeRecovery, type RecoveryConfig } from "./recovery.ts";
 
 export interface GuardFiles {
   goal: string;
@@ -46,6 +47,13 @@ export interface GuardConfig {
    * requires `renewal.autoRenew`.
    */
   renewal: RenewalConfig;
+  /**
+   * dev.2 D4 recovery policy: `lean` replaces the generic read-all recovery body with
+   * operational/methodology/archive tiers (DEFERS reading, never drops authority; an
+   * explicit renewal.recoveryPrompt still wins). Default FALSE — opt-in. `budgetTokens`
+   * is the target for the operational tier (chars/4 estimate; A-1 caveat travels).
+   */
+  recovery: RecoveryConfig;
 }
 
 export const DEFAULT_CONFIG: GuardConfig = {
@@ -64,6 +72,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
   files: { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" },
   syntheticRemaining: null,
   renewal: { ...DEFAULT_RENEWAL },
+  recovery: { ...DEFAULT_RECOVERY },
 };
 
 export interface MiniFs {
@@ -112,6 +121,7 @@ export function mergeConfig(base: GuardConfig, override: Json | null | undefined
     }
   }
   next.renewal = mergeRenewal(next.renewal, override.renewal);
+  next.recovery = mergeRecovery(next.recovery, override.recovery);
   return next;
 }
 
@@ -151,6 +161,11 @@ export function loadConfig(
     merged = { ...merged, renewal: { ...merged.renewal, enabled: true, autoRenew: true } };
   } else if (env.CONTEXT_GUARD_AUTO_RENEW === "0") {
     merged = { ...merged, renewal: { ...merged.renewal, enabled: false, autoRenew: false } };
+  }
+  if (env.CONTEXT_GUARD_LEAN === "1") {
+    merged = { ...merged, recovery: { ...merged.recovery, lean: true } };
+  } else if (env.CONTEXT_GUARD_LEAN === "0") {
+    merged = { ...merged, recovery: { ...merged.recovery, lean: false } };
   }
   return merged;
 }

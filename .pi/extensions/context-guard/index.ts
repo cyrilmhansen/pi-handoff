@@ -64,6 +64,7 @@ import {
   type PersistedGuardState,
   type ReadinessInfo,
 } from "./checkpoint.ts";
+import { recoveryCost, recoveryCostLine } from "./recovery.ts";
 import {
   buildRecoveryPrompt,
   decideRenewal,
@@ -333,6 +334,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       lines.push(
         `  renewal: policy enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}; chain ${chain.state.chainId || "(none)"} done=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}; stop in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${renewalRuntime.pending ? `; PENDING (${renewalRuntime.pending.trigger} from ${renewalRuntime.pending.fromSessionId})` : ""}${chain.corrupt ? "; chain state CORRUPT (treated as initial)" : ""}`,
       );
+      lines.push(`  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`);
     }
     if (g.repairsSuppressed.length > 0) {
       lines.push(`  audit mode: ${g.repairsSuppressed.length} state repair(s) suppressed (no quarantine/migration/cleanup writes): ${g.repairsSuppressed.join("; ")}`);
@@ -911,6 +913,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       `  identity: ${g.checkpointId ?? "none"}${f.kind === "current" ? `; content-delta ${f.contentDelta}` : ""}`,
       `  readiness: ${readiness ? `${readiness.state} — ${readiness.detail}` : "unknown (checkpoint is not current)"}`,
       `  renewal authorization (gate for /handoff renew): ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}`,
+      `  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`,
       "  manual prose in HANDOFF.md/PROGRESS.md always takes precedence over these blocks.",
     ];
     persistState();
@@ -1027,6 +1030,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       const readiness = ev.freshness.kind === "current" || ev.freshness.kind === "stale" ? ev.freshness.readiness.state : ev.freshness.kind;
       lines.push(header(ev.ok ? "DRY RUN" : "DRY RUN (NOT READY)", ev.identity?.id ?? null, String(readiness)));
       lines.push(`  read-only audit mode: NOT written (would ${fresh.kind !== "current" ? "refresh + attest" : "attest"} the managed blocks; no renewal involvement)`);
+      lines.push(`  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`);
       for (const c of ev.checks) if (c.status === "fail") lines.push(`  FAIL ${c.id}: ${c.detail}`);
       recordDiag("finalize", { ok: ev.ok, dry: true, checkpoint: ev.identity?.id ?? undefined, detail: "audit dry run (zero tree writes)" });
       persistState();
@@ -1074,6 +1078,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if (chain.state.stopped) {
       lines.push("  operator stop is durable on this chain; finalize neither needs nor clears it (renewal stays refused until /handoff renew resume).");
     }
+    lines.push(`  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`);
     recordDiag("finalize", { ok, dry: false, checkpoint: cpId ?? undefined, detail: ok ? "finalized (current + attested)" : "not ready" });
     persistState();
     setStatus(ctx);
@@ -1198,6 +1203,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         parentSessionId: g.sessionId,
         recoveryPrompt: g.config.renewal.recoveryPrompt,
         testCommand: g.config.renewal.testCommand,
+        lean: g.config.recovery.lean,
         extraNotes: notes,
       });
       const fromSessionId = g.sessionId;

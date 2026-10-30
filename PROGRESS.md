@@ -2,6 +2,21 @@
 
 ## Current phase
 
+**Checkpoint (level 4, session 01a18baa, ~4.3k remaining): CLOSING — HANDOFF STATE:
+D1/D2/D3/D5 committed (`6e61967`, `8674c90`+`eb3bf5d`, `1d48de3`, D5+g19); pre-D5
+adjustments committed (`fcea69c`, `b6445aa`; A-31/A-32/RN15; cap 8 chain-safe, runtime
+identified). D4 IS COMPLETE AND GREEN BUT UNCOMMITTED (bash blocked at L4): files in
+the working tree — .pi/extensions/context-guard/recovery.ts (NEW), renewal.ts (lean
+body), config.ts (recovery block + CONTEXT_GUARD_LEAN), index.ts (meter in
+status/verify/finalize + lean in runRenewal), test/recovery.test.ts (RC1-RC6),
+README/PROTOCOL docs, LEARNINGS A-34, this + HANDOFF prose. Suite 184/185 (1 skip),
+e2e-rpc 32/32, probe 8/8 ALL VERIFIED ON THIS TREE. Successor action 0: re-run
+`node --test test/` (expect ≥184/1 skip), then `git add -A && git commit` with
+message "dev.2 D4: lean recovery tiers + recovery-cost meter (A-34)" + refresh ritual
+(g20+), THEN PROGRESS "Next action" (D6 → dogfood proofs → release docs → STOP for
+operator review). Renewals 1/8 used, chain chain:01a18a1a…, guard here = tree
+candidate (A-31).
+
 **Mission v0.1.0-dev.2 (IN PROGRESS, started 2026-10-30).** Operator-authorized development
 mission on top of tag `v0.1.0-dev.1` (`2ea6219`): implement D1-D6 from the eight-renewal
 DRPLi campaign audit (evidence reproduced in LEARNINGS A-26/A-27). Priority: useful
@@ -16,7 +31,7 @@ Increments:
 | D1 | Recovery prompt: configured `renewal.recoveryPrompt` reaches the successor message (mandatory identity/safety kept); project-configured `renewal.testCommand`; hardcoded `node --test test/` removed; exact-message tests | DONE — commit `6e61967` (unit 137/138; real-runtime zero-inference 28/28; byte-exact real-inference check added to e2e-renew, live run scheduled) |
 | D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (capped/disabled/stopped OK; never switches, never touches chain state, never bypasses readiness; no waitForIdle) | IMPLEMENTED — FZ1-FZ9 9/9, suite 146/147, real runtime 32/32; docs updated; committing now |
 | D3 | `scripts/durable_edit.py` targeted durable-doc editing | DONE — DE0-DE11 (12 tests: dry-run, byte-identity, fences, AMBIGUOUS/NOT_FOUND/CONFLICT/MANAGED/MISSING_REF, failed-write atomicity, JSON, guard round-trip stale→refresh, no-git); suite 158/159 |
-| D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | pending |
+| D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | DONE — recovery.ts + config recovery.lean (default false) + tiers + cost meter in status/verify/finalize; RC1-RC6 6/6, suite 184/185, e2e 32/32, probe 8/8; A-34; committing now |
 | D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | DONE — test/d5.test.ts 19/19 (D5a/b, DG1-9, D5d), suite 178/179, e2e-rpc 32/32, skill probe 8/8; A-33; P-9 resolved (GUARD_VERSION banner) |
 | D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | pending |
 
@@ -117,26 +132,24 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**D5 DONE (A-33): parameterized level-4 wording (enforceClosing:false = advisory, gate
-stays open), renewal hint only behind a WRITE-FREE full-gate preview (safe instructions
-incl. handoff_finalize at cap; NOT AVAILABLE names the reason), diagnostics.jsonl +
-/guard events (typed, no prompts/args/secrets, rotation 500, §2.3 audit rule;
-turn_aborted recorded, never auto-retried), GUARD_VERSION banner (P-9 resolved).**
-Next: D4 lean-recovery tiers — operational/methodology/archive, opt-in
-`recovery.lean:false` default, schema v3 compatible, cost meter in verify/finalize/
-status, GENERATED DRPLi-shaped fixture in tests (six docs ~121,312 chars; full mandatory
-set >> budget, lean tier ≤ 12k est tokens, archive refs exist; spec/CLAIMS.md authority
-by reference). Then D6 — pure `crossingPoints` in core.ts (window 95k, reserve 5k →
-used 70/78/82/85k), /guard status crossing line + provenance + honest "guard never
-changes the model window" wording, docs/profiles/experimental-95k.json. Then dogfood
-proofs (e2e-renew real inference on the CANDIDATE incl. model-initiated hop 1 +
-productive continuation; capped-chain finalize zero-inference proof; recovery-cost
-before/after vs A-27), CHANGELOG dev.2 + migration/rollback from dev.1,
-release-readiness assessment; STOP for operator review.
-Gates after any extension edit: suite (≥178), e2e-rpc-two-process (32/32), skill probe
-(8/8). Post-commit ritual: prose via `scripts/durable_edit.py`; refresh via
-`node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1; `pi --mode rpc -ne -e <pinned>`);
-commit managed blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
+**D4 committing now (A-34). Remaining: D6, then dogfood proofs + release docs.**
+1. **D6**: pure `crossingPoints` in core.ts (window 95k, reserve 5k → used
+   70/78/82/85k), `/guard status` crossing line + provenance + honest "guard never
+   changes the model window" wording; `docs/profiles/experimental-95k.json` example;
+   tests D6x1-3 (pure + adapter).
+2. Dogfood: real-inference `node scripts/e2e-renew.mjs` on the CANDIDATE (hop-1
+   model-initiated via CONTEXT_GUARD_AUTO_RENEW=1, byte-exact recovery-message checks,
+   successor commits real work; D5b preview-gate now governs the hint — if the
+   predecessor checkpoint is current+attested the hint appears, else NOT AVAILABLE);
+   capped-chain finalize proof (zero inference); recovery-cost before/after vs A-27;
+   CHANGELOG dev.2 + migration/rollback from dev.1; release-readiness assessment.
+   STOP for operator review. NEVER push/tag/release.
+3. Gates after any extension edit: suite (≥184 pass / 1 skip), e2e-rpc-two-process
+   (32/32), skill probe (8/8). Post-commit ritual: prose via scripts/durable_edit.py
+   or direct edits; refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1,
+   `pi --mode rpc -ne -e <pinned>`, P-12); commit managed blocks. Renewal 1/8 used,
+   chain chain:01a18a1a…; D5b hint preview + diagnostics available for attribution.
+DRPLi untouched (fixtures generated in tests only); raw campaign logs outside Git.
 
 Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 2):
 
@@ -173,32 +186,29 @@ Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 19
-checkpoint-id: g19-a7eb3e62bdf2
+checkpoint-generation: 22
+checkpoint-id: g22-f048debad0d3
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-guard-level: 0
-checkpointed: 2026-10-30T07:50:32.313Z
+guard-level: 4
+checkpointed: 2026-10-30T07:59:32.671Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: c6d5de43dfd0c534d23986ba6a4846c13dfed47b46a074a9b7864c64c57c8128
-source-handoff: d2d5744743360d5fae99497ed65bd0a84358518ea4de6eba7e30550ff0847acc
-source-learnings: b8d10e4f5d1e6ac827a514ba511d83ffd1224c69dffe62178210b6896e36820e
+source-progress: 785264f461d68c8889d68f6cdaa7b8e1d3bdf5575fe8a08aeed7a2ed0bccd906
+source-handoff: 268067809b4c37f2ea8c1620e2b7c169c4f2518a9e7f85c610e1ca449c0a2a01
+source-learnings: 2add3b1a046777e1a4d8cff27497e8320dc423be3d593e0878257a478dab2f9a
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
-next-action: **D5 DONE and committing (A-33). Next: D4 lean-recovery tiers, then D6 95k profile,**
-then dogfood proofs (real-inference e2e-renew on the candidate incl. model-initiated
-hop 1 + byte-exact recovery checks + productive continuation; capped-chain finalize
-zero-inference proof; recovery-cost before/after vs A-27) and release docs (CHANGELOG
-dev.2, migration/rollback from dev.1); STOP for operator review.
-D4/D6 scope details: PROGRESS.md "Next action" (exact parameters, fixtures, budgets).
-Gates after any extension edit: suite (≥178 pass / 1 skip), e2e-rpc-two-process (32/32),
-skill probe (8/8 — required after `.agents/skills/` edits); e2e-renew ONLY as the
-scheduled candidate proof. Post-commit ritual: prose via `scripts/durable_edit.py`;
-refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard, `pi --mode rpc
--ne -e <pinned>` — `-ne` required, P-12); commit managed blocks. NEVER push/tag/release;
-DRPLi untouched; raw logs outside Git.
+next-action: **D4 committing now (A-34). Successor sequence (exact steps in PROGRESS.md "Next
+action"): D6 → dogfood proofs (e2e-renew real inference on the candidate incl.
+model-initiated hop 1 — note D5b: the RENEWAL AVAILABLE hint now requires a passing
+write-free preview; capped-chain finalize zero-inference proof; recovery-cost before/
+after vs A-27) → CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
+STOP for operator review. Gates: suite (≥184/1 skip), e2e-rpc (32/32), probe (8/8).
+Ritual: refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 — finalize is
+NOT available there, P-12; it stays the recovery infrastructure), commit managed
+blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
-Historical successor sequence (superseded for D5 by the above; D4/D6 details live in
+Historical successor sequence (superseded for D5/D4 by the above; D6 details live in
 PROGRESS.md):
 
 1. Gates first: `node --test test/` (expect **158 pass / 1 skip**),
@@ -232,7 +242,7 @@ PROGRESS.md):
    `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
    <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
-readiness-by: session:01a18bc9-f635-7118-8d26-9cd40ad10ca2
-readiness-at: 2026-10-30T07:50:32.413Z
-readiness-checkpoint: g19-a7eb3e62bdf2
+readiness-by: session:01a18baa-c73d-75ce-9c51-f56adc860ff2
+readiness-at: 2026-10-30T07:59:32.675Z
+readiness-checkpoint: g22-f048debad0d3
 <!-- guard:end checkpoint -->

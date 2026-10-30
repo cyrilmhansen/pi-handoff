@@ -207,7 +207,7 @@ into a general orchestration framework is out of contract.
 
 Renewal policy lives in `renewal.ts` (pure) + `handoff.config.json` `renewal`
 (`enabled` default **false**, `autoRenew` default **false**, `maxRenewals` default 2,
-`recoveryPrompt` override). Chain state (`chainId`, `renewalsDone`,
+`recoveryPrompt` override, `recovery` policy block — dev.2 D4 lean tiers, see below). Chain state (`chainId`, `renewalsDone`,
 `renewedFromCheckpointId`, `stopped`) persists at `<stateDir>/renewal-state.json`: it survives
 session replacement and process restart, bounds the chain, makes each checkpoint seed
 at most one successor (idempotence), and carries the durable operator stop.

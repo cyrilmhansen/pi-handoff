@@ -89,6 +89,8 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 | `renewal.maxRenewals` | `2` | hard cap per renewal chain (chain state in `<stateDir>/renewal-state.json`) |
 | `renewal.recoveryPrompt` | built-in | replaces the GENERIC body of the successor recovery instruction; the mandatory identity header (renewal index, parent/chain/checkpoint ids, no-replay/no-compaction contract) and the safety trailer (initiative, never-push) are always kept (dev.2 D1) |
 | `renewal.testCommand` | `null` | project-configured build-verify command carried into the successor recovery message. Default `null`: the prompt contains NO build-verify line — generic test commands are never assumed (dev.2 D1, LEARNINGS A-26) |
+| `recovery.lean` | `false` | dev.2 D4 opt-in: successor recovery instruction uses TIERS — operational (HANDOFF/PROGRESS, read NOW) → methodology (AGENTS/PROTOCOL, on procedure need) → archive (GOAL/LEARNINGS, by reference, on demand). All six files stay authoritative and named; only the reading order changes. An explicit `renewal.recoveryPrompt` still wins (dev.2 D4, A-27/A-34) |
+| `recovery.budgetTokens` | `12000` | target budget for the operational tier, in chars/4 ESTIMATED tokens; `/guard status`, `/handoff verify` and finalize report the full-set vs lean cost meter |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable-file names used by checkpointing/validation |
 
 ## Generation reserve
@@ -139,7 +141,8 @@ token accounting (LEARNINGS P-7 — live confirmation still open).
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<tokens>`, `CONTEXT_GUARD_READONLY=1`,
 `CONTEXT_GUARD_STATE_DIR=<path>` (may point outside the project),
-`CONTEXT_GUARD_AUTO_RENEW=1|0` (force-enable/disable the renewal policy for one process).
+`CONTEXT_GUARD_AUTO_RENEW=1|0` (force-enable/disable the renewal policy for one process),
+`CONTEXT_GUARD_LEAN=1|0` (force lean recovery tiers for one process, dev.2 D4).
 CLI flags: `--guard-synthetic <n>`, `--guard-readonly 1`.
 
 ## Renewal (Phase 2 — complete; proven live with real inference A→B→C)

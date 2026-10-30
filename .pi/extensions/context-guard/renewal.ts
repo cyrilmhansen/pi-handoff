@@ -8,6 +8,8 @@
  * source-verified Pi 1.4.0 semantics (LEARNINGS A-17, A-19, design P-6/P-8).
  */
 
+import { buildLeanRecoveryBody } from "./recovery.ts";
+
 export interface RenewalConfig {
   /** Master switch. Default FALSE: renewal never happens until explicitly enabled. */
   enabled: boolean;
@@ -178,6 +180,8 @@ export function buildRecoveryPrompt(input: {
   parentSessionId: string;
   testCommand?: string | null;
   recoveryPrompt?: string | null;
+  /** dev.2 D4: tiered recovery body (opt-in; a configured recoveryPrompt still wins). */
+  lean?: boolean;
   extraNotes?: string;
 }): string {
   const f = input.files;
@@ -189,7 +193,9 @@ export function buildRecoveryPrompt(input: {
   const custom = typeof input.recoveryPrompt === "string" && input.recoveryPrompt.trim().length > 0 ? input.recoveryPrompt.trim() : null;
   const body = custom
     ? custom.split("\n")
-    : [
+    : input.lean === true
+      ? buildLeanRecoveryBody(f).split("\n")
+      : [
         `Recover the project NOW, in this order (PROTOCOL §3): read AGENTS.md, PROTOCOL.md, ${f.goal}, ${f.handoff}, ${f.progress}, ${f.learnings}.`,
         `Manual prose in ${f.handoff}/${f.progress} takes precedence over the managed checkpoint block; the guard reports checkpoint freshness at session_start (refresh + re-attest with /handoff and /handoff ready if stale).`,
       ];
