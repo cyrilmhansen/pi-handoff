@@ -35,7 +35,10 @@ refusals never write); during enforced level-4 closing the model can only call i
 Tool: `handoff_finalize` (dev.2 D2) — model-driven closing without a switch: same
 synchronous refresh + attest machinery, no waitForIdle, no dispatch, no chain-state
 writes; callable during enforced closing regardless of `closingAllowlist` (it writes only
-managed blocks). At the exhausted renewal cap this is the safe path: finalize, then stop.
+managed blocks). It is NOT a substitute for renewal of an active, permitted chain:
+finish the bounded operation, preserve durable evidence, then call `handoff_renew` at a
+safe boundary if the objective continues. A missing/stale checkpoint may be prepared
+by that tool before the final gate. At the exhausted cap, finalize and stop.
 
 ## Configuration — `handoff.config.json` (project root; read once per `session_start`)
 
