@@ -180,8 +180,9 @@ test("D5b3: unattested/missing checkpoint => NOT AVAILABLE (not-authorized) with
   const alert = h.alerts();
   assert.ok(!/RENEWAL AVAILABLE:/.test(alert));
   assert.match(alert, /RENEWAL NOT AVAILABLE \(not-authorized\)/);
-  assert.match(alert, /\/handoff/);
-  assert.match(alert, /\/handoff ready|attest/i);
+  assert.match(alert, /not authorized NOW/i, "preview refusal must be explicitly temporary when preparable");
+  assert.match(alert, /handoff_renew refreshes a missing\/stale checkpoint/);
+  assert.match(alert, /attempts attestation before the real gate/);
 });
 
 test("D5b4: durable operator stop => NOT AVAILABLE (stopped) with resume + finalize instructions; preview still write-free", async () => {
