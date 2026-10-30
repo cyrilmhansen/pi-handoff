@@ -64,6 +64,24 @@ A revocation notice means pressure dropped and a previous closing instruction is
   (accepted / proposed / falsified). Never rewrite GOAL.md silently — propose in
   LEARNINGS.md instead.
 
+## Consolidation and strategy pivots (operator-approved)
+
+- When a phase is finished/abandoned, instructions conflict, the strategy changes,
+  or recovery-cost estimates grow, **propose** a reviewable consolidation plan.
+  Read `references/consolidation.md` before any such edit. This is a **manual
+  workflow, not a guard command or automatic cleanup**; never trigger it merely
+  because a pressure threshold was crossed.
+- Keep `HANDOFF.md` focused on **one current next action**, `PROGRESS.md` on the
+  active phase and concise verified milestones, and `LEARNINGS.md` on
+  evidence-linked accepted/proposed/falsified knowledge (including archived or
+  superseded entries). Archive former strategies with stable pointers, not silent
+  deletion. Keep project-specific scientific ledgers and goldens authoritative.
+- Obtain explicit operator approval for the plan; a change to `GOAL.md` requires
+  **separate** authorization and an operator-controlled update. Never edit
+  checkpoint managed blocks by hand. After approved edits: verify references and
+  the project gate, commit, refresh via `/handoff`, attest via `/handoff ready`,
+  and compare before/after recovery cost. Do not reset the renewal chain.
+
 ## Renewal (Phase 2, if configured)
 
 - **Continuation precedence (issue #1):** when the objective remains unfinished, a live, permitted renewal takes precedence over terminal finalization. L3/L4 mean finish current bounded work and preserve evidence, then request `handoff_renew` at a safe boundary if permitted or safely preparable. A stale checkpoint may be refreshed and attested by that tool; a preview refusal means NOT authorized now, not necessarily permanently impossible. Use `handoff_finalize` for intentional non-renewing closure (disabled/stopped/capped/irreparable refusal). No threshold forces a switch.

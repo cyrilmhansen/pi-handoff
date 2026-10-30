@@ -59,6 +59,10 @@ Keep them SMALL — they are prefilled into every fresh session.
 Minimal `## Next action` discipline: every session ends with the **exact next
 action** a fresh session must take (command + expected output), not a vibe.
 
+For long-lived projects, also establish where reviewed historical phase notes live
+(e.g. `docs/history/`), and use `references/consolidation.md` before shrinking
+HANDOFF/PROGRESS or changing direction. Never treat `recovery.lean` as cleanup.
+
 ## 4. Install the skill (optional but recommended)
 
 Copy `.agents/skills/pi-handoff/` (this directory) to the target's

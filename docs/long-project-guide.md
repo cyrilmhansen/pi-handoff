@@ -91,6 +91,20 @@ The files are the interface; garbage in, garbage recovery out. The rules that ma
   tiering defers reading, never drops authority. `/guard status` meters the cost
   (chars/4 estimates).
 
+### Consolidating after a phase or strategy pivot
+
+Long-lived operational documents require a **reviewed lifecycle**, not automatic
+summarization or deletions. The bundled skill includes
+[`references/consolidation.md`](../.agents/skills/pi-handoff/references/consolidation.md):
+first plan the move/rewrite/archive map without edits, preserve accepted/proposed/
+falsified evidence and any project-specific scientific claims ledger, then obtain
+operator approval. A change of GOAL.md needs separate authorization. Archive the
+old direction under a stable in-repository path and leave a single exact next action
+in active HANDOFF.md. Never hand-edit transactional checkpoint blocks. After the
+manual/archive commit, regenerate and attest the checkpoint, commit that refresh,
+and compare full/lean chars/4 recovery-cost estimates before and after. This is
+not a Pi command, not context compaction, and never a threshold-triggered action.
+
 ## 4. Budget tuning (read this before trusting thresholds)
 
 The guard measures **usable remaining**:
