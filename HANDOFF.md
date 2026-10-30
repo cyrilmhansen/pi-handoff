@@ -231,13 +231,13 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 26
-checkpoint-id: g26-84672f2b0c81
-checkpoint-kind: auto
-content-delta: new
-readiness: unattested
-status: checkpoint (guard level 3, remaining ~8801, session 01a18c81-ea0e-75b4-9677-ba93b22bf32e)
-checkpointed: 2026-10-30T11:54:18.484Z
+checkpoint-generation: 27
+checkpoint-id: g27-b82ddbb7eb86
+checkpoint-kind: manual
+content-delta: none
+readiness: attested
+status: checkpoint (guard level 0, remaining ~214902, session 01a18ca9-56f9-7533-9c67-70ee25910022)
+checkpointed: 2026-10-30T11:54:31.569Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: 67f820070b265cb39a8ec67cc0a1d365cb31bfa8d831941d7484c47c6bce0968
 source-handoff: d36b5cfa90e2eee2d390d689fc93df129104f0a027c0903592fe48ad592b3a81
@@ -245,8 +245,11 @@ source-learnings: 4fd55adc56216d341ccc9377174eec10d52479f963ed5ce7eb485d6d8bce3a
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 
 
+readiness-by: session:01a18ca9-56f9-7533-9c67-70ee25910022
+readiness-at: 2026-10-30T11:54:31.670Z
+readiness-checkpoint: g27-b82ddbb7eb86
 ### Last verified state
-guard level 3; checkpoint requested (auto at level 3)
+guard level 0; checkpoint requested (D8 COMPLETE: handoff CI on Rune Buildbot (rune-ci-handoff; bs54 defect-find, bs55 FAILED-probe failed-not-infra, bs56 green+reused on 435c294, bs57 DRPLi smoke no-fp-warning; DRPLi fp 6729fc4b byte-stable via buildbot.tac injection; live suite stub-proven, spend = operator decision; STOP for operator review))
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -322,5 +325,5 @@ PROGRESS.md):
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
 ### Guard notes
-D7 COMPLETE (f399fce, A-37): test-artifact lifecycle — ArtifactTracker register-at-creation cleanup for all three e2e scripts; llm-workspace + KEEP=0/1 semantics + signal-safe child shutdown fixed; 13 zero-inference tests; suite 200/1 skip, real-pi e2e-rpc 38/38, probe 8/8; production guard untouched; STOP for operator review; not tagged/pushed
+D8 COMPLETE: handoff CI on Rune Buildbot (rune-ci-handoff; bs54 defect-find, bs55 FAILED-probe failed-not-infra, bs56 green+reused on 435c294, bs57 DRPLi smoke no-fp-warning; DRPLi fp 6729fc4b byte-stable via buildbot.tac injection; live suite stub-proven, spend = operator decision; STOP for operator review)
 <!-- guard:end checkpoint -->

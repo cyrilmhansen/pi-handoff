@@ -311,13 +311,13 @@ Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 26
-checkpoint-id: g26-84672f2b0c81
-checkpoint-kind: auto
-content-delta: new
-readiness: unattested
-guard-level: 3
-checkpointed: 2026-10-30T11:54:18.484Z
+checkpoint-generation: 27
+checkpoint-id: g27-b82ddbb7eb86
+checkpoint-kind: manual
+content-delta: none
+readiness: attested
+guard-level: 0
+checkpointed: 2026-10-30T11:54:31.569Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: 67f820070b265cb39a8ec67cc0a1d365cb31bfa8d831941d7484c47c6bce0968
 source-handoff: d36b5cfa90e2eee2d390d689fc93df129104f0a027c0903592fe48ad592b3a81
@@ -380,4 +380,7 @@ PROGRESS.md):
    `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
    <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
+readiness-by: session:01a18ca9-56f9-7533-9c67-70ee25910022
+readiness-at: 2026-10-30T11:54:31.670Z
+readiness-checkpoint: g27-b82ddbb7eb86
 <!-- guard:end checkpoint -->
