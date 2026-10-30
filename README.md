@@ -427,8 +427,11 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
   Pressure alerts alone never force a transition, and since dev.2 D5b the model only
   ever hears "renewal is possible" after a full WRITE-FREE PREVIEW of the real gate
   passes (live checkpoint identity ∧ authorization ∧ durable stop ∧ cap ∧ read-only ∧
-  pending, zero writes); a refusing preview prints `RENEWAL NOT AVAILABLE (<reason>)`
-  with concrete safe instructions — `handoff_finalize` at the cap. Renewal still requires
+  pending, zero writes); a refusing preview prints `RENEWAL NOT AVAILABLE (<reason>)`.
+  A missing/stale checkpoint means NOT authorized **now**: the model tool can refresh
+  and attest it when durable prose is ready. At L3/L4, unfinished work should continue
+  through an authorized `handoff_renew` at a safe boundary; `handoff_finalize` is for
+  intentional non-renewing closure (especially at the cap). Renewal still requires
   the same gate at execution time (current ∧ identity-consistent ∧ attested ∧ below cap ∧
   unseen checkpoint id). Unattended/recursive agent
   *launching* (spawning new pi processes) is still NOT implemented: renewal replaces the
