@@ -2,7 +2,37 @@
 
 ## Current phase
 
-**Documentation consolidation (COMPLETE, 2026-10-29).** A docs-only pass reconciled
+**Mission v0.1.0-dev.2 (IN PROGRESS, started 2026-10-30).** Operator-authorized development
+mission on top of tag `v0.1.0-dev.1` (`2ea6219`): implement D1-D6 from the eight-renewal
+DRPLi campaign audit (evidence reproduced in LEARNINGS A-26/A-27). Priority: useful
+scientific work per token + reliable unsupervised continuation. Hard limits: DRPLi
+(`cyrilmhansen/drpli` @ `364ef5c`) is READ-ONLY for this mission and NOT on this machine —
+DRPLi-sized behavior is tested with isolated fixtures only; no push/tag/release/deploy
+without operator authorization; raw campaign logs stay outside Git
+(`/home/john/drpli-handoff-audit-20261030/`, `/tmp/pi-handoff-drpli-audit.json`).
+
+Increments (P0 first):
+
+| # | Work | State |
+|---|---|---|
+| D1 | Recovery prompt: fix ignored `renewal.recoveryPrompt`; project-configured `renewal.testCommand`; remove hardcoded `node --test test/`; assert exact successor message | planned |
+| D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (works capped/disabled/stopped; never switches, never touches chain state, never bypasses readiness) | planned |
+| D3 | Deterministic durable-document targeted editing (Python stdlib CLI): dry-run+diff, exact section targeting, ambiguity rejection, expected-hash concurrency guard, atomic replace, byte-identical non-target content, evidence-reference existence checks, no Git side effects; reuses guard checkpoint transaction for managed blocks (refuses to touch them) | planned |
+| D4 | Compact recovery: operational state vs methodology vs intact archives; ≤10-12k est. tokens mandatory material; opt-in `recovery.lean`; schema v3 compatible; DRPLi-sized fixture generated in tests | planned |
+| D5 | Accurate pressure messages (`enforceClosing:false` must not claim blocking; honest RENEWAL AVAILABLE incl. cap/stop/read-only/authorization preview; safe closing instructions when renewal unavailable) + structured diagnostic events (no prompts/args/secrets, no auto-retry) | planned |
+| D6 | Experimental 95k/5k profile: crossings 70k/78k/82k/85k used shown in `/guard status`, reserve + provenance, honest window-ownership wording | planned |
+
+Dogfooding (mandatory): this session runs the dev.1 guard loaded at startup; pinned
+independent copy at `/home/john/pi-handoff-pinned-v0.1.0-dev.1` (git archive of the tag);
+post-commit checkpoint refresh runs against the PINNED extension, never the edited tree.
+Candidate validation after each P0 increment: separate real Pi process (`pi --mode rpc -e
+.pi/extensions/context-guard/index.ts` + e2e scripts). Before release: one genuine
+model-initiated renewal with productive continuation (real inference, `scripts/e2e-renew.mjs`
+extended), and the capped-chain finalization proof (zero inference). Baselines to compare
+against: dev.1 campaign numbers (A-27).
+
+**Previous milestone — documentation consolidation (COMPLETE, 2026-10-29).** A docs-only
+pass reconciled
 README/PROTOCOL/AGENTS/HANDOFF/PROGRESS/LEARNINGS/skill/guide with the implemented
 system. No code, test, E2E or config file was changed. Key corrections: README retitled
 off "Phase 1"; schema v3 stated as current (v2/v1 = historical, validate as `stale`);
@@ -78,7 +108,11 @@ Documentation consolidation (this pass):
 
 ## Pending
 
-- [ ] **Operator review** of the documentation consolidation, then separately
+- [ ] **v0.1.0-dev.2 mission**: D1-D6 as tabled above; deliverables 1-5 (confirmed defects
+      vs hypotheses, corrections + regression tests, before/after recovery-cost
+      measurements, migration/rollback docs from dev.1, dev.2 changelog + release
+      readiness assessment) — none yet started in code.
+- [ ] Operator review of the documentation consolidation, then separately
       authorized `drpli` integration (nothing deployed; blueprint = guide + bootstrap).
 - [ ] Operator decision: `renewal.autoRenew` default (stays OFF until decided).
 - [ ] P-5: generalized concurrent renewal safety (only A-16's specific two-process
@@ -119,11 +153,15 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 
 ## Next action
 
-**Operator review** of the consolidated documentation (git log since `06fbc71`;
-re-run the three zero-inference gates: 131/132, 27/27, 8/8), **then separately
-authorized `drpli` integration** (`.agents/skills/pi-handoff/references/bootstrap.md`
-+ `docs/long-project-guide.md` §7 are the templates; applying them is an explicit
-operator approval, never agent initiative).
+**v0.1.0-dev.2 D1 first**: write failing regression tests for the confirmed recovery-prompt
+defect (A-26) — custom `recoveryPrompt` must reach the successor message verbatim under the
+mandatory identity/safety header; generic prompt must NOT contain `node --test test/`
+unless `renewal.testCommand` is configured; then implement, run `node --test test/`, and
+validate in the real runtime. Full mission brief: operator prompt of session
+01a18a1a… (2026-10-30); evidence: LEARNINGS A-26/A-27/P-10.
+
+(Previous milestone next action — operator review of the docs consolidation — remains
+valid in parallel; nothing deployed to `drpli`.)
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
