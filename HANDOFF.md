@@ -222,25 +222,25 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 24
-checkpoint-id: g24-c07d154786d9
+checkpoint-generation: 25
+checkpoint-id: g25-d9fd8f8821f6
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-status: checkpoint (guard level 0, remaining ~214902, session 01a18c12-4417-769d-84ab-10b7579ec82f)
-checkpointed: 2026-10-30T09:09:30.833Z
+status: checkpoint (guard level 0, remaining ~214902, session 01a18c53-2578-7430-b964-ea80c59c0cfa)
+checkpointed: 2026-10-30T10:20:22.800Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 4766ab3849f660c230db88b76a929193f84023ea51e996596a1024be93ff39a5
-source-handoff: 49d63f50ce70a592a597baed7ffdf0223b9b1bc5e720c5bef656dfd65bb820df
-source-learnings: 0a7985f28fb241574a6077334c10b45dcf0c92a816aee7f696b08473edbdafc8
+source-progress: bc3d0a389af51eef5bbf2157b07c8f9235c1afd6b802d2c2298fd7356505ebd9
+source-handoff: eb6691864aaf2893dec1708a4f646a659ecaa07ca9105a4344db551b32b95fe7
+source-learnings: 221a05eeddbc566f70b1b172a282e42580ff08c83c42a42702a1e2252b586e95
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 
 
-readiness-by: session:01a18c12-4417-769d-84ab-10b7579ec82f
-readiness-at: 2026-10-30T09:09:30.933Z
-readiness-checkpoint: g24-c07d154786d9
+readiness-by: session:01a18c53-2578-7430-b964-ea80c59c0cfa
+readiness-at: 2026-10-30T10:20:22.901Z
+readiness-checkpoint: g25-d9fd8f8821f6
 ### Last verified state
-guard level 0; checkpoint requested (dev.2 COMPLETE (A-36, 02c0445): candidate live-proven 24/24 real inference (model hop 1 under D5b, byte-exact recovery), CHANGELOG + migration/rollback + release readiness; STOP for operator review. Not tagged/pushed.)
+guard level 0; checkpoint requested (D7 COMPLETE (f399fce, A-37): test-artifact lifecycle — ArtifactTracker register-at-creation cleanup for all three e2e scripts; llm-workspace + KEEP=0/1 semantics + signal-safe child shutdown fixed; 13 zero-inference tests; suite 200/1 skip, real-pi e2e-rpc 38/38, probe 8/8; production guard untouched; STOP for operator review; not tagged/pushed)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -257,16 +257,21 @@ guard level 0; checkpoint requested (dev.2 COMPLETE (A-36, 02c0445): candidate l
 - [x] All confirmed inconsistencies corrected (see Current phase); verification
 
 ### Next action
-**STOP — dev.2 COMPLETE, awaiting OPERATOR REVIEW (A-36, CHANGELOG.md). No further
-implementation without operator direction.** Operator decision points: (1) review the
-dev.2 range `4df08a8..HEAD` (one commit per increment + refreshes); (2) authorize or
-withhold tag `v0.1.0-dev.2` + push (NEITHER is done); (3) separately authorize `drpli`
+**STOP — dev.2 + D7 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37, CHANGELOG.md). No
+further implementation without operator direction.** Operator decision points: (1)
+review the dev.2+D7 range `4df08a8..HEAD` (one commit per increment + refreshes);
+(2) authorize or withhold tag `v0.1.0-dev.2` + push (NEITHER is done; D7 is included
+in the candidate); (3) separately authorize `drpli`
 reuse (blueprint: docs/long-project-guide.md §7 + skill bootstrap; CHANGELOG migration/
 rollback sections are the install notes); (4) optional policy calls: enable
-`recovery.lean`, raise `renewal.autoRenew`, adjust caps. Open caveats that travel with
-any release claim: P-5 concurrency NOT generalized; P-7 live closing point NOT observed
+`recovery.lean`, raise `renewal.autoRenew`, adjust caps; (5) optional authorized
+real-inference pass: re-run `node scripts/e2e-renew.mjs` (24/24) to move the live
+renewal proof onto the post-D7 tip — not required by D7 (renewal wiring unchanged).
+Open caveats that travel with any release claim: P-5 concurrency NOT generalized; P-7 live closing point NOT observed
 under real accounting (nominal crossings printed live, never reached); lean-tier benefit
-is fixture/meter projection (chars/4), not campaign re-run. Successors: if woken without
+is fixture/meter projection (chars/4), not campaign re-run. Historical `/tmp/guard-*`
+leaks from pre-D7 interrupted runs remain on this machine (A-37 evidence; deleting them
+is an operator action — scripts never sweep). Successors: if woken without
 operator input, verify gates (`node --test test/`, e2e-rpc, probe), do NOT open new
 implementation, keep docs/checkpoints current.
 
@@ -306,5 +311,5 @@ PROGRESS.md):
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
 ### Guard notes
-dev.2 COMPLETE (A-36, 02c0445): candidate live-proven 24/24 real inference (model hop 1 under D5b, byte-exact recovery), CHANGELOG + migration/rollback + release readiness; STOP for operator review. Not tagged/pushed.
+D7 COMPLETE (f399fce, A-37): test-artifact lifecycle — ArtifactTracker register-at-creation cleanup for all three e2e scripts; llm-workspace + KEEP=0/1 semantics + signal-safe child shutdown fixed; 13 zero-inference tests; suite 200/1 skip, real-pi e2e-rpc 38/38, probe 8/8; production guard untouched; STOP for operator review; not tagged/pushed
 <!-- guard:end checkpoint -->
