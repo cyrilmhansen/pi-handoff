@@ -174,25 +174,25 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 17
-checkpoint-id: g17-d2ecccec028d
+checkpoint-generation: 18
+checkpoint-id: g18-38efc751253c
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-status: checkpoint (guard level 4, remaining ~17359, session 01a18a1a-c92b-7262-a149-12803cb57f0c)
-checkpointed: 2026-10-30T07:15:53.946Z
+status: checkpoint (guard level 0, remaining ~214902, session 01a18bb6-55ce-7471-b466-9db059e05998)
+checkpointed: 2026-10-30T07:29:06.020Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 3839b9d2465959daf9bac300c616af1dae0d3c4e3e08bf1dc9bca3ce00012e3f
-source-handoff: d29ef819ea4ed1609d06a69ffcd1fcf8d033b4ec6c9e3aafca1a348984a34207
-source-learnings: cefe8b6f7d51249ac0402c7531bb9f09ebce9fb8392699d675cde82893ef2869
+source-progress: c649bfad06ac135b94327c4118375c0445373913f725a52c0b2261829c4203c2
+source-handoff: f05c050da628bde264f0dcfff75f478f3235ed7a720e0480a17daaa7ce0bb159
+source-learnings: 20c7278acf6b30220a3eb8a94e34cc374c4dcde2467ba93429ec8994a4932e64
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 
 
-readiness-by: session:01a18a1a-c92b-7262-a149-12803cb57f0c
-readiness-at: 2026-10-30T07:16:07.625Z
-readiness-checkpoint: g17-d2ecccec028d
+readiness-by: session:01a18bb6-55ce-7471-b466-9db059e05998
+readiness-at: 2026-10-30T07:29:06.122Z
+readiness-checkpoint: g18-38efc751253c
 ### Last verified state
-guard level 4; checkpoint requested (help)
+guard level 0; checkpoint requested (pre-D5 adjustments committed fcea69c (cap 8 chain-safe A-32/RN15, runtime audit A-31); D5 in progress)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -209,9 +209,22 @@ guard level 4; checkpoint requested (help)
 - [x] All confirmed inconsistencies corrected (see Current phase); verification
 
 ### Next action
-**Mission v0.1.0-dev.2 — D1/D2/D3 DONE and committed (`6e61967`, `8674c90`, `eb3bf5d`, +
-the D3-tests commit at HEAD). Remaining: D5, D4, D6, then dogfood proofs and release
-docs.** Successor sequence (exact):
+**Pre-D5 adjustments DONE and committed (A-31 runtime audit — active guard is the TREE
+candidate, pinned dev.1 byte-identical to `v0.1.0-dev.1` and reserved for the refresh
+ritual; A-32 cap-raise verification + RN15 regression; config `maxRenewals: 8`,
+`generationReserve: 5000`). Executing D5 test-first** — (a) honest level-4 wording under
+`enforceClosing:false`; (b) `RENEWAL AVAILABLE` only behind a write-free preview gate,
+safe instructions otherwise (finalize at cap); (c) `diagnostics.ts` +
+`<stateDir>/diagnostics.jsonl` + `/guard events [n]`, `agent_settled.aborted` recorded,
+NEVER auto-retried; (d) banner `GUARD_VERSION` (P-9). Then D4, D6, dogfood proofs
+(e2e-renew on the candidate + capped-chain finalize + recovery-cost vs A-27), release
+docs; STOP for operator review. Gates after any extension edit: suite, e2e-rpc (32/32),
+skill probe (8/8); e2e-renew only as the scheduled candidate proof. Post-commit ritual:
+prose via `scripts/durable_edit.py`; refresh via `node /tmp/refresh-pinned.mjs "notes"`
+(PINNED dev.1, `pi --mode rpc -ne -e <pinned>`); commit managed blocks. NEVER
+push/tag/release; DRPLi untouched; raw logs outside Git.
+
+Historical successor sequence (D4/D6 details; D5 superseded by the above):
 
 1. Gates first: `node --test test/` (expect **158 pass / 1 skip**),
    `node scripts/e2e-rpc-two-process.mjs` (**32/32**), `node scripts/check-skill-discovery.mjs`
@@ -246,5 +259,5 @@ docs.** Successor sequence (exact):
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
 ### Guard notes
-help
+pre-D5 adjustments committed fcea69c (cap 8 chain-safe A-32/RN15, runtime audit A-31); D5 in progress
 <!-- guard:end checkpoint -->
