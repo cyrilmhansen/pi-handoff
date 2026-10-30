@@ -3,6 +3,16 @@
 All notable changes. Versions are pre-1.0 development tags; the guard ships as
 project-local files (`.pi/extensions/context-guard/`), no package registry.
 
+## v0.1.0-dev.3 — 2026-10-30
+
+- Fix #1: clarified L3/L4 guidance to prioritize authorized
+  session renewal over terminal finalization.
+- Introduced `workingContextWindow`, independently configurable
+  from Pi/Sushi's physical context window.
+- Improved recovery guidance for missing or stale checkpoints.
+- Added deterministic regression tests.
+- Backward compatible: `workingContextWindow` defaults to null.
+
 ## v0.1.0-dev.2 — RELEASE-READY CANDIDATE (pending operator review; NOT tagged/pushed)
 
 Baseline: tag `v0.1.0-dev.1` (`2ea6219`). Operator-authorized mission: reliability and
