@@ -271,25 +271,25 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 28
-checkpoint-id: g28-8a01167749d5
+checkpoint-generation: 29
+checkpoint-id: g29-89f242a0ab9b
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-status: checkpoint (guard level 0, remaining ~214902, session 01a18ccf-6ec7-7709-bccf-00ae8357a483)
-checkpointed: 2026-10-30T12:36:08.029Z
+status: checkpoint (guard level 0, remaining ~214902, session 01a18cd5-5386-7023-b657-1535f0402f17)
+checkpointed: 2026-10-30T12:42:34.205Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: ba412b3490e608208b7143bbffd6d16f5fce92884afce0b8122860b51b095a39
-source-handoff: c8bb658eb4e28485eed22b89385e9757d644fc10706f258dd0839da04379aedc
-source-learnings: f2f8053d629871518a34d552794509de4308ecb1212b65998842be3172fa6f01
+source-progress: 96ebd9574de48c67ee6d484077cbc8b4ec3618605755642fddb0a5cae8f8ace5
+source-handoff: f9f8d304bd277fef9029c5cc5ca3d9c55d6944c59723616e97e030f5c8a2219e
+source-learnings: 49bb7ec0f293fcc45985471916dc9f9d91a71f70cef3a012ddcd0a9449532d05
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 
 
-readiness-by: session:01a18ccf-6ec7-7709-bccf-00ae8357a483
-readiness-at: 2026-10-30T12:36:08.129Z
-readiness-checkpoint: g28-8a01167749d5
+readiness-by: session:01a18cd5-5386-7023-b657-1535f0402f17
+readiness-at: 2026-10-30T12:42:34.307Z
+readiness-checkpoint: g29-89f242a0ab9b
 ### Last verified state
-guard level 0; checkpoint requested (D9 docs audit committed fe56787 (A-41): skill/guide/README/CHANGELOG aligned with runtime surface; DC1-DC5 regression guard green; suite 205/1 skip; e2e-rpc 38/38, probe 8/8; STOP for operator review)
+guard level 0; checkpoint requested (D9 evidence commit b9ce10b (P-14 shared-/tmp race, bs58 named CL7a; serial re-runs green); candidate docs==runtime surface (DC1-DC5); STOP for operator review)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -367,5 +367,5 @@ PROGRESS.md):
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
 ### Guard notes
-D9 docs audit committed fe56787 (A-41): skill/guide/README/CHANGELOG aligned with runtime surface; DC1-DC5 regression guard green; suite 205/1 skip; e2e-rpc 38/38, probe 8/8; STOP for operator review
+D9 evidence commit b9ce10b (P-14 shared-/tmp race, bs58 named CL7a; serial re-runs green); candidate docs==runtime surface (DC1-DC5); STOP for operator review
 <!-- guard:end checkpoint -->

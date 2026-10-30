@@ -374,17 +374,17 @@ Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 28
-checkpoint-id: g28-8a01167749d5
+checkpoint-generation: 29
+checkpoint-id: g29-89f242a0ab9b
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
 guard-level: 0
-checkpointed: 2026-10-30T12:36:08.029Z
+checkpointed: 2026-10-30T12:42:34.205Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: ba412b3490e608208b7143bbffd6d16f5fce92884afce0b8122860b51b095a39
-source-handoff: c8bb658eb4e28485eed22b89385e9757d644fc10706f258dd0839da04379aedc
-source-learnings: f2f8053d629871518a34d552794509de4308ecb1212b65998842be3172fa6f01
+source-progress: 96ebd9574de48c67ee6d484077cbc8b4ec3618605755642fddb0a5cae8f8ace5
+source-handoff: f9f8d304bd277fef9029c5cc5ca3d9c55d6944c59723616e97e030f5c8a2219e
+source-learnings: 49bb7ec0f293fcc45985471916dc9f9d91a71f70cef3a012ddcd0a9449532d05
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 next-action: **STOP — dev.2 + D7 + D8 + D9 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37/A-38/
 A-39/A-41, CHANGELOG.md §v0.1.0-dev.2 incl. D8 + D9). No further implementation
@@ -445,7 +445,7 @@ PROGRESS.md):
    `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
    <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
-readiness-by: session:01a18ccf-6ec7-7709-bccf-00ae8357a483
-readiness-at: 2026-10-30T12:36:08.129Z
-readiness-checkpoint: g28-8a01167749d5
+readiness-by: session:01a18cd5-5386-7023-b657-1535f0402f17
+readiness-at: 2026-10-30T12:42:34.307Z
+readiness-checkpoint: g29-89f242a0ab9b
 <!-- guard:end checkpoint -->
