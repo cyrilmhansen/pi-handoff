@@ -15,7 +15,7 @@ Increments:
 |---|---|---|
 | D1 | Recovery prompt: configured `renewal.recoveryPrompt` reaches the successor message (mandatory identity/safety kept); project-configured `renewal.testCommand`; hardcoded `node --test test/` removed; exact-message tests | DONE — commit `6e61967` (unit 137/138; real-runtime zero-inference 28/28; byte-exact real-inference check added to e2e-renew, live run scheduled) |
 | D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (capped/disabled/stopped OK; never switches, never touches chain state, never bypasses readiness; no waitForIdle) | IMPLEMENTED — FZ1-FZ9 9/9, suite 146/147, real runtime 32/32; docs updated; committing now |
-| D3 | `scripts/durable_edit.py` targeted durable-doc editing | TOOL VERIFIED by smoke + dogfood runs; node regression tests pending |
+| D3 | `scripts/durable_edit.py` targeted durable-doc editing | DONE — DE0-DE11 (12 tests: dry-run, byte-identity, fences, AMBIGUOUS/NOT_FOUND/CONFLICT/MANAGED/MISSING_REF, failed-write atomicity, JSON, guard round-trip stale→refresh, no-git); suite 158/159 |
 | D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | pending |
 | D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | pending |
 | D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | pending |
@@ -111,29 +111,50 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**D2 commit + D3 formalization.** Exact sequence: (1) commit D2 (finalize
-command/tool, FZ1-FZ9, README/PROTOCOL/skill docs — gates already green: suite
-146/147, real-runtime e2e 32/32, skill probe 8/8); (2) write `test/durable-edit.test.ts`
-(spawn python3; cover plan-dry-run, apply byte-identity, AMBIGUOUS/NOT_FOUND/CONFLICT/
-MANAGED_BLOCK/MISSING_REF exit codes, fenced-heading handling, read-only-dir IO failure
-leaving the original intact, stale-prose -> validateCheckpoint `stale` -> /handoff refresh
-round trip); (3) run `node --test test/` + zero-inference real-runtime gates; (4) refresh
-this tree's checkpoint via the PINNED guard wrapper (`node /tmp/refresh-pinned.mjs`);
-(5) continue with D5 then D4 (P0 remaining), then D6; (6) before release: real-inference
-`node scripts/e2e-renew.mjs` run on the CANDIDATE (hop-1 model-initiated renewal with the
-byte-exact D1 recovery-message assertions + productive successor commits) and the
-capped-chain finalization proof; (7) deliverables: dev.2 CHANGELOG, migration/rollback doc
-from v0.1.0-dev.1, recovery-cost before/after measurements (dev.1 baseline numbers in
-A-27). Never push. DRPLi stays untouched (it is not on this machine; fixtures only).
+**Mission v0.1.0-dev.2 — D1/D2/D3 DONE and committed (`6e61967`, `8674c90`, `eb3bf5d`, +
+the D3-tests commit at HEAD). Remaining: D5, D4, D6, then dogfood proofs and release
+docs.** Successor sequence (exact):
+
+1. Gates first: `node --test test/` (expect **158 pass / 1 skip**),
+   `node scripts/e2e-rpc-two-process.mjs` (**32/32**), `node scripts/check-skill-discovery.mjs`
+   (**8/8**). Suite baseline moved 131→158 during dev.2 (D1 +6, D2 +9, D3 +12, DE fixes).
+2. **D5** (test-first): (a) level-4 alert must NOT claim blocking when
+   `enforceClosing:false` — parameterize `defaultThresholds(t,{enforceClosing})` and pass
+   config in `buildMachine`/restore; (b) `RENEWAL AVAILABLE` hint only when a full
+   WRITE-FREE preview passes (`decideRenewal` with live checkpointId + renewAuthorization +
+   durable stop + cap + readOnly); otherwise safe instructions incl. finalize-at-cap;
+   (c) `diagnostics.ts` + `<stateDir>/diagnostics.jsonl` (JSONL, ISO+epoch, types
+   session_start/alert/revocation/renewal_request/renewal_result/finalize/tool_block/
+   turn_aborted; NO prompts/tool args/secrets; rotation ~500; external-stateDir rule in
+   audit mode; `/guard events [n]`); `agent_settled.aborted` is the interruption signal —
+   record it, NEVER retry automatically. (d) banner label: drop hardcoded "Phase 2
+   increment B", add `GUARD_VERSION` (P-9).
+3. **D4**: lean-recovery tiers (operational/methodology/archive), opt-in
+   `recovery.lean:false` default, schema v3 compatible, cost meter in
+   verify/finalize/status, DRPLi-shaped fixture GENERATED in tests (six docs ~121,312
+   chars; assert full mandatory set >> budget, lean tier ≤ 12k est tokens, archive refs
+   exist; `spec/CLAIMS.md` authority preserved by reference).
+4. **D6**: pure `crossingPoints` in core.ts (window 95k, reserve 5k → used 70/78/82/85k),
+   `/guard status` crossing line + provenance + honest "guard never changes the model
+   window" wording; `docs/profiles/experimental-95k.json` example.
+5. Dogfood + measures: real-inference `node scripts/e2e-renew.mjs` on the CANDIDATE
+   (hop-1 model-initiated, byte-exact recovery-message checks, successor commits real
+   work); capped-chain finalize proof (zero inference); recovery-cost before/after vs
+   A-27; CHANGELOG dev.2 + migration/rollback from v0.1.0-dev.1; release-readiness
+   assessment. Then STOP for operator review.
+6. Post-commit ritual: update prose via `scripts/durable_edit.py`; refresh via
+   `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
+   <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
+7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 13
-checkpoint-id: g13-541624fd80ea
-checkpoint-kind: manual
-content-delta: new
-readiness: attested
-guard-level: 0
-checkpointed: 2026-10-30T00:36:08.499Z
+checkpoint-generation: 14
+checkpoint-id: g14-2aacd95e2c91
+checkpoint-kind: auto
+content-delta: none
+readiness: unattested
+guard-level: 3
+checkpointed: 2026-10-30T00:37:24.233Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: d32ddf81ae261527dea21c7619cf26db8f787692f1988c9846976301587384a2
 source-handoff: dadb4650b381f077a1ccf1e9048de8797c8b2bd24ae944845d640b826bfd4fe6
@@ -164,7 +185,4 @@ Routine post-commit refresh uses the PINNED dev.1 wrapper: `node /tmp/refresh-pi
 "notes"` (spawns `pi --mode rpc -ne -e <pinned index.ts>` — `-ne` is REQUIRED because
 project auto-load + explicit pinned copy otherwise conflict on tool/flag names; see
 LEARNINGS P-12). Validate the CANDIDATE only in separate explicit real-runtime runs.
-readiness-by: session:01a18a3c-4296-77af-9942-55360c8db910
-readiness-at: 2026-10-30T00:36:08.599Z
-readiness-checkpoint: g13-541624fd80ea
 <!-- guard:end checkpoint -->
