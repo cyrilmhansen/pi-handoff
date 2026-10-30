@@ -125,3 +125,26 @@ test("DC5: commands.md + README document every env override the extension actual
     assert.ok(readme.includes(env), `README env overrides must document ${env}`);
   }
 });
+
+test("DC6 (issue #4): strategy-pivot consolidation is bundled, discoverable and never an automatic cleanup command", () => {
+  const reference = path.join(SKILL_DIR, "references/consolidation.md");
+  const policy = fs.readFileSync(reference, "utf8");
+  const skill = fs.readFileSync(path.join(SKILL_DIR, "SKILL.md"), "utf8");
+  const guide = fs.readFileSync(GUIDE, "utf8");
+  const bootstrap = fs.readFileSync(BOOTSTRAP, "utf8");
+  const readme = fs.readFileSync(README, "utf8");
+  for (const [name, text] of [["skill", skill], ["guide", guide], ["bootstrap", bootstrap], ["README", readme]] as const) {
+    assert.ok(text.includes("references/consolidation.md") || text.includes("pi-handoff/references/consolidation.md"), name + " must link the bundled policy");
+  }
+  assert.match(policy, /operator approval/i, "historical edits cannot be silently authorized");
+  assert.match(policy, /GOAL\.md[\s\S]*?separate explicit approval/i, "a pivot of project objectives requires a separate gate");
+  assert.match(policy, /accepted\/proposed\/falsified/, "evidence classification persists");
+  assert.match(policy, /superseded-by/, "superseded observations must be traceable");
+  assert.match(policy, /docs\/history\//, "archives remain browsable inside the Git tree");
+  assert.match(policy, /guard:begin checkpoint/, "do not edit the transactional checkpoint blocks");
+  assert.match(policy, /\/handoff ready/, "checkpoint attestation must follow approved manual edits");
+  assert.match(policy, /chars\/4/, "cost estimates are explicitly not exact tokens");
+  assert.match(policy, /renewal-state\.json/, "the renewal chain must remain intact");
+  assert.match(policy, /Domain claims ledgers|Domain science/i, "scientific truth remains independently authoritative");
+  assert.match(skill, /not a guard command or automatic cleanup/i);
+});

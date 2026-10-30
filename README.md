@@ -53,6 +53,16 @@ AGENTS.md PROTOCOL.md  stable procedures
 .pi-guard/sessions/<sessionId>.json            per-session runtime state (ephemeral)
 ```
 
+## Document consolidation (manual; no automatic cleanup)
+
+The skill's [consolidation procedure](.agents/skills/pi-handoff/references/consolidation.md)
+covers closing or abandoning phases and changing direction without growing
+HANDOFF.md and PROGRESS.md indefinitely. It requires an operator-reviewed plan,
+stable archived evidence pointers (including falsified hypotheses), separate
+GOAL.md authorization, and refreshed/attested checkpoints. This is a **docs-only
+workflow**, not a new extension command or an automatic pruning feature;
+`recovery.lean` changes the reading order but does not consolidate files.
+
 ## Install / load
 
 During development (works without project trust):
