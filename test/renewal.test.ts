@@ -217,6 +217,64 @@ test("RN9: durable chain state survives session replacement AND process restart 
   assert.equal((decideRenewal(input({ state: loadRenewalState(memfs, stateDir).state, operatorStop: true })) as Extract<RenewalDecision, { renew: false }>).why, "stopped");
 });
 
+test("RN15: raising the cap never resets the chain and never permits a duplicate renewal from the same checkpoint", () => {
+  // Real sequence (dev.2 config change): a chain hits its cap, the operator edits
+  // handoff.config.json to renewal.maxRenewals: 8 (effective at config reload / session
+  // start), and the SAME durable chain continues. Chain state and the idempotence key are
+  // independent of the cap — raising it must not reset counters or re-seed a consumed
+  // checkpoint.
+  const memfs = createMemoryFs();
+  const stateDir = "/project/.pi-guard";
+  const hitCap: RenewalState = {
+    version: 1,
+    chainId: "chain:01a18a1a-parent",
+    renewalsDone: 2,
+    renewedFromCheckpointId: "g16-seedseedseed",
+    lastSuccessorSessionId: "01a18baa-successor",
+    stopped: false,
+    updatedAt: 222,
+  };
+  assert.equal(saveRenewalState(memfs, stateDir, hitCap).ok, true);
+
+  // At the old cap the chain is exhausted.
+  const before = decideRenewal(input({ state: loadRenewalState(memfs, stateDir).state, renewal: renewal({ maxRenewals: 2 }) }));
+  assert.equal((before as Extract<RenewalDecision, { renew: false }>).why, "capped");
+
+  // Operator raises the cap via config only; the renewal path itself never rewrites chain
+  // state when merely reading it (same bytes reload — the cap lives in the config, not the chain).
+  const raised = mergeRenewal(DEFAULT_RENEWAL, { enabled: true, maxRenewals: 8 });
+  assert.equal(raised.maxRenewals, 8);
+  const after = loadRenewalState(memfs, stateDir);
+  assert.equal(after.corrupt, false);
+  assert.deepEqual(after.state, hitCap, "cap change must not reset chainId, renewalsDone, seed id, successor or stop");
+  assert.equal(after.state.chainId, "chain:01a18a1a-parent");
+  assert.equal(after.state.renewalsDone, 2, "raising the cap does not reset the counter");
+
+  // Idempotence survives the cap raise: the checkpoint that already seeded a successor is
+  // STILL refused even though headroom exists.
+  const dup = decideRenewal(input({ state: after.state, renewal: raised, checkpointId: "g16-seedseedseed" }));
+  assert.equal((dup as Extract<RenewalDecision, { renew: false }>).why, "already-renewed", "raised cap must not re-seed a consumed checkpoint");
+
+  // A NEW (refreshed + re-attested) checkpoint on the same chain renews, continuing the count
+  // from 2 — not from 0 — and the decision is pure (input state untouched).
+  const fresh = decideRenewal(input({ state: after.state, renewal: raised, checkpointId: "g17-newnewnewnew" }));
+  assert.equal(fresh.renew, true);
+  assert.match((fresh as Extract<RenewalDecision, { renew: true }>).reason, /3\/8/, "successor count continues under the new cap");
+  assert.deepEqual(after.state, hitCap, "decideRenewal is pure: no input mutation");
+
+  // The raised cap is still a cap: at 8/8 the chain refuses again.
+  const exhausted = decideRenewal(input({ state: { ...hitCap, renewalsDone: 8 }, renewal: raised, checkpointId: "g18-aaaaaaaaaaaa" }));
+  assert.equal((exhausted as Extract<RenewalDecision, { renew: false }>).why, "capped");
+  assert.match((exhausted as Extract<RenewalDecision, { renew: false }>).detail, /8\/8/);
+
+  // Durable config wiring reads the raised cap from disk (session-start reload semantics).
+  const cfgRaw = JSON.stringify({ renewal: { enabled: true, autoRenew: false, maxRenewals: 8 } });
+  const cfg = loadConfig((p) => (p === "handoff.config.json" ? cfgRaw : undefined), {});
+  assert.equal(cfg.renewal.maxRenewals, 8);
+  assert.equal(cfg.renewal.enabled, true);
+  assert.equal(cfg.renewal.autoRenew, false, "cap raise must not flip autoRenew");
+});
+
 test("RN10: recovery prompt is deterministic, durable-files-only, no transcript replay, no compaction", () => {
   const args = {
     files: FILES,

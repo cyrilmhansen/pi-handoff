@@ -17,14 +17,20 @@ Increments:
 | D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (capped/disabled/stopped OK; never switches, never touches chain state, never bypasses readiness; no waitForIdle) | IMPLEMENTED — FZ1-FZ9 9/9, suite 146/147, real runtime 32/32; docs updated; committing now |
 | D3 | `scripts/durable_edit.py` targeted durable-doc editing | DONE — DE0-DE11 (12 tests: dry-run, byte-identity, fences, AMBIGUOUS/NOT_FOUND/CONFLICT/MANAGED/MISSING_REF, failed-write atomicity, JSON, guard round-trip stale→refresh, no-git); suite 158/159 |
 | D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | pending |
-| D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | pending |
+| D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | IN PROGRESS (test-first) — pre-D5 adjustments committed: cap 8 verified chain-safe (A-32, RN15), runtime identified (A-31) |
 | D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | pending |
 
-Dogfooding: this session's guard = dev.1 (loaded at startup, jiti-cached); pinned dev.1
-copy at `/home/john/pi-handoff-pinned-v0.1.0-dev.1`; checkpoint refreshes run against the
-PINNED extension (wrapper `/tmp/refresh-pinned.mjs`), never the edited tree. Real-inference
-renewal proof (candidate + byte-exact D1 checks + productive continuation) and capped-chain
-finalization proof scheduled before the release assessment.
+Dogfooding (corrected 2026-10-30, A-31): the pi process hosting this mission was
+RESTARTED at 08:15+01:00 (session 01a18a1a resumed → renewal into 01a18baa), so the
+ACTIVE guard in the development sessions is the TREE CANDIDATE (dev.2: D1+D2+D3 code —
+proved by the live `handoff_finalize` tool registration). The pinned dev.1 copy at
+`/home/john/pi-handoff-pinned-v0.1.0-dev.1` is byte-identical to tag `v0.1.0-dev.1`
+(A-31) and remains the recovery infrastructure for the post-commit refresh ritual
+(`/tmp/refresh-pinned.mjs`, `pi --mode rpc -ne -e <pinned>`, P-12) — dev.1 has NO
+finalize; never claim it in pinned sessions. The candidate is validated in separate
+real Pi sessions: zero-inference e2e scripts now, plus the scheduled real-inference
+e2e-renew (model-initiated hop 1 + byte-exact recovery checks + productive continuation)
+and the capped-chain finalize proof before release.
 ## Completed
 
 Phase 1 (original, `b2ccdac`):
@@ -67,10 +73,10 @@ Documentation consolidation (this pass):
 
 ## Pending
 
-- [ ] **v0.1.0-dev.2 mission**: D1-D6 as tabled above; deliverables 1-5 (confirmed defects
-      vs hypotheses, corrections + regression tests, before/after recovery-cost
-      measurements, migration/rollback docs from dev.1, dev.2 changelog + release
-      readiness assessment) — none yet started in code.
+- [ ] **v0.1.0-dev.2 mission**: D1-D3 DONE and committed; pre-D5 adjustments (cap raise
+      verification A-32, runtime audit A-31, RN15) committed; D5 in progress (test-first);
+      D4, D6, deliverables 4-5 (recovery-cost measurements, migration/rollback docs,
+      dev.2 changelog + release readiness) pending.
 - [ ] Operator review of the documentation consolidation, then separately
       authorized `drpli` integration (nothing deployed; blueprint = guide + bootstrap).
 - [ ] Operator decision: `renewal.autoRenew` default (stays OFF until decided).
@@ -111,9 +117,24 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**Mission v0.1.0-dev.2 — D1/D2/D3 DONE and committed (`6e61967`, `8674c90`, `eb3bf5d`, +
-the D3-tests commit at HEAD). Remaining: D5, D4, D6, then dogfood proofs and release
-docs.** Successor sequence (exact):
+**Pre-D5 adjustments DONE (A-31 runtime audit, A-32 cap-raise verification + RN15;
+config maxRenewals 8 + generationReserve 5000 committed).** Now executing D5
+(test-first): (a) level-4 alert wording under `enforceClosing:false`;
+(b) `RENEWAL AVAILABLE` only behind a full write-free preview gate (decideRenewal with
+live checkpointId + renewAuthorization + durable stop + cap + readOnly), otherwise safe
+instructions incl. finalize-at-cap; (c) `diagnostics.ts` + `<stateDir>/diagnostics.jsonl`
+(JSONL, ISO+epoch, types session_start/alert/revocation/renewal_request/renewal_result/
+finalize/tool_block/turn_aborted; NO prompts/tool args/secrets; rotation ~500;
+external-stateDir rule in audit mode; `/guard events [n]`); `agent_settled.aborted`
+recorded, NEVER auto-retried; (d) banner label: drop hardcoded "Phase 2 increment B",
+add `GUARD_VERSION` (P-9). Gates after index.ts/core.ts edits: suite, e2e-rpc-two-process
+(32/32), skill probe (8/8); e2e-renew ONLY as the scheduled candidate proof.
+Then D4, D6, dogfood proofs, release docs; STOP for operator review.
+Post-commit ritual: prose via `scripts/durable_edit.py`; refresh via
+`node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1; `pi --mode rpc -ne -e <pinned>`);
+commit managed blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
+
+Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 2):
 
 1. Gates first: `node --test test/` (expect **158 pass / 1 skip**),
    `node scripts/e2e-rpc-two-process.mjs` (**32/32**), `node scripts/check-skill-discovery.mjs`
@@ -148,18 +169,18 @@ docs.** Successor sequence (exact):
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 15
-checkpoint-id: g15-44c2b5ae1c90
+checkpoint-generation: 17
+checkpoint-id: g17-d2ecccec028d
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-guard-level: 0
-checkpointed: 2026-10-30T00:38:50.094Z
+guard-level: 4
+checkpointed: 2026-10-30T07:15:53.946Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: 3839b9d2465959daf9bac300c616af1dae0d3c4e3e08bf1dc9bca3ce00012e3f
 source-handoff: d29ef819ea4ed1609d06a69ffcd1fcf8d033b4ec6c9e3aafca1a348984a34207
 source-learnings: cefe8b6f7d51249ac0402c7531bb9f09ebce9fb8392699d675cde82893ef2869
-source-config: 90397c2d23f26540ef43dceb7d38ec5adbe0b6609fae6d6609049fd591e1443d
+source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 next-action: **Mission v0.1.0-dev.2 — D1/D2/D3 DONE and committed (`6e61967`, `8674c90`, `eb3bf5d`, +
 the D3-tests commit at HEAD). Remaining: D5, D4, D6, then dogfood proofs and release
 docs.** Successor sequence (exact):
@@ -195,7 +216,7 @@ docs.** Successor sequence (exact):
    `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
    <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
-readiness-by: session:01a18a3e-b9d8-7166-b534-c69066ece93b
-readiness-at: 2026-10-30T00:38:50.195Z
-readiness-checkpoint: g15-44c2b5ae1c90
+readiness-by: session:01a18a1a-c92b-7262-a149-12803cb57f0c
+readiness-at: 2026-10-30T07:16:07.625Z
+readiness-checkpoint: g17-d2ecccec028d
 <!-- guard:end checkpoint -->

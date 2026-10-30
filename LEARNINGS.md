@@ -67,6 +67,48 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   validateCheckpoint `stale` (changed: handoff) -> prose-first recovery bundle -> guard
   writeCheckpoint refresh -> `current`, generation +1. Read-only-dir apply failure test
   (DE8) proves original-intact + temp-cleanup semantics deterministically.
+
+- [A-31] **Dogfooding-runtime identification (pre-D5 audit, 2026-10-30).** The guard
+  ACTIVE in the current development session (01a18baa…, successor of 01a18a1a…) is the
+  WORKING-TREE dev.2 candidate `/home/john/projects/sushiworks/handoff/.pi/extensions/
+  context-guard/index.ts`, NOT the pinned dev.1 copy. Proof chain: (1) the hosting pi
+  process (pid 1173489) started 2026-10-30 08:15:21+01:00 — AFTER D1/D2/D3 were committed
+  (parent transcript created 2026-10-29T23:59Z; the session was RESUMED into a new
+  process, so module load reflects the tree at 08:15); (2) the live session's tool
+  registry contains `handoff_finalize`, which exists only in the candidate (pinned
+  dev.1 index.ts: zero occurrences, single registerTool); (3) both copies fail to load
+  simultaneously — tool-name conflict (P-12) — so exactly one guard copy is active.
+  The identity banner CANNOT distinguish them: both hardcode "Phase 2 increment B"
+  (index.ts:311 — P-9, to be fixed by D5d). Separately verified: the pinned export
+  `/home/john/pi-handoff-pinned-v0.1.0-dev.1` is BYTE-IDENTICAL to tag `v0.1.0-dev.1`
+  (`git archive v0.1.0-dev.1 | diff -r` against the pinned tree, exit 0). Procedure
+  consequence: pinned dev.1 remains the recovery infrastructure for the refresh ritual
+  (`/tmp/refresh-pinned.mjs`, `pi --mode rpc -ne -e <pinned>`); candidate validation
+  happens in SEPARATE real Pi sessions (zero-inference e2e scripts + scheduled
+  real-inference e2e-renew + finalize proofs), never by claiming finalize availability
+  in a pinned-dev.1 session (finalize is dev.2-only). confidence: high (direct
+  measurement). adopted: yes (session facts recorded in PROGRESS).
+
+- [A-32] **Renewal-cap raise is chain-safe (verified live + regression-tested).**
+  Raising `renewal.maxRenewals` 2→8 in handoff.config.json (operator edit, committed
+  with the pre-D5 adjustments together with `generationReserve` 20000→5000 — an
+  operator budget-policy decision per A-22 "operator is right"; nominal closing moves
+  to used ≥ 210 000, NOT yet live-observed, P-7 spirit unchanged) does NOT touch the
+  durable chain: `<stateDir>/renewal-state.json` kept chainId `chain:01a18a1a…`,
+  renewalsDone (0→1 by the renewal itself, never reset by the config change), seed
+  `g17-d2ecccec028d`, `stopped: false` — confirmed by direct pure-module reads
+  (loadRenewalState + decideRenewal, zero inference). The new cap took effect at
+  session start: the successor banner reads "renewal 1/8" and the effective policy
+  parses as `{enabled:true, autoRenew:false, maxRenewals:8, testCommand:"node --test test/"}`.
+  Checkpoint freshness + attestation survived the config change because the operator
+  refreshed AFTER editing: block `source-config` = `0e1d558f…` = sha256 of the current
+  config; validateCheckpoint `current`, readiness `attested`, renewAuthorization
+  authorized. Idempotence under the raised cap: `decideRenewal` on the consumed seed
+  g17 still refuses `already-renewed`; model-initiated still refuses `auto-disabled`.
+  Regression: RN15 (pure, memory-fs) asserts cap-raise ⇒ no chain reset, no duplicate
+  renewal from the same checkpoint, count continues (3/8), raised cap still caps, and
+  config reload does not flip autoRenew. confidence: high. adopted: yes.
+
 ## Proposed
 
 > **Status note (documentation consolidation, 2026-10-29).** The entries below keep

@@ -6,7 +6,7 @@
     "handoff": 10000,
     "closing": 5000
   },
-  "generationReserve": 20000,
+  "generationReserve": 5000,
   "safetyReserve": 0,
   "enforceClosing": true,
   "closingAllowlist": ["write", "edit", "read", "handoff_renew"],
@@ -17,7 +17,7 @@
   "renewal": {
     "enabled": true,
     "autoRenew": false,
-    "maxRenewals": 2,
+    "maxRenewals": 8,
     "testCommand": "node --test test/"
   },
   "files": {
