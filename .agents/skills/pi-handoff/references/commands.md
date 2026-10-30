@@ -15,6 +15,7 @@ project's `PROTOCOL.md`.
 | `/handoff [notes]` | Write checkpoint (managed blocks of HANDOFF.md + PROGRESS.md only) |
 | `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources) |
 | `/handoff ready` | Evaluate + attest readiness (bound to checkpoint id). `/handoff ready check` = evaluate only |
+| `/handoff finalize [notes]` | Independent closing (dev.2 D2): refresh-if-stale + readiness + attest in one synchronous step; works with renewal disabled/capped/stopped; NEVER switches sessions or touches chain state; read-only mode = reported dry run |
 | `/handoff renew [notes]` | Operator renewal: waitForIdle → refresh+attest → gate → persist chain state → new session |
 | `/handoff renew go` | Bridge used by the `handoff_renew` tool (model trigger); do not call manually mid-turn |
 | `/handoff renew stop` \| `resume` | Durable operator stop flag in chain state (successors inherit) |
@@ -26,6 +27,11 @@ settles; awaiting it inside the tool would deadlock). Registered whenever the gu
 loads, but every call re-checks the full gate and refuses with a named reason (cheap
 refusals never write); during enforced level-4 closing the model can only call it if
 `handoff_renew` is listed in `closingAllowlist`.
+
+Tool: `handoff_finalize` (dev.2 D2) — model-driven closing without a switch: same
+synchronous refresh + attest machinery, no waitForIdle, no dispatch, no chain-state
+writes; callable during enforced closing regardless of `closingAllowlist` (it writes only
+managed blocks). At the exhausted renewal cap this is the safe path: finalize, then stop.
 
 ## Configuration — `handoff.config.json` (project root; read once per `session_start`)
 

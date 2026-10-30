@@ -44,6 +44,10 @@ A revocation notice means pressure dropped and a previous closing instruction is
 - `/handoff ready` — evaluate + attest handoff completeness (blocking:
   checkpoint-current, identity-consistent, next-action-recorded, durable-files-valid;
   warnings: content-delta=none, learnings-updated). Renewal requires attestation.
+- `/handoff finalize [notes]` or the `handoff_finalize` tool (dev.2 D2) — independent
+  closing: refresh-if-stale + readiness + attest in ONE synchronous step. Works with
+  renewal disabled, capped (8/8) or stopped; never switches sessions, touches chain
+  state, waits for idle, or bypasses readiness. At the cap this is the safe closing path.
 - Ritual: **commit first**, then refresh + attest the checkpoint; commit the managed-block
   refresh separately when it dirties the tree.
 - The guard never writes LEARNINGS.md or GOAL.md. Keep discoveries classified there

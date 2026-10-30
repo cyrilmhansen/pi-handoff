@@ -684,8 +684,12 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if (!g || !g.config.enabled) return undefined;
     // Enforced closing phase: gate NEW tool calls before execution.
     // This never interrupts an in-flight call (turn boundary already passed).
+    // `handoff_finalize` is checkpoint machinery (managed-block writes only, never a
+    // session switch, never chain-state writes — D2): allowed during closing even if
+    // the project's closingAllowlist does not name it. `handoff_renew` stays
+    // allowlist-gated because it DOES schedule a switch.
     if (g.machine.currentLevel >= 4 && g.config.enforceClosing) {
-      if (!g.config.closingAllowlist.includes(event.toolName)) {
+      if (!g.config.closingAllowlist.includes(event.toolName) && event.toolName !== "handoff_finalize") {
         return {
           block: true,
           reason:
@@ -858,8 +862,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return lines.join("\n");
   }
 
-  /** Persist the durable operator stop (in-memory flag is always set; durable write best-effort). */
-  function persistRenewalStop(stop: boolean, ctx: ExtensionContext): void {
+  /** Persist the durable operator stop (in-memory flag is always set; durable write best-effort). */  function persistRenewalStop(stop: boolean, ctx: ExtensionContext): void {
     renewalRuntime.operatorStop = stop;
     if (!g) return;
     const stateDir = resolvedStateDir(g);
@@ -876,6 +879,82 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         : `context-guard: renewals ${stop ? "stopped" : "resumed"} in memory; durable write FAILED: ${saved.error}`,
       stop ? "warning" : "info",
     );
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* dev.2 D2: INDEPENDENT finalization. Reuses the checkpoint          */
+  /* transaction + readiness + attestation primitives, but is NOT part */
+  /* of the renewal path: it never switches sessions, never touches    */
+  /* chain state (cap/idempotence/stop stay byte-identical), and never */
+  /* bypasses readiness — attestation refuses on failed blocking       */
+  /* checks. Works with renewal disabled, capped or stopped. Fully     */
+  /* SYNCHRONOUS (no waitForIdle — deadlock-free by construction).     */
+  /* ---------------------------------------------------------------- */
+  function finalizeHandoff(ctx: ExtensionContext, notes?: string): { ok: boolean; text: string; checkpointId: string | null; dry: boolean } {
+    if (!g) return { ok: false, text: "context-guard FINALIZE: not initialized", checkpointId: null, dry: false };
+    const dry = !canWriteProjectTree();
+    const chain = loadRenewalState(fs, resolvedStateDir(g)); // READ-ONLY: finalize never writes chain state
+    const header = (outcome: string, cpId: string | null, readiness: string): string =>
+      `context-guard FINALIZE (session ${g.sessionId}, ${new Date().toISOString()}): checkpoint ${cpId ?? "none"} readiness ${readiness} -> ${outcome}; chain done=${chain.state.renewalsDone}/${g.config.renewal.maxRenewals} UNTOUCHED; no session switch`;
+    const lines: string[] = [];
+    let fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+    const capExhausted = g.config.renewal.maxRenewals <= 0 || chain.state.renewalsDone >= g.config.renewal.maxRenewals;
+    if (dry) {
+      // Audit mode: evaluate + report only; checkpoint and attestation stay dry runs.
+      const ev = evaluateHandoffReadiness(fs, g.cwd, g.config.files, {
+        configName: DEFAULT_CONFIG_NAME,
+        learningsHashAtSessionStart: g.learningsHash,
+      });
+      const readiness = ev.freshness.kind === "current" || ev.freshness.kind === "stale" ? ev.freshness.readiness.state : ev.freshness.kind;
+      lines.push(header(ev.ok ? "DRY RUN" : "DRY RUN (NOT READY)", ev.identity?.id ?? null, String(readiness)));
+      lines.push(`  read-only audit mode: NOT written (would ${fresh.kind !== "current" ? "refresh + attest" : "attest"} the managed blocks; no renewal involvement)`);
+      for (const c of ev.checks) if (c.status === "fail") lines.push(`  FAIL ${c.id}: ${c.detail}`);
+      persistState();
+      return { ok: ev.ok, text: lines.join("\n"), checkpointId: ev.identity?.id ?? null, dry };
+    }
+    if (fresh.kind !== "current") {
+      const res = checkpoint(ctx, `finalize${notes ? `: ${notes}` : ""}`, notes, { kind: "manual" });
+      if (!res || !res.ok) {
+        lines.push(header("FAILED", res?.identity.id ?? null, "n/a"));
+        lines.push(`  checkpoint refresh failed: ${res ? res.errors.join("; ") : "no result"}`);
+        persistState();
+        return { ok: false, text: lines.join("\n"), checkpointId: res?.identity.id ?? null, dry };
+      }
+      fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+    }
+    let alreadyFinal = false;
+    if (fresh.kind === "current" && fresh.readiness.state !== "attested") {
+      const att = attestHandoff(fs, g.cwd, g.config.files, {
+        sessionId: g.sessionId,
+        configName: DEFAULT_CONFIG_NAME,
+        learningsHashAtSessionStart: g.learningsHash,
+      });
+      if (!att.ok) {
+        // NEVER bypass readiness: blocking failures refuse the attestation with zero stamps.
+        lines.push(header("NOT READY", att.checkpointId ?? null, "unattested"));
+        for (const e of att.errors) lines.push(`  attestation refused: ${e}`);
+        persistState();
+        return { ok: false, text: lines.join("\n"), checkpointId: att.checkpointId ?? null, dry };
+      }
+      fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+    } else if (fresh.kind === "current") {
+      alreadyFinal = fresh.readiness.state === "attested";
+    }
+    const ok = fresh.kind === "current" && fresh.readiness.state === "attested";
+    const cpId = fresh.kind === "current" || fresh.kind === "stale" ? fresh.identity?.id ?? null : null;
+    lines.push(header(ok ? "FINALIZED" : "NOT READY", cpId, fresh.kind === "current" ? fresh.readiness.state : fresh.kind));
+    if (alreadyFinal) lines.push("  already current + attested: nothing to do (idempotent).");
+    if (capExhausted) {
+      lines.push(
+        `  renewal cap exhausted (${chain.state.renewalsDone}/${g.config.renewal.maxRenewals}): finalization is the safe closing path — finish the durable prose, then stop; raising renewal.maxRenewals or resetting <stateDir>/renewal-state.json stays an explicit operator choice.`,
+      );
+    }
+    if (chain.state.stopped) {
+      lines.push("  operator stop is durable on this chain; finalize neither needs nor clears it (renewal stays refused until /handoff renew resume).");
+    }
+    persistState();
+    setStatus(ctx);
+    return { ok, text: lines.join("\n"), checkpointId: cpId, dry };
   }
 
   /**
@@ -1130,8 +1209,38 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     },
   } as never);
 
+  /**
+   * dev.2 D2: model-driven closing WITHOUT a session switch. Deliberately has NO
+   * waitForIdle, NO sendUserMessage and NO newSession (the renewal deadlock class of
+   * A-19/P-8 cannot occur): everything is synchronous file work reusing the existing
+   * checkpoint transaction + attestation primitives. Callable during enforced closing
+   * (see the tool_call gate) and regardless of renewal policy (disabled/capped/stopped).
+   */
+  pi.registerTool({
+    name: "handoff_finalize",
+    label: "Handoff finalize",
+    description:
+      "Finalize the durable handoff WITHOUT switching sessions: refreshes the checkpoint when stale and attests readiness with the guard's existing transaction machinery. Works even when renewal is disabled, capped or stopped; never increments the renewal counter, resets the cap, clears the stop flag or bypasses readiness checks. Fully synchronous — no idle wait, no deadlock. Read-only audit mode: reported dry run, zero tree writes. Returns a compact structured one-line report.",
+    promptSnippet: "handoff_finalize — checkpoint + attest the durable handoff; safe closing at the renewal cap (never switches sessions)",
+    parameters: {
+      type: "object",
+      properties: {
+        notes: { type: "string", description: "Optional notes recorded into the checkpoint when it is refreshed" },
+      },
+      additionalProperties: false,
+    },
+    async execute(_toolCallId: string, params: { notes?: string }, _signal: unknown, _onUpdate: unknown, toolCtx: ExtensionContext) {
+      const notes = typeof params?.notes === "string" ? params.notes.trim() || undefined : undefined;
+      const res = finalizeHandoff(toolCtx, notes);
+      return {
+        content: [{ type: "text", text: res.text }],
+        details: { ok: res.ok, checkpointId: res.checkpointId, dry: res.dry },
+      };
+    },
+  } as never);
+
   pi.registerCommand("handoff", {
-    description: "Durable checkpoint + Phase 2 renewal. Subcommands: verify, ready [check], renew [notes] | renew go | renew stop | renew resume | renew status",
+    description: "Durable checkpoint + renewal + finalization. Subcommands: verify, ready [check], finalize [notes], renew [notes] | renew go | renew stop | renew resume | renew status",
     handler: async (args: string, ctx: ExtensionContext) => {
       if (!g) {
         ctx.ui.notify("context-guard: not initialized", "error");
@@ -1144,6 +1253,12 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       if (parts[0] === "ready") {
         const res = readyReport(parts[1] !== "check", !canWriteProjectTree());
+        ctx.ui.notify(res.text, res.ok ? "info" : "warning");
+        return;
+      }
+      if (parts[0] === "finalize") {
+        const notes = parts.slice(1).join(" ").trim() || undefined;
+        const res = finalizeHandoff(ctx, notes);
         ctx.ui.notify(res.text, res.ok ? "info" : "warning");
         return;
       }

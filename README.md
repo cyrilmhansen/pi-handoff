@@ -175,6 +175,31 @@ threshold accuracy. Verify the whole chain yourself with `node scripts/e2e-renew
 (spends real inference on an isolated git clone; `GUARD_E2E_KEEP=1` keeps the clone for
 forensics).
 
+## Finalization (dev.2 D2) — closing WITHOUT renewal
+
+`/handoff finalize [notes]` (operator) and the `handoff_finalize` tool (model) complete
+the closing ritual **independently of the renewal policy**: refresh the checkpoint when
+stale, evaluate readiness, attest — reusing the same transaction primitives, in ONE
+synchronous step. Finalization:
+
+- works when renewal is **disabled, capped (e.g. 8/8) or durably stopped**;
+- **never** switches sessions, dispatches commands, increments `renewalsDone`, resets the
+  cap, touches `renewedFromCheckpointId`, or clears the stop flag (chain state stays
+  byte-identical — asserted in FZ2/FZ3 and in the real runtime);
+- **never** bypasses readiness: a failed blocking check refuses attestation and reports
+  `NOT READY` with the failed checks;
+- never calls `waitForIdle` — the tool is fully synchronous, so the A-19/P-8 deadlock
+  class cannot occur;
+- is idempotent (repeat calls while nothing changed report "already current + attested");
+- in read-only audit mode is a reported dry run with zero tree writes;
+- is allowed during enforced closing regardless of `closingAllowlist` (it writes only
+  managed blocks — strictly weaker than the default-allowed `write`/`edit`); `handoff_renew`
+  remains allowlist-gated because it schedules a switch.
+
+At the exhausted cap, finalization is the documented safe closing path: finalize, stop,
+and let the operator decide about cap changes or a chain reset (explicit choices; the
+guard never makes them).
+
 ## Manually triggering each threshold (synthetic mode — no token spend)
 
 In a Pi session with the extension loaded (or with `--guard-synthetic 30000` at startup):

@@ -5,67 +5,26 @@
 **Mission v0.1.0-dev.2 (IN PROGRESS, started 2026-10-30).** Operator-authorized development
 mission on top of tag `v0.1.0-dev.1` (`2ea6219`): implement D1-D6 from the eight-renewal
 DRPLi campaign audit (evidence reproduced in LEARNINGS A-26/A-27). Priority: useful
-scientific work per token + reliable unsupervised continuation. Hard limits: DRPLi
-(`cyrilmhansen/drpli` @ `364ef5c`) is READ-ONLY for this mission and NOT on this machine —
-DRPLi-sized behavior is tested with isolated fixtures only; no push/tag/release/deploy
-without operator authorization; raw campaign logs stay outside Git
-(`/home/john/drpli-handoff-audit-20261030/`, `/tmp/pi-handoff-drpli-audit.json`).
+scientific work per token + reliable unsupervised continuation. Hard limits: DRPLi is
+READ-ONLY for this mission (not on this machine — isolated fixtures only); no
+push/tag/release/deploy without operator authorization; raw campaign logs stay outside Git.
 
-Increments (P0 first):
+Increments:
 
 | # | Work | State |
 |---|---|---|
-| D1 | Recovery prompt: fix ignored `renewal.recoveryPrompt`; project-configured `renewal.testCommand`; remove hardcoded `node --test test/`; assert exact successor message | DONE (unit 137/138; real-runtime e2e 28/28; real-inference byte-exact check added to e2e-renew, re-run scheduled after D2) |
-| D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (works capped/disabled/stopped; never switches, never touches chain state, never bypasses readiness) | planned |
-| D3 | Deterministic durable-document targeted editing (Python stdlib CLI): dry-run+diff, exact section targeting, ambiguity rejection, expected-hash concurrency guard, atomic replace, byte-identical non-target content, evidence-reference existence checks, no Git side effects; reuses guard checkpoint transaction for managed blocks (refuses to touch them) | planned |
-| D4 | Compact recovery: operational state vs methodology vs intact archives; ≤10-12k est. tokens mandatory material; opt-in `recovery.lean`; schema v3 compatible; DRPLi-sized fixture generated in tests | planned |
-| D5 | Accurate pressure messages (`enforceClosing:false` must not claim blocking; honest RENEWAL AVAILABLE incl. cap/stop/read-only/authorization preview; safe closing instructions when renewal unavailable) + structured diagnostic events (no prompts/args/secrets, no auto-retry) | planned |
-| D6 | Experimental 95k/5k profile: crossings 70k/78k/82k/85k used shown in `/guard status`, reserve + provenance, honest window-ownership wording | planned |
+| D1 | Recovery prompt: configured `renewal.recoveryPrompt` reaches the successor message (mandatory identity/safety kept); project-configured `renewal.testCommand`; hardcoded `node --test test/` removed; exact-message tests | DONE — commit `6e61967` (unit 137/138; real-runtime zero-inference 28/28; byte-exact real-inference check added to e2e-renew, live run scheduled) |
+| D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (capped/disabled/stopped OK; never switches, never touches chain state, never bypasses readiness; no waitForIdle) | IMPLEMENTED — FZ1-FZ9 9/9, suite 146/147, real runtime 32/32; docs updated; committing now |
+| D3 | `scripts/durable_edit.py` targeted durable-doc editing | TOOL VERIFIED by smoke + dogfood runs; node regression tests pending |
+| D4 | Compact recovery (lean tiers ≤10-12k est. tokens, opt-in, schema v3 compatible, DRPLi-sized fixture) | pending |
+| D5 | Accurate level-4 text under enforceClosing:false; honest RENEWAL AVAILABLE (cap/stop/read-only/auth preview); safe instructions at cap; structured diagnostics (no prompts/args/secrets); NO auto-retry | pending |
+| D6 | 95k/5k experimental profile: crossings 70k/78k/82k/85k in /guard status, reserve+provenance, honest window ownership | pending |
 
-Dogfooding (mandatory): this session runs the dev.1 guard loaded at startup; pinned
-independent copy at `/home/john/pi-handoff-pinned-v0.1.0-dev.1` (git archive of the tag);
-post-commit checkpoint refresh runs against the PINNED extension, never the edited tree.
-Candidate validation after each P0 increment: separate real Pi process (`pi --mode rpc -e
-.pi/extensions/context-guard/index.ts` + e2e scripts). Before release: one genuine
-model-initiated renewal with productive continuation (real inference, `scripts/e2e-renew.mjs`
-extended), and the capped-chain finalization proof (zero inference). Baselines to compare
-against: dev.1 campaign numbers (A-27).
-
-**Previous milestone — documentation consolidation (COMPLETE, 2026-10-29).** A docs-only
-pass reconciled
-README/PROTOCOL/AGENTS/HANDOFF/PROGRESS/LEARNINGS/skill/guide with the implemented
-system. No code, test, E2E or config file was changed. Key corrections: README retitled
-off "Phase 1"; schema v3 stated as current (v2/v1 = historical, validate as `stale`);
-obsolete Phase 1c "INCOMPLETE / suite RED" operational notes removed from HANDOFF
-(git history preserves them); current baselines stated everywhere (131/132 + skip,
-27/27, 8/8, 20/20); L4 allowlist described as configurable `closingAllowlist` with the
-optional `handoff_renew` entry (this project lists it); `renewal.enabled` (mechanism) vs
-`renewal.autoRenew` (model-initiated authorization) distinguished; live-proof scope
-stated precisely (one model-initiated hop + one operator-initiated hop, synthetic
-triggering — the ≈195 k closing point remains unproven under real accounting, P-7);
-PROTOCOL §7 no longer claims tests are mock-only; GOAL.md untouched by design (its
-Phase 1 wording is historical; later phases extended the scope under operator
-authorization).
-
-**Project milestone status (all COMPLETE):**
-
-| Milestone | Result | Evidence |
-|---|---|---|
-| Phase 1 | guard + durable files + mock harness, 36/36 | `b2ccdac` |
-| Phase 1b | schema-v2 freshness, prose-first recovery, per-session state, audit mode (55/55 then) | A-6…A-9 |
-| Phase 1c | schema-v3 identity, readiness + attestation, real-runtime load fix | `3cc2f31`, A-10…A-16 |
-| Revocation | non-monotonic measurement retraction (A-18) | 108/109 |
-| Phase 2 A | renewal decision module + durable chain state | 118/119, A-17 |
-| Phase 2 B | `/handoff renew` wiring + `handoff_renew` tool + banner + lineage | 131/132, e2e 27/27 |
-| Phase 2 C | **real-inference A→B→C renewal proven live** | 20/20, A-23, `d90f016` |
-| Phase 1d | pi-handoff skill + long-project guide (PL/I-80 blueprint; pli80 untouched) | 8/8, A-25, `61ed9be` |
-| Docs consolidation | current/historical/deferred separated across all documents | this milestone |
-
-Open OPERATOR decisions (not development tasks): `renewal.autoRenew` project default
-(currently false; `CONTEXT_GUARD_AUTO_RENEW=1` env switch proven for experiments);
-`drpli` reuse requires separate explicit authorization; `pli80` blueprint application
-likewise.
-
+Dogfooding: this session's guard = dev.1 (loaded at startup, jiti-cached); pinned dev.1
+copy at `/home/john/pi-handoff-pinned-v0.1.0-dev.1`; checkpoint refreshes run against the
+PINNED extension (wrapper `/tmp/refresh-pinned.mjs`), never the edited tree. Real-inference
+renewal proof (candidate + byte-exact D1 checks + productive continuation) and capped-chain
+finalization proof scheduled before the release assessment.
 ## Completed
 
 Phase 1 (original, `b2ccdac`):
@@ -152,17 +111,20 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-
-**v0.1.0-dev.2 D1 first**: write failing regression tests for the confirmed recovery-prompt
-defect (A-26) — custom `recoveryPrompt` must reach the successor message verbatim under the
-mandatory identity/safety header; generic prompt must NOT contain `node --test test/`
-unless `renewal.testCommand` is configured; then implement, run `node --test test/`, and
-validate in the real runtime. Full mission brief: operator prompt of session
-01a18a1a… (2026-10-30); evidence: LEARNINGS A-26/A-27/P-10.
-
-(Previous milestone next action — operator review of the docs consolidation — remains
-valid in parallel; nothing deployed to `drpli`.)
-
+**D2 commit + D3 formalization.** Exact sequence: (1) commit D2 (finalize
+command/tool, FZ1-FZ9, README/PROTOCOL/skill docs — gates already green: suite
+146/147, real-runtime e2e 32/32, skill probe 8/8); (2) write `test/durable-edit.test.ts`
+(spawn python3; cover plan-dry-run, apply byte-identity, AMBIGUOUS/NOT_FOUND/CONFLICT/
+MANAGED_BLOCK/MISSING_REF exit codes, fenced-heading handling, read-only-dir IO failure
+leaving the original intact, stale-prose -> validateCheckpoint `stale` -> /handoff refresh
+round trip); (3) run `node --test test/` + zero-inference real-runtime gates; (4) refresh
+this tree's checkpoint via the PINNED guard wrapper (`node /tmp/refresh-pinned.mjs`);
+(5) continue with D5 then D4 (P0 remaining), then D6; (6) before release: real-inference
+`node scripts/e2e-renew.mjs` run on the CANDIDATE (hop-1 model-initiated renewal with the
+byte-exact D1 recovery-message assertions + productive successor commits) and the
+capped-chain finalization proof; (7) deliverables: dev.2 CHANGELOG, migration/rollback doc
+from v0.1.0-dev.1, recovery-cost before/after measurements (dev.1 baseline numbers in
+A-27). Never push. DRPLi stays untouched (it is not on this machine; fixtures only).
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
 checkpoint-generation: 11

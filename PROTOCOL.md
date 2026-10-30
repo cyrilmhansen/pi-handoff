@@ -230,6 +230,18 @@ The `handoff_renew` tool is registered whenever the guard loads, but its pre-gat
 cheaply (zero writes, no schedule) unless the policy allows model renewal; during enforced
 level-4 closing it is callable only if listed in `closingAllowlist`.
 
+**Finalization (dev.2 D2)** is independent of the renewal contract: `/handoff finalize
+[notes]` (operator) and the `handoff_finalize` tool (model) run refresh + readiness
+evaluation + attestation in ONE synchronous step, reusing `writeCheckpoint` /
+`attestHandoff`. It works with renewal disabled, capped or durably stopped; it never
+switches sessions, never writes chain state (cap/idempotence/stop byte-identical), never
+calls `waitForIdle` (deadlock-free by construction), never bypasses readiness, and is
+idempotent. Read-only mode: reported dry run, zero tree writes. During enforced closing
+`handoff_finalize` is implicitly permitted (managed-block writes only — weaker than the
+default-allowed `write`); `handoff_renew` remains allowlist-gated because it schedules a
+switch. At the exhausted cap, finalization is the safe closing path; raising the cap or
+resetting chain state stays an explicit operator decision.
+
 Live-proof scope (A-23, stated precisely): the real-inference experiment verified
 **one** model-initiated renewal followed by **one** operator-initiated renewal (third
 attempt refused at the cap) — not two independently spontaneous renewals. Generalized

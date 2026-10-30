@@ -209,6 +209,17 @@ try {
   check("RENEW(e2e): renew status reports the PROJECT-CONFIGURED test command (dev.2 D1)", /testCommand=/.test(renewTexts), renewTexts.split("\n").find((l) => /testCommand=/.test(l))?.slice(0, 160) ?? "(no testCommand line)");
   check("RENEW(e2e): stop is durable and blocks the attempt; resume clears", /STOPPED/.test(renewTexts) && /NOT performed \(stopped\)/.test(renewTexts) && /RESUMED/.test(renewTexts));
   check("RENEW(e2e): no session switched without inference (session id unchanged)", (await a.command({ id: "a-state2", type: "get_state" })).data?.sessionId === idA);
+
+  // ---- dev.2 D2: independent finalization in the REAL runtime, zero inference ----
+  const renewStatePathTree = path.join(tree, ".pi-guard", "renewal-state.json");
+  const renewStateBefore = fs.existsSync(renewStatePathTree) ? fs.readFileSync(renewStatePathTree, "utf8") : null;
+  const fin = await a.command({ id: "a-fin", type: "prompt", message: "/handoff finalize e2e independent finalization" });
+  await new Promise((r) => setTimeout(r, 800));
+  const finTexts = a.uiTexts().join("\n");
+  check("FINALIZE(e2e): /handoff finalize handled without a turn", fin.success && fin.data?.disposition === "handled", JSON.stringify(fin.data ?? fin.error));
+  check("FINALIZE(e2e): compact structured report with ISO timestamp, checkpoint id, UNTOUCHED chain", /FINALIZE \(session .+, 20\d\d-\d\d-\d\dT\d\d:.+Z\): checkpoint g\d+-[0-9a-f]+ readiness .+ -> (FINALIZED|NOT READY)/.test(finTexts) && /UNTOUCHED/.test(finTexts), finTexts.split("\n").find((l) => /FINALIZE/.test(l))?.slice(0, 200) ?? "(no FINALIZE line)");
+  check("FINALIZE(e2e): no session switch and chain state untouched", (await a.command({ id: "a-state3", type: "get_state" })).data?.sessionId === idA && (fs.existsSync(renewStatePathTree) ? fs.readFileSync(renewStatePathTree, "utf8") : null) === renewStateBefore);
+  check("FINALIZE(e2e): readiness attested after finalize (authorization gate satisfied)", /readiness attested -> FINALIZED/.test(finTexts));
   check("RENEW(e2e): renewal-state.json persisted durably", fs.existsSync(path.join(tree, ".pi-guard", "renewal-state.json")) && /"stopped": false/.test(fs.readFileSync(path.join(tree, ".pi-guard", "renewal-state.json"), "utf8")));
 
   await a.shutdown();
