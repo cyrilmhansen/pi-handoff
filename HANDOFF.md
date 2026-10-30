@@ -180,25 +180,25 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 22
-checkpoint-id: g22-f048debad0d3
+checkpoint-generation: 23
+checkpoint-id: g23-e4216cdfde40
 checkpoint-kind: manual
 content-delta: new
 readiness: attested
-status: checkpoint (guard level 4, remaining ~2631, session 01a18baa-c73d-75ce-9c51-f56adc860ff2)
-checkpointed: 2026-10-30T07:59:32.671Z
+status: checkpoint (guard level 0, remaining ~214902, session 01a18c01-ce83-735c-9c90-f90d0b5d7fd1)
+checkpointed: 2026-10-30T08:51:32.110Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
-source-progress: 785264f461d68c8889d68f6cdaa7b8e1d3bdf5575fe8a08aeed7a2ed0bccd906
-source-handoff: 268067809b4c37f2ea8c1620e2b7c169c4f2518a9e7f85c610e1ca449c0a2a01
-source-learnings: 2add3b1a046777e1a4d8cff27497e8320dc423be3d593e0878257a478dab2f9a
+source-progress: 3dd62f2b9fb90baf8217834694c09d8535d361fe9707458f13b5168b614d5049
+source-handoff: 6e299fffef4b90bb651dd9813f3cf4515510048a0748edfe10019fa590fa9b32
+source-learnings: bdcbbcada606b009d3b3c87a66f6b66fec386de9a3ec4c799e3d6f4f3ca62f30
 source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
 
 
-readiness-by: session:01a18baa-c73d-75ce-9c51-f56adc860ff2
-readiness-at: 2026-10-30T07:59:32.675Z
-readiness-checkpoint: g22-f048debad0d3
+readiness-by: session:01a18c01-ce83-735c-9c90-f90d0b5d7fd1
+readiness-at: 2026-10-30T08:51:32.211Z
+readiness-checkpoint: g23-e4216cdfde40
 ### Last verified state
-guard level 4; checkpoint requested (finalize: L4 closing, session 01a18baa: D4 complete+verified but UNCOMMITTED (bash gated); successor commits D4 first (file list + commands in PROGRESS top block), then D6, dogfood proofs, release docs; renewals 1/8, chain chain:01a18a1a…)
+guard level 0; checkpoint requested (dev.2 D6 committed (d77ef48, A-35): crossingPoints + status line + 95k profile + real-runtime capped-chain finalize proof (38/38, zero inference); D4 committed (b86b0fe). Next: e2e-renew real-inference candidate proof, recovery-cost write-up, CHANGELOG/migration/release-readiness, STOP for operator review.)
 
 ### Unfinished operations
 - [x] Inspected installed Pi 1.4.0 types/docs; contract recorded in README.
@@ -215,12 +215,12 @@ guard level 4; checkpoint requested (finalize: L4 closing, session 01a18baa: D4 
 - [x] All confirmed inconsistencies corrected (see Current phase); verification
 
 ### Next action
-**D4 committing now (A-34). Successor sequence (exact steps in PROGRESS.md "Next
-action"): D6 → dogfood proofs (e2e-renew real inference on the candidate incl.
-model-initiated hop 1 — note D5b: the RENEWAL AVAILABLE hint now requires a passing
-write-free preview; capped-chain finalize zero-inference proof; recovery-cost before/
-after vs A-27) → CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
-STOP for operator review. Gates: suite (≥184/1 skip), e2e-rpc (32/32), probe (8/8).
+**D4 + D6 committed; dogfood proofs + release docs remain (A-35). Successor
+sequence (exact steps in PROGRESS.md "Next action"): e2e-renew real inference on
+the candidate (model-initiated hop 1 under the D5b preview gate, byte-exact
+recovery checks) → recovery-cost write-up vs A-27 (meter numbers in A-35) →
+CHANGELOG dev.2 + migration/rollback from dev.1 + release-readiness →
+STOP for operator review. Gates: suite (≥187/1 skip), e2e-rpc (38/38), probe (8/8).
 Ritual: refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 — finalize is
 NOT available there, P-12; it stays the recovery infrastructure), commit managed
 blocks. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
@@ -261,5 +261,5 @@ PROGRESS.md):
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 
 ### Guard notes
-L4 closing, session 01a18baa: D4 complete+verified but UNCOMMITTED (bash gated); successor commits D4 first (file list + commands in PROGRESS top block), then D6, dogfood proofs, release docs; renewals 1/8, chain chain:01a18a1a…
+dev.2 D6 committed (d77ef48, A-35): crossingPoints + status line + 95k profile + real-runtime capped-chain finalize proof (38/38, zero inference); D4 committed (b86b0fe). Next: e2e-renew real-inference candidate proof, recovery-cost write-up, CHANGELOG/migration/release-readiness, STOP for operator review.
 <!-- guard:end checkpoint -->
