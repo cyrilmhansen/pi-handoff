@@ -1,11 +1,12 @@
 {
   "enabled": true,
   "thresholds": {
-    "advisory": 30000,
-    "wrapUp": 20000,
-    "handoff": 10000,
+    "advisory": 19000,
+    "wrapUp": 11000,
+    "handoff": 7000,
     "closing": 5000
   },
+  "workingContextWindow": 95000,
   "generationReserve": 5000,
   "safetyReserve": 0,
   "enforceClosing": true,

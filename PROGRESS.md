@@ -374,18 +374,18 @@ Historical successor sequence (D4/D6 remain as stated; D5 above supersedes item 
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
 <!-- guard:begin checkpoint -->
 checkpoint-schema: 3
-checkpoint-generation: 29
-checkpoint-id: g29-89f242a0ab9b
+checkpoint-generation: 32
+checkpoint-id: g32-c58af10b0f1e
 checkpoint-kind: manual
-content-delta: new
+content-delta: none
 readiness: attested
 guard-level: 0
-checkpointed: 2026-10-30T12:42:34.205Z
+checkpointed: 2026-10-30T15:25:10.912Z
 source-goal: 96199893488f5709e3292ad97f98aa259566ecaa6d6e20bc8c018ef8e0ba729c
 source-progress: 96ebd9574de48c67ee6d484077cbc8b4ec3618605755642fddb0a5cae8f8ace5
 source-handoff: f9f8d304bd277fef9029c5cc5ca3d9c55d6944c59723616e97e030f5c8a2219e
 source-learnings: 49bb7ec0f293fcc45985471916dc9f9d91a71f70cef3a012ddcd0a9449532d05
-source-config: 0e1d558f99398890048c7319d998914290193337deaa6eb651db33b6c9e4fa18
+source-config: 31b1784aec6e45510d1712d1ff4ae2de6de96f483f202dfaddb7f2f727208c95
 next-action: **STOP — dev.2 + D7 + D8 + D9 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37/A-38/
 A-39/A-41, CHANGELOG.md §v0.1.0-dev.2 incl. D8 + D9). No further implementation
 without operator direction.** D9 closed the pre-tag documentation audit; the candidate
@@ -445,7 +445,7 @@ PROGRESS.md):
    `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1 guard; `pi --mode rpc -ne -e
    <pinned>` — `-ne` required, else auto-load conflicts P-12); commit managed blocks.
 7. NEVER push/tag/release; DRPLi untouched; raw logs outside Git.
-readiness-by: session:01a18cd5-5386-7023-b657-1535f0402f17
-readiness-at: 2026-10-30T12:42:34.307Z
-readiness-checkpoint: g29-89f242a0ab9b
+readiness-by: session:01a18d68-a824-72da-8277-6e95286c7145
+readiness-at: 2026-10-30T15:25:18.554Z
+readiness-checkpoint: g32-c58af10b0f1e
 <!-- guard:end checkpoint -->
