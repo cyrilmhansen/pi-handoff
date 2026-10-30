@@ -365,6 +365,28 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   the durable scope now lives in AGENTS.md ("D8 exception") and this entry. If the
   operator wants the goal text itself amended, that is an explicit operator edit,
   never a silent agent rewrite.
+- [P-14] **PROPOSED (D9 final-SHA gate, observed both directions): the
+  `test/cleanup.test.ts` CL7 leak assertions are NOT concurrent-run-safe on the
+  shared /tmp.** They snapshot `guard-e2e-*` prefixes before spawning the REAL e2e
+  drivers and require zero NEW entries afterwards; a second suite running on the
+  same machine (exactly what happened when the Rune CI `handoff-integration` build
+  bs58 executed the same tests in its clone WHILE the local suite ran) creates
+  foreign in-flight workspaces that are counted as leaks. OBSERVED: local
+  `node --test` failed CL7a against bs58's 5 live driver dirs; bs58 failed the
+  NAMED case CL7a (204/206 FAILED 1) against the local run's KEEP=1 retained
+  workspaces — both runs' full e2e-rpc (38/38) and probe (8/8) passed; a serial
+  re-run of the local suite on the same tree was green (205 pass / 1 skip),
+  confirming race, not defect. This is the A-40 family (unit fixtures vs shared
+  /tmp). Options (pick in a future authorized test pass): (a) per-invocation
+  attribution — the test passes a unique tag env (e.g. `GUARD_E2E_TAG`) that the
+  drivers append to their mkdtemp prefixes, so assertions only count dirs owned by
+  THIS run; (b) a /tmp lockfile taken by the suite AND the scripts/*e2e*.mjs
+  drivers, serializing runs; (c) document-only rule: never run the unit suite
+  while a handoff CI build is active. Cost: (a) small driver+test change (test
+  infra only, production guard untouched); (b) needs care to avoid deadlock on
+  crashed holders; (c) zero code but brittle. confidence: high (diagnosis),
+  medium (remedy choice). status: proposed (NOT implemented under D9 — docs audit
+  scope; interim rule: serialize, per (c)).
 
 ## Phase 2 increment-A open questions (to settle before/during Increment B)
 

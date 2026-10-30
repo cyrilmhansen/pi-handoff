@@ -32,7 +32,10 @@ Every fresh session:
    (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate
    `b07e29b` — A-36) spends REAL inference — re-run only after renewal-wiring changes in
    `index.ts` (the D7 driver changes are lifecycle-only and covered by
-   `test/cleanup.test.ts` with a fake-pi stub, zero inference). The e2e scripts clean
+   `test/cleanup.test.ts` with a fake-pi stub, zero inference). NEVER run `node --test
+   test/` while a handoff Rune-CI build is active on this machine: the CL7 leak
+   assertions snapshot shared /tmp and race with concurrent driver runs (bs58;
+   LEARNINGS P-14 — interim serialization rule, no code change). The e2e scripts clean
    their own /tmp artifacts via `scripts/lib/e2e-cleanup.mjs`; `GUARD_E2E_KEEP=1` (and
    ONLY `1`) retains them for forensics.
 3. Never rewrite `GOAL.md`; propose goal changes in `LEARNINGS.md` (Proposed) instead.

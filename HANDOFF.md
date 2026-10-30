@@ -2,8 +2,16 @@
 
 ## Recovery instructions
 
-0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 + D7 + D8 COMPLETE — release-ready
-   candidate STOPPED at operator review; NOT tagged, NOT pushed. D8 = Pi Handoff builders
+0. **CURRENT STATE (2026-10-30): MISSION v0.1.0-dev.2 + D7 + D8 + D9 COMPLETE —
+   release-ready candidate STOPPED at operator review; NOT tagged, NOT pushed. D9 =
+   final skill & release documentation audit (docs-only + new regression guard
+   `test/docs.test.ts` DC1–DC5: documented module lists/env overrides must equal the
+   runtime import closure; seven-module install recipes restored; SKILL.md now
+   distinguishes full vs opt-in lean tiered recovery; commands.md refreshed to dev.2
+   scope incl. D4/D6/env/version; guide obsolete examples audited; CHANGELOG folds D8
+   under v0.1.0-dev.2 with the explicit note that Rune CI service files are external,
+   NOT packaged in this repo — LEARNINGS A-41; shared-/tmp suite-race found by the
+   final-SHA CI gate, proposal P-14).** D8 = Pi Handoff builders
    on the Rune CI Buildbot (`rune-ci-handoff submit <sha> --suite integration`; evidence
    bs54–bs57, LEARNINGS A-38/A-39, rune-ci README §14; CL7e fix commit `435c294`;
    Rune CI touched ONLY inside the D8 handoff files, DRPLi fingerprint byte-stable;
@@ -41,10 +49,13 @@
    `session_start` notification) to see missing/corrupt/stale/current; if stale, refresh
    with `/handoff` (rewrites only managed blocks, never manual text). Attest with
    `/handoff ready`; renewal requires `current` ∧ identity-consistent ∧ attested.
-4. Verify the build: `node --test test/` (expect **201 tests: 200 pass, 0 fail, 1
+4. Verify the build: `node --test test/` (expect **206 tests: 205 pass, 0 fail, 1
    gated skip**, Node 26, no installs; incl. D7 `test/cleanup.test.ts` — 13
    zero-inference lifecycle tests that drive the REAL e2e scripts against a fake-pi
-   stub on PATH); `node scripts/e2e-rpc-two-process.mjs`
+   stub on PATH — and D9 `test/docs.test.ts` DC1–DC5 doc-vs-runtime consistency;
+   CL7 leak assertions are NOT concurrent-run-safe on shared /tmp — never run the
+   suite while a handoff CI build is active, P-14), `node
+   scripts/e2e-rpc-two-process.mjs`
    (**38/38**, real runtime, zero inference); `node scripts/check-skill-discovery.mjs`
    (8/8, real runtime, zero inference). `node scripts/e2e-renew.mjs` (**24/24** at the
    dev.2 candidate `b07e29b` — A-36; lifecycle-only D7 driver changes are covered
@@ -60,6 +71,23 @@
 
 ## Last verified state
 
+- **D9 (2026-10-30, this session): final skill & release documentation audit COMPLETE.**
+  All five confirmed defects fixed (seven-module install recipes in bootstrap.md §1 +
+  guide §1/§2; SKILL.md full-vs-lean recovery distinction; commands.md dev.2 refresh:
+  D4 config keys `recovery.lean`/`recovery.budgetTokens`, D6 crossing points,
+  recovery-cost meter, D5c diagnostics state location, `CONTEXT_GUARD_LEAN`/`GUARD_VERSION`
+  env, version reference → v0.1.0-dev.2; guide obsolete examples; CHANGELOG D8 wording
+  reconciled under v0.1.0-dev.2 with the external-packaging note). New machine check
+  `test/docs.test.ts` (DC1–DC5, written test-first: RED against the defective docs,
+  GREEN after; closure derived from the real import graph). README status + reserve
+  paragraph corrected to the dev.2 config (5 000 ⇒ nominal crossings
+  185k/195k/205k/210k; P-7 open). **Production guard behavior, renewal wiring and
+  config NOT touched; no real-inference spend.** Gates: suite 205 pass / 1 skip,
+  e2e-rpc 38/38, probe 8/8 (skill still loads in the real runtime after the edit);
+  unit suite + Rune CI `handoff-integration` re-run on the FINAL committed SHA
+  SERIALLY (first attempt bs58 failed the named CL7a case on a shared-/tmp race
+  with the concurrent local suite — race proven by serial re-runs green, recorded
+  as LEARNINGS P-14, not a candidate defect).
 - **D7 (2026-10-30, this session): test-artifact lifecycle increment COMPLETE.**
   `scripts/lib/e2e-cleanup.mjs` (ArtifactTracker: register-at-creation, child shutdown
   BEFORE workspace removal, signal + 'exit' safety nets, per-invocation ownership —

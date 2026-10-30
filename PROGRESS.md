@@ -30,9 +30,10 @@ every documented module list (bootstrap §1, guide §2 + §1 count, README Layou
 every extension env override must appear in commands.md/README (LEARNINGS A-41).**
 Production guard behavior, renewal wiring and `handoff.config.json` NOT touched; no
 real-inference spend. Gates: suite **205 pass / 1 skip** (206), e2e-rpc **38/38**,
-probe **8/8**; unit suite + Rune CI `handoff-integration` executed on the FINAL
-committed SHA (build verdict in the operator report; CI re-runs the same zero-inference
-gates on a fresh clone).
+probe **8/8**; unit suite + Rune CI `handoff-integration` executed SEQUENTIALLY on
+the FINAL committed SHA (bs58 first attempt failed the named CL7a case on a
+shared-/tmp race with the concurrent local suite — LEARNINGS P-14; serial runs
+authoritative; build verdict in the operator report).
 
 **Mission D8 (Rune CI integration — COMPLETE this session, operator-authorized,
 baseline `deb8d82`, current handoff HEAD `deb8d82` + uncommitted test fix).**
@@ -252,7 +253,11 @@ Current (D9, this session, zero inference):
   exist non-empty).
 - Rune CI `handoff-integration` submitted on the final committed SHA after the
   checkpoint-refresh commit; verdict reported to the operator (build record in the
-  Rune CI state store, not duplicated in this tree).
+  Rune CI state store, not duplicated in this tree). NOTE: bs58 FAILED on the
+  named CL7a unit case due to a shared-/tmp race with the concurrent local suite
+  (both sides' e2e-rpc 38/38 + probe 8/8 passed; serial re-run green) — recorded
+  as LEARNINGS P-14, interim rule: NEVER run the unit suite while a handoff CI
+  build is active; final-SHA gates were executed serially.
 
 Current (D7, this session, zero inference):
 - `node --test test/` → **201 tests: 200 pass, 0 fail, 1 skipped** (incl.

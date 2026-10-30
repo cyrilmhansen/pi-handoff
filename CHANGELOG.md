@@ -171,6 +171,15 @@ CI integration only.
   `infra_error` · bs56 `435c294` PASSED 33s, warnings [], idempotent re-submit
   returned `reused bs56` in 0.5s · bs57 DRPLi smoke still passed, no
   fingerprint warning (cached-verdict semantics preserved).
+- **bs58 (D9, ran on `0d63bb8`) FAILED with the failing case NAMED — unit
+  `CL7a` (204/206 FAILED 1), while its own e2e-rpc 38/38 and skill probe 8/8
+  passed.** Diagnosis (observed both directions): shared-/tmp RACE — the local
+  unit suite was running concurrently with the CI build on the same machine, and
+  the prefix-snapshot leak assertions counted each run's in-flight `guard-e2e-*`
+  workspaces as leaks; serial re-runs are green. Test-infra limitation, NOT a
+  candidate defect; proposal P-14 (remedy options). The D9 gates (unit suite +
+  `handoff-integration`) were subsequently executed SERIALLY on the final
+  committed SHA; verdicts in PROGRESS.md/operator report.
 
 ### Documentation (D9 — final skill & release documentation audit)
 
