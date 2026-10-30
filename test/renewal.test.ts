@@ -64,9 +64,9 @@ test("RN2: mergeRenewal is strict — garbage ignored, valid fields merged, base
   assert.deepEqual(mergeRenewal(DEFAULT_RENEWAL, null), DEFAULT_RENEWAL);
   assert.deepEqual(mergeRenewal(DEFAULT_RENEWAL, "nope"), DEFAULT_RENEWAL);
   assert.deepEqual(mergeRenewal(DEFAULT_RENEWAL, [1, 2]), DEFAULT_RENEWAL);
-  assert.deepEqual(mergeRenewal(DEFAULT_RENEWAL, { enabled: "yes", maxRenewals: -3, recoveryPrompt: "  " }), DEFAULT_RENEWAL);
-  const m = mergeRenewal(DEFAULT_RENEWAL, { enabled: true, autoRenew: true, maxRenewals: 5, recoveryPrompt: "resume from files" });
-  assert.deepEqual(m, { enabled: true, autoRenew: true, maxRenewals: 5, recoveryPrompt: "resume from files" });
+  assert.deepEqual(mergeRenewal(DEFAULT_RENEWAL, { enabled: "yes", maxRenewals: -3, recoveryPrompt: "  ", testCommand: "   ", }), DEFAULT_RENEWAL);
+  const m = mergeRenewal(DEFAULT_RENEWAL, { enabled: true, autoRenew: true, maxRenewals: 5, recoveryPrompt: "resume from files", testCommand: "make check" });
+  assert.deepEqual(m, { enabled: true, autoRenew: true, maxRenewals: 5, recoveryPrompt: "resume from files", testCommand: "make check" });
   // base object untouched (merge returns a copy)
   assert.equal(DEFAULT_RENEWAL.enabled, false);
 });
@@ -233,7 +233,8 @@ test("RN10: recovery prompt is deterministic, durable-files-only, no transcript 
     assert.ok(a.includes(f), `prompt names ${f}`);
   }
   assert.ok(a.includes("g7-111122223333") && a.includes("chain:sessionA") && a.includes("sessionA"));
-  assert.ok(a.includes("node --test test/"), "default test command embedded");
+  assert.ok(!a.includes("node --test test/"), "dev.2 D1 (A-26): NO unconditional test command — the build-verify line is project-configured only");
+  assert.ok(!/verify the build/i.test(a), "no build-verify instruction without an explicit testCommand");
   assert.ok(a.includes("1/2"), "renewal index/cap visible to the successor");
   assert.ok(/NOT replayed/.test(a) && /NO compaction/.test(a), "states the no-replay/no-compaction contract");
   assert.ok(/initiative/.test(a), "successor keeps agent initiative, not just a task executor");
@@ -242,4 +243,59 @@ test("RN10: recovery prompt is deterministic, durable-files-only, no transcript 
   assert.ok(withNotes.includes("run the e2e next"));
   const customTests = buildRecoveryPrompt({ ...args, testCommand: "make check" });
   assert.ok(customTests.includes("make check"));
+});
+
+/* ---- dev.2 D1 (A-26): recoveryPrompt/testCommand must actually reach the message ---- */
+
+test("RN11: configured recoveryPrompt reaches the prompt VERBATIM under the mandatory header and safety lines", () => {
+  const custom = "Read docs/RECOVERY.md first. Then run the instrument calibration before ANYTHING else.";
+  const a = buildRecoveryPrompt({
+    files: FILES,
+    checkpointId: "g8-aaaa",
+    chainId: "chain:x",
+    renewalIndex: 2,
+    maxRenewals: 8,
+    parentSessionId: "parentS",
+    recoveryPrompt: custom,
+  });
+  assert.ok(a.includes(custom), "configured text is carried verbatim");
+  // mandatory identity + safety survive the override (PROTOCOL §6; deterministic, durable-only)
+  assert.ok(a.includes("[context-guard renewal 2/8]"), "renewal identity header kept");
+  assert.ok(a.includes("parentS") && a.includes("chain:x") && a.includes("g8-aaaa"), "parent/chain/checkpoint identity kept");
+  assert.ok(/NOT replayed/.test(a) && /NO compaction/.test(a), "no-replay/no-compaction contract kept");
+  assert.ok(/never push without human authorization/.test(a), "safety trailer kept");
+  // the generic recovery-order body is REPLACED, not duplicated alongside
+  assert.ok(!a.includes("in this order (PROTOCOL \u00a73)"), "generic body replaced by the configured text");
+});
+
+test("RN12: testCommand is project-configured — present exactly once when set, absent when not", () => {
+  const args = { files: FILES, checkpointId: "g8-bbbb", chainId: "chain:y", renewalIndex: 1, maxRenewals: 2, parentSessionId: "p" };
+  const none = buildRecoveryPrompt(args);
+  assert.equal((none.match(/verify the build/gi) ?? []).length, 0);
+  const withCmd = buildRecoveryPrompt({ ...args, testCommand: "node scripts/check-skill-discovery.mjs" });
+  assert.equal((withCmd.match(/verify the build before touching code:/g) ?? []).length, 1, "exactly one build-verify line");
+  assert.ok(withCmd.includes("verify the build before touching code: node scripts/check-skill-discovery.mjs"));
+  // custom prompt + configured test command: BOTH reach the message
+  const both = buildRecoveryPrompt({ ...args, recoveryPrompt: "CUSTOM BODY TEXT", testCommand: "make verify" });
+  assert.ok(both.includes("CUSTOM BODY TEXT") && both.includes("make verify"));
+});
+
+test("RN13: prompt stays deterministic with the new inputs; notes remain the ONLY variable trailer", () => {
+  const args = { files: FILES, checkpointId: "g8-cccc", chainId: "chain:z", renewalIndex: 1, maxRenewals: 3, parentSessionId: "pp", recoveryPrompt: "multi\nline\ncustom body", testCommand: "make check" };
+  const a = buildRecoveryPrompt(args);
+  assert.equal(buildRecoveryPrompt({ ...args }), a, "same inputs => identical bytes");
+  const withNotes = buildRecoveryPrompt({ ...args, extraNotes: "next: run the gate" });
+  assert.ok(withNotes.startsWith(a), "notes append only after the deterministic core");
+  assert.ok(withNotes.includes("next: run the gate"));
+  assert.ok(a.includes("multi\nline\ncustom body"), "multi-line configured prompt preserved");
+});
+
+test("RN14: mergeRenewal accepts testCommand (trimmed, non-empty) and ignores garbage", () => {
+  assert.equal(mergeRenewal(DEFAULT_RENEWAL, { testCommand: "  make test  " }).testCommand, "make test");
+  assert.equal(mergeRenewal(DEFAULT_RENEWAL, { testCommand: "   " }).testCommand, null, "blank stays null");
+  assert.equal(mergeRenewal(DEFAULT_RENEWAL, { testCommand: 42 }).testCommand, null);
+  assert.equal(mergeRenewal(DEFAULT_RENEWAL, { recoveryPrompt: "keep it" }).recoveryPrompt, "keep it");
+  const base: RenewalConfig = { ...DEFAULT_RENEWAL, autoRenew: true };
+  mergeRenewal(base, { testCommand: "x" });
+  assert.equal(base.testCommand, null, "base object untouched (merge returns a copy)");
 });

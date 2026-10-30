@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 
 import contextGuard, { detectPiHarness } from "../.pi/extensions/context-guard/index.ts";
 import { joinPath, validateCheckpoint, renewAuthorization } from "../.pi/extensions/context-guard/checkpoint.ts";
+import { buildRecoveryPrompt } from "../.pi/extensions/context-guard/renewal.ts";
 import { createMemoryFs, createMockCtx, createMockPi, DEFAULT_FILES, type MemoryFs, type MockPi } from "./helpers.ts";
 
 const STATE = "/project/.pi-guard/renewal-state.json";
@@ -320,6 +321,57 @@ test("RB13: simulated process restart — durable cap/idempotence/stop survive (
   assert.equal(mc2.newSessionCalls, 0);
   assert.equal(JSON.parse(h.memFs.files.get(STATE)!).renewalsDone, 1, "cap counter survived the restart");
   assert.ok(cpId);
+});
+
+test("RB14 (A-26 regression): configured recoveryPrompt + testCommand reach the EXACT message sent to the successor", async () => {
+  const custom = "CUSTOM-PROJECT RECOVERY: read spec/CLAIMS.md authority notes before any edit.";
+  const h = harness({
+    config: JSON.stringify({
+      thresholds: { advisory: 30000, wrapUp: 20000, handoff: 10000, closing: 5000 },
+      enforceClosing: true,
+      closingAllowlist: ["write", "edit", "read", "handoff_renew"],
+      protectGoal: true,
+      autoCheckpointAtHandoffLevel: true,
+      stateDir: ".pi-guard",
+      renewal: { enabled: true, autoRenew: false, maxRenewals: 2, recoveryPrompt: custom, testCommand: "node scripts/check-skill-discovery.mjs" },
+    }),
+  });
+  await h.start();
+  await h.command("renew");
+  assert.equal(h.mc.recoverySends.length, 1);
+  const content = h.mc.recoverySends[0].message.content as string;
+  // configured text reaches the ACTUAL message, verbatim
+  assert.ok(content.includes(custom), "configured recoveryPrompt is carried verbatim into the successor message");
+  assert.ok(content.includes("node scripts/check-skill-discovery.mjs"), "project-configured test command reaches the message");
+  assert.ok(!content.includes("node --test test/"), "no unconditional generic test command");
+  assert.ok(!content.includes("in this order (PROTOCOL \u00a73)"), "generic body replaced by the configured prompt");
+  // mandatory identity + safety survive
+  const f = validateCheckpoint(h.memFs, "/project", FILES);
+  assert.ok(content.includes("[context-guard renewal 1/2]"));
+  assert.ok(content.includes("session-A") && content.includes("chain:session-A") && content.includes(f.identity!.id));
+  assert.ok(/NOT replayed/.test(content) && /NO compaction/.test(content) && /never push without human authorization/.test(content));
+  // EXACT message: byte-identical to what buildRecoveryPrompt produces from the same inputs
+  const expected = buildRecoveryPrompt({
+    files: FILES,
+    checkpointId: f.identity!.id,
+    chainId: "chain:session-A",
+    renewalIndex: 1,
+    maxRenewals: 2,
+    parentSessionId: "session-A",
+    recoveryPrompt: custom,
+    testCommand: "node scripts/check-skill-discovery.mjs",
+  });
+  assert.equal(content, expected, "the message sent is exactly the deterministic prompt");
+});
+
+test("RB15: without a configured testCommand the successor message carries NO build-verify line (generic body kept)", async () => {
+  const h = harness(); // renewConfig(): renewal enabled, no testCommand
+  await h.start();
+  await h.command("renew");
+  const content = h.mc.recoverySends[0].message.content as string;
+  assert.ok(!/verify the build/i.test(content));
+  assert.ok(!content.includes("node --test test/"));
+  assert.ok(content.includes("in this order (PROTOCOL \u00a73)"), "generic recovery body still used when no custom prompt");
 });
 
 function harnessForRestart(memFs: MemoryFs): RH {

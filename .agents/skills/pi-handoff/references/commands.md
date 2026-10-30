@@ -45,7 +45,8 @@ refusals never write); during enforced level-4 closing the model can only call i
 | `renewal.enabled` | `false` | master switch: operator `/handoff renew` needs true; the tool and hint stay refused otherwise |
 | `renewal.autoRenew` | `false` | *additionally* authorizes model-initiated renewal (`handoff_renew` tool + `RENEWAL AVAILABLE` hint at level ≥ 3); alerts alone never force a transition |
 | `renewal.maxRenewals` | `2` | hard cap per renewal chain |
-| `renewal.recoveryPrompt` | (built-in) | optional override of the deterministic recovery instruction |
+| `renewal.recoveryPrompt` | (built-in) | replaces the generic recovery body; the mandatory identity header and safety trailer of the successor message are always kept (dev.2 D1) |
+| `renewal.testCommand` | `null` | project-configured build-verify command in the successor prompt; `null` = no build-verify line at all (never assume a generic one) |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable file names |
 
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,

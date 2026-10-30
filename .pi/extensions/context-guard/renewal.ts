@@ -17,6 +17,12 @@ export interface RenewalConfig {
   maxRenewals: number;
   /** Override the deterministic recovery instruction (null = built-in template). */
   recoveryPrompt: string | null;
+  /**
+   * Project-configured build-verification command carried into the successor recovery
+   * message (dev.2 D1 / LEARNINGS A-26). Default null: the prompt then contains NO
+   * build-verify instruction at all — test commands are NEVER assumed generically.
+   */
+  testCommand: string | null;
 }
 
 export const DEFAULT_RENEWAL: RenewalConfig = {
@@ -24,6 +30,7 @@ export const DEFAULT_RENEWAL: RenewalConfig = {
   autoRenew: false,
   maxRenewals: 2,
   recoveryPrompt: null,
+  testCommand: null,
 };
 
 export function mergeRenewal(base: RenewalConfig, override: unknown): RenewalConfig {
@@ -33,7 +40,8 @@ export function mergeRenewal(base: RenewalConfig, override: unknown): RenewalCon
   if (typeof o.enabled === "boolean") next.enabled = o.enabled;
   if (typeof o.autoRenew === "boolean") next.autoRenew = o.autoRenew;
   if (typeof o.maxRenewals === "number" && Number.isInteger(o.maxRenewals) && o.maxRenewals >= 0) next.maxRenewals = o.maxRenewals;
-  if (typeof o.recoveryPrompt === "string" && o.recoveryPrompt.trim().length > 0) next.recoveryPrompt = o.recoveryPrompt;
+  if (typeof o.recoveryPrompt === "string" && o.recoveryPrompt.trim().length > 0) next.recoveryPrompt = o.recoveryPrompt.trim();
+  if (typeof o.testCommand === "string" && o.testCommand.trim().length > 0) next.testCommand = o.testCommand.trim();
   return next;
 }
 
@@ -150,6 +158,16 @@ export function decideRenewal(input: {
  * Deterministic recovery instruction for the successor session (P-6 / PROTOCOL §6):
  * durable files only, no transcript replay, no LLM summarization. Same inputs => same
  * bytes (cache-stable, auditable).
+ *
+ * Structure (dev.2 D1, LEARNINGS A-26):
+ *   1. MANDATORY identity + safety header (what this is, parent/chain/checkpoint,
+ *      no-replay/no-compaction contract) — never overridable;
+ *   2. project recovery body: `recoveryPrompt` verbatim when configured, else the
+ *      generic durable-file reading order;
+ *   3. build-verify line ONLY when the project explicitly configures `testCommand`
+ *      (the hardcoded `node --test test/` fallback is removed);
+ *   4. MANDATORY safety trailer (initiative + never-push);
+ *   5. predecessor notes trailer (the only variable part).
  */
 export function buildRecoveryPrompt(input: {
   files: { goal: string; progress: string; learnings: string; handoff: string };
@@ -158,21 +176,32 @@ export function buildRecoveryPrompt(input: {
   renewalIndex: number;
   maxRenewals: number;
   parentSessionId: string;
-  testCommand?: string;
+  testCommand?: string | null;
+  recoveryPrompt?: string | null;
   extraNotes?: string;
 }): string {
-  const lines = [
+  const f = input.files;
+  const header = [
     `[context-guard renewal ${input.renewalIndex}/${input.maxRenewals}] Fresh session started automatically from durable state.`,
     `Parent session: ${input.parentSessionId}; renewal chain: ${input.chainId}; checkpoint: ${input.checkpointId} (attested).`,
     `The previous transcript was NOT replayed and NO compaction was used — you start from a fresh context.`,
-    ``,
-    `Recover the project NOW, in this order (PROTOCOL §3): read AGENTS.md, PROTOCOL.md, GOAL.md, HANDOFF.md, PROGRESS.md, LEARNINGS.md.`,
-    `Manual prose in HANDOFF.md/PROGRESS.md takes precedence over the managed checkpoint block; the guard reports checkpoint freshness at session_start (refresh + re-attest with /handoff and /handoff ready if stale).`,
-    `Then verify the build before touching code: ${input.testCommand ?? "node --test test/"}.`,
-    ``,
-    `Continue the project from HANDOFF.md "Next action". You keep full initiative: reason, investigate, challenge earlier assumptions, propose new work — recording evidence and classification (accepted/proposed/falsified) in LEARNINGS.md. You are not a task-list executor.`,
+  ];
+  const custom = typeof input.recoveryPrompt === "string" && input.recoveryPrompt.trim().length > 0 ? input.recoveryPrompt.trim() : null;
+  const body = custom
+    ? custom.split("\n")
+    : [
+        `Recover the project NOW, in this order (PROTOCOL §3): read AGENTS.md, PROTOCOL.md, ${f.goal}, ${f.handoff}, ${f.progress}, ${f.learnings}.`,
+        `Manual prose in ${f.handoff}/${f.progress} takes precedence over the managed checkpoint block; the guard reports checkpoint freshness at session_start (refresh + re-attest with /handoff and /handoff ready if stale).`,
+      ];
+  const verify =
+    typeof input.testCommand === "string" && input.testCommand.trim().length > 0
+      ? [`Then verify the build before touching code: ${input.testCommand.trim()}`]
+      : [];
+  const safety = [
+    `Continue the project from ${f.handoff} "Next action". You keep full initiative: reason, investigate, challenge earlier assumptions, propose new work — recording evidence and classification (accepted/proposed/falsified) in ${f.learnings}. You are not a task-list executor.`,
     `Keep committing coherent, tested increments locally as you work; never push without human authorization.`,
   ];
+  const lines = [...header, ``, ...body, ...verify, ``, ...safety];
   if (input.extraNotes && input.extraNotes.trim()) lines.push(``, `Notes from the predecessor: ${input.extraNotes.trim()}`);
   return lines.join("\n");
 }

@@ -57,6 +57,22 @@ const gitCode = await new Promise((r) => gitInit.once("exit", (code) => r(code))
 if (gitCode !== 0) throw new Error(`git clone failed (exit ${gitCode})`);
 const EXT = path.join(clone, ".pi/extensions/context-guard/index.ts");
 
+// dev.2 D1 (LEARNINGS A-26): the clone's config gets a CUSTOM recoveryPrompt (with a
+// random marker) and an explicit compound testCommand. The successor's recovery message
+// is later asserted BYTE-EXACT against buildRecoveryPrompt's reconstruction, proving the
+// configured text and command reach the message ACTUALLY SENT through the Pi runtime,
+// and that no generic `node --test test/` line exists unless the project configured it.
+const { buildRecoveryPrompt } = await import(path.join(clone, ".pi/extensions/context-guard/renewal.ts"));
+const promptMarker = `E2E-CUSTOM-PROMPT-${randomUUID().slice(0, 8)}`;
+const customRecoveryPrompt = `${promptMarker} — project-configured recovery: recover from the durable files NOW, in this order: read AGENTS.md, PROTOCOL.md, GOAL.md, HANDOFF.md, PROGRESS.md, LEARNINGS.md.`;
+const configuredTestCommand = "node --test test/ && node scripts/check-skill-discovery.mjs";
+const cfgPath = path.join(clone, "handoff.config.json");
+{
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+  cfg.renewal = { ...(cfg.renewal ?? {}), enabled: true, recoveryPrompt: customRecoveryPrompt, testCommand: configuredTestCommand };
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + "\n");
+}
+
 /** Minimal RPC client (same protocol as e2e-rpc-two-process.mjs). */
 function startRpc({ dir, env, label }) {
   const records = [];
@@ -181,6 +197,35 @@ try {
   });
   const msgsB = fs.readFileSync(idB.sessionFile, "utf8");
   check("C1f: successor received the identity banner + recovery instruction BEFORE its first inference", /context-guard-identity/.test(msgsB) && /context-guard-recovery/.test(msgsB), `file ${path.basename(idB.sessionFile)}`);
+  // ---- dev.2 D1: the EXACT recovery message actually delivered in the real runtime ----
+  {
+    const rsForRec = JSON.parse(fs.readFileSync(path.join(clone, ".pi-guard", "renewal-state.json"), "utf8"));
+    let recContent;
+    for (const line of msgsB.split("\n")) {
+      if (!line.includes("context-guard-recovery")) continue;
+      try {
+        const rec = JSON.parse(line);
+        const c = rec.message?.content ?? rec.content ?? rec.data?.content;
+        if (typeof c === "string" && c.includes(promptMarker)) { recContent = c; break; }
+      } catch { /* not a JSON line */ }
+    }
+    check("D1: the configured recoveryPrompt reached the successor message VERBATIM (real runtime)", typeof recContent === "string" && recContent.includes(promptMarker), recContent ? recContent.slice(0, 160).replace(/\n/g, " ") : "(recovery message with marker not found)");
+    if (typeof recContent === "string") {
+      check("D1: the PROJECT-CONFIGURED test command is in the message (no hardcoded generic one)", recContent.includes(`verify the build before touching code: ${configuredTestCommand}`) && !/^Then verify the build before touching code: node --test test\/\.$/m.test(recContent), "configured compound command present; dev.1 default line absent");
+      const expected = buildRecoveryPrompt({
+        files: { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" },
+        checkpointId: rsForRec.renewedFromCheckpointId,
+        chainId: rsForRec.chainId,
+        renewalIndex: 1,
+        maxRenewals: 2,
+        parentSessionId: idA.sessionId,
+        recoveryPrompt: customRecoveryPrompt,
+        testCommand: configuredTestCommand,
+        extraNotes: notes1,
+      });
+      check("D1: successor message is BYTE-EXACT vs buildRecoveryPrompt reconstruction", recContent === expected, `actual ${recContent.length} chars vs expected ${expected.length} chars`);
+    }
+  }
   // Transcript-replay check: A's marker may legitimately reach B through the DURABLE
   // files (if A recorded it in LEARNINGS/HANDOFF and B read them in tool results);
   // a replay would show it in USER-role transcript entries copied from A.

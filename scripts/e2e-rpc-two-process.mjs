@@ -206,6 +206,7 @@ try {
 
   const renewTexts = a.uiTexts().join("\n");
   check("RENEW(e2e): /handoff renew status reports policy + durable chain", /renewal status/.test(renewTexts) && /policy: enabled=/.test(renewTexts) && /renewalsDone=\d+\/\d+/.test(renewTexts));
+  check("RENEW(e2e): renew status reports the PROJECT-CONFIGURED test command (dev.2 D1)", /testCommand=/.test(renewTexts), renewTexts.split("\n").find((l) => /testCommand=/.test(l))?.slice(0, 160) ?? "(no testCommand line)");
   check("RENEW(e2e): stop is durable and blocks the attempt; resume clears", /STOPPED/.test(renewTexts) && /NOT performed \(stopped\)/.test(renewTexts) && /RESUMED/.test(renewTexts));
   check("RENEW(e2e): no session switched without inference (session id unchanged)", (await a.command({ id: "a-state2", type: "get_state" })).data?.sessionId === idA);
   check("RENEW(e2e): renewal-state.json persisted durably", fs.existsSync(path.join(tree, ".pi-guard", "renewal-state.json")) && /"stopped": false/.test(fs.readFileSync(path.join(tree, ".pi-guard", "renewal-state.json"), "utf8")));

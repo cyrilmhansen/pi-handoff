@@ -87,7 +87,8 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 | `renewal.enabled` | `false` | master switch: nothing switches sessions unless true (commands and the tool still exist — they refuse with a named reason) |
 | `renewal.autoRenew` | `false` | *additionally* required for **model**-initiated renewal (`handoff_renew` tool and the `RENEWAL AVAILABLE` alert at level ≥ 3). `enabled` alone only permits the operator `/handoff renew`. Pressure alerts never force a transition by themselves |
 | `renewal.maxRenewals` | `2` | hard cap per renewal chain (chain state in `<stateDir>/renewal-state.json`) |
-| `renewal.recoveryPrompt` | built-in | optional override of the deterministic recovery instruction |
+| `renewal.recoveryPrompt` | built-in | replaces the GENERIC body of the successor recovery instruction; the mandatory identity header (renewal index, parent/chain/checkpoint ids, no-replay/no-compaction contract) and the safety trailer (initiative, never-push) are always kept (dev.2 D1) |
+| `renewal.testCommand` | `null` | project-configured build-verify command carried into the successor recovery message. Default `null`: the prompt contains NO build-verify line — generic test commands are never assumed (dev.2 D1, LEARNINGS A-26) |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable-file names used by checkpointing/validation |
 
 ## Generation reserve
@@ -146,7 +147,10 @@ CLI flags: `--guard-synthetic <n>`, `--guard-readonly 1`.
 `handoff.config.json` may carry a `renewal` block: `enabled` (default **false** — nothing
 switches sessions unless you say so), `autoRenew` (default **false** — model-initiated
 renewal needs this ON), `maxRenewals` (hard cap per chain, default 2), `recoveryPrompt`
-(optional override of the deterministic recovery instruction). Chain state persists at
+(overrides the generic recovery body; mandatory identity/safety parts of the message are
+always kept) and `testCommand` (project-configured build-verify line; with no explicit
+command the successor prompt carries NONE — the dev.1 hardcoded `node --test test/` was
+removed, LEARNINGS A-26). Chain state persists at
 `<stateDir>/renewal-state.json` and survives session replacement and process restarts;
 `/handoff renew stop` writes a DURABLE stop flag that successor sessions inherit.
 Renewal requires the full Phase 1c gate: current checkpoint ∧ consistent identity ∧

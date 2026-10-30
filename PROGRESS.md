@@ -15,7 +15,7 @@ Increments (P0 first):
 
 | # | Work | State |
 |---|---|---|
-| D1 | Recovery prompt: fix ignored `renewal.recoveryPrompt`; project-configured `renewal.testCommand`; remove hardcoded `node --test test/`; assert exact successor message | planned |
+| D1 | Recovery prompt: fix ignored `renewal.recoveryPrompt`; project-configured `renewal.testCommand`; remove hardcoded `node --test test/`; assert exact successor message | DONE (unit 137/138; real-runtime e2e 28/28; real-inference byte-exact check added to e2e-renew, re-run scheduled after D2) |
 | D2 | `/handoff finalize` + `handoff_finalize` tool: independent finalization (works capped/disabled/stopped; never switches, never touches chain state, never bypasses readiness) | planned |
 | D3 | Deterministic durable-document targeted editing (Python stdlib CLI): dry-run+diff, exact section targeting, ambiguity rejection, expected-hash concurrency guard, atomic replace, byte-identical non-target content, evidence-reference existence checks, no Git side effects; reuses guard checkpoint transaction for managed blocks (refuses to touch them) | planned |
 | D4 | Compact recovery: operational state vs methodology vs intact archives; ≤10-12k est. tokens mandatory material; opt-in `recovery.lean`; schema v3 compatible; DRPLi-sized fixture generated in tests | planned |

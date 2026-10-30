@@ -211,9 +211,14 @@ at most one successor (idempotence), and carries the durable operator stop.
 `decideRenewal()` refuses with a named reason in precedence order
 (stop > read-only > disabled > auto-disabled > pending > capped > not-authorized >
 already-renewed); the authorization input is `renewAuthorization()` (current ∧
-identity-consistent ∧ attested). `buildRecoveryPrompt()` is deterministic and names
-ONLY durable files (AGENTS/PROTOCOL/GOAL/HANDOFF/PROGRESS/LEARNINGS + the test command):
-no transcript replay, no LLM summarization, no compaction.
+identity-consistent ∧ attested). `buildRecoveryPrompt()` is deterministic: a mandatory
+identity header (renewal index, parent/chain/checkpoint ids, no-replay/no-compaction
+contract), then the project recovery body — the GENERIC one names ONLY durable files
+(AGENTS/PROTOCOL/GOAL/HANDOFF/PROGRESS/LEARNINGS), or the configured
+`renewal.recoveryPrompt` verbatim — then a build-verify line ONLY when
+`renewal.testCommand` is explicitly configured (the dev.1 hardcoded `node --test test/`
+was removed, LEARNINGS A-26), then the mandatory safety trailer (initiative,
+never-push). No transcript replay, no LLM summarization, no compaction.
 
 `renewal.enabled` and `renewal.autoRenew` mean DIFFERENT things: `enabled` switches the
 whole mechanism on (operator `/handoff renew` becomes possible); `autoRenew` *additionally*

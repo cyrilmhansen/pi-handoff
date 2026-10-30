@@ -848,7 +848,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const cpId = fresh.kind === "current" || fresh.kind === "stale" ? fresh.identity?.id ?? null : null;
     const lines = [
       `context-guard renewal status (state dir ${resolvedStateDir(g)})`,
-      `  policy: enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}${r.recoveryPrompt ? " recoveryPrompt=custom" : ""}`,
+      `  policy: enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}${r.recoveryPrompt ? " recoveryPrompt=custom" : ""}${r.testCommand ? ` testCommand=${JSON.stringify(r.testCommand)}` : " testCommand=(none — successor prompt carries no build-verify line)"}`,
       `  chain: ${chain.state.chainId || "(none yet)"} renewalsDone=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}${chain.state.lastSuccessorSessionId ? ` lastSuccessor=${chain.state.lastSuccessorSessionId}` : ""}`,
       `  operator stop: in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${chain.corrupt ? "; CHAIN STATE CORRUPT (treated as initial)" : ""}`,
       `  pending switch: ${renewalRuntime.pending ? `${renewalRuntime.pending.trigger} from ${renewalRuntime.pending.fromSessionId} (checkpoint ${renewalRuntime.pending.checkpointId})` : renewalRuntime.running ? "renewal command running" : "none"}`,
@@ -987,6 +987,8 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         renewalIndex,
         maxRenewals: g.config.renewal.maxRenewals,
         parentSessionId: g.sessionId,
+        recoveryPrompt: g.config.renewal.recoveryPrompt,
+        testCommand: g.config.renewal.testCommand,
         extraNotes: notes,
       });
       const fromSessionId = g.sessionId;

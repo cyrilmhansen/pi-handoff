@@ -17,7 +17,8 @@
   "renewal": {
     "enabled": true,
     "autoRenew": false,
-    "maxRenewals": 2
+    "maxRenewals": 2,
+    "testCommand": "node --test test/"
   },
   "files": {
     "goal": "GOAL.md",
