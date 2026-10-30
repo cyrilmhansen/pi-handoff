@@ -7,8 +7,13 @@ Do this from the context-guard source project (this repo), into the target proje
 
 ```
 <target>/.pi/extensions/context-guard/
-  index.ts core.ts config.ts checkpoint.ts renewal.ts
+  index.ts core.ts config.ts checkpoint.ts renewal.ts recovery.ts diagnostics.ts
 ```
+
+Seven modules as of dev.2 (`recovery.ts` = D4 lean tiers + cost meter,
+`diagnostics.ts` = D5c event trail); the list is machine-checked against the runtime's
+local import closure by `test/docs.test.ts` DC2 — if a release adds a module, this file
+must be updated or the suite fails.
 
 Runtime imports are Node built-ins + sibling modules; Pi loads them through `jiti`
 (no build step). Node ≥ 23 is required for type-stripping.
@@ -25,6 +30,15 @@ Start from the defaults; then tune for the model actually used (see commands.md
 - `"renewal"`: keep `enabled: false` until Phase-1-style recovery has been walked
   through manually at least once; `autoRenew` stays `false` unless the operator
   explicitly accepts model-initiated session switching; set `maxRenewals` (default 2).
+  Configure `renewal.testCommand` explicitly (default `null` = NO build-verify line in
+  the successor prompt — dev.2 D1 never assumes one) and optionally
+  `renewal.recoveryPrompt` (replaces the generic body; identity header + safety
+  trailer are always kept).
+- `"recovery"` (dev.2 D4): `lean: false` by default — a fresh session reads all six
+  durable files; `lean: true` (or env `CONTEXT_GUARD_LEAN=1`) switches the successor
+  recovery instruction to tiers (operational → methodology → archive). All six files
+  stay authoritative either way; tiering defers reading, never drops authority.
+  `budgetTokens` (default 12000) is the chars/4-estimated operational-tier budget.
 
 ## 3. Create the six durable files (target root)
 

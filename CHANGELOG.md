@@ -3,61 +3,16 @@
 All notable changes. Versions are pre-1.0 development tags; the guard ships as
 project-local files (`.pi/extensions/context-guard/`), no package registry.
 
-## Unreleased — D8: Rune CI integration (operator-authorized; no guard behavior change)
-
-Pi Handoff now has two builders on the existing local Rune CI Buildbot
-(`/home/john/services/rune-ci`), running its suites off the agent's critical
-path. **Production context-guard code is untouched**; this entry records the
-CI integration only.
-
-### Added
-- **`handoff-integration` builder** — `node --test test/` +
-  `scripts/e2e-rpc-two-process.mjs` + `scripts/check-skill-discovery.mjs`
-  (zero inference, ~33 s measured). Non-blocking submit/status/failures/logs
-  via `bin/rune-ci-handoff`; exact-SHA pinning (verify-revision reused
-  unmodified + HEAD before/after in the runner); isolated per-build Pi agent
-  state; bounded per-command timeouts with process-group kill (no orphans);
-  verdicts `passed | failed | build_failed | infra_error | incomplete(timeout)`
-  kept distinct; infra runs carry NO counts; counts are always the numbers the
-  tools printed.
-- **`handoff-live` builder** — adds `scripts/e2e-renew.mjs` (REAL Pi/Sushi
-  inference). Never automatic; the client refuses without `--allow-inference`.
-  Validated by unit/stub tests only; the first live-spending run is an
-  explicit operator decision (concurrency with interactive Pi sessions on the
-  same Sushi server is the exact case the opt-in guards).
-- **Namespace guarantees**: handoff builders are injected via
-  `master/buildbot.tac` (NOT fingerprinted) so every DRPLi fingerprint input —
-  `master.cfg` and the hashed CI scripts — stays byte-identical and cached
-  DRPLi verdicts/job identities are unchanged (asserted by
-  `tests/test_handoff.py`). Handoff has its own fingerprint domain
-  (`handoff-ci/1`), its own job store (`state/handoff-jobs.json`) and its own
-  project-keyed idempotency; a DRPLi result can never be reused for handoff.
-- **rune-ci test suite**: +41 tests (`tests/test_handoff.py`): DRPLi
-  backward-compatibility, revision pinning (match/mismatch/moved/unpinned),
-  the full classification table against stub commands, orphan-kill proof,
-  count parsing, live-suite opt-in gate, store separation. Full run:
-  133 tests OK (92 DRPLi unchanged + 41 new).
-
-### Fixed
-- `test/cleanup.test.ts` CL7e assumed the gitignored `.pi-guard/sessions`
-  existed in the project tree — ENOENT in a fresh CI clone. The first real
-  integration build (bs54) reported it as FAILED with the test named
-  (199/201 FAILED 1) — the CI doing exactly its job; test-only fix,
-  re-verified green on the fixed tip in CI (bs56: 200/201 skip 1,
-  e2e 38/38, probe 8/8). LEARNINGS A-38.
-
-### Evidence (live master, 2026-10-30)
-- bs54 failed 33s (found the CL7e defect) · bs55 probe `77ff8d3c` FAILED 33s
-  with `D8-PROBE: deliberate failure` named, exit-class `failed` not
-  `infra_error` · bs56 `435c294` PASSED 33s, warnings [], idempotent re-submit
-  returned `reused bs56` in 0.5s · bs57 DRPLi smoke still passed, no
-  fingerprint warning (cached-verdict semantics preserved).
-
 ## v0.1.0-dev.2 — RELEASE-READY CANDIDATE (pending operator review; NOT tagged/pushed)
 
 Baseline: tag `v0.1.0-dev.1` (`2ea6219`). Operator-authorized mission: reliability and
 recovery-efficiency work driven by the eight-renewal DRPLi campaign audit (evidence:
 LEARNINGS A-26/A-27/P-10; metrics reproduced from the local read-only audit).
+**Candidate scope:** D1–D6 (the mission), D7 (test-artifact lifecycle, operator-
+authorized increment), D8 (Rune CI integration record — service files live in the
+external Rune CI deployment, NOT in this repository; see the D8 section) and D9 (final
+skill & release documentation audit — docs + one regression test, no guard behavior
+change).
 
 ### Fixed
 
@@ -157,6 +112,106 @@ LEARNINGS A-26/A-27/P-10; metrics reproduced from the local read-only audit).
   `renewal.maxRenewals` 2→8; `generationReserve` 20000→5000; explicit
   `renewal.testCommand`.
 
+### D8 — Rune CI integration (operator-authorized 2026-10-30; NO guard behavior change; part of this candidate)
+
+**Packaging note (v0.1.0-dev.2 wording reconciliation):** the Rune CI service files
+named below (`ci/handoff_*.py`, `master/handoff_builders.py`, `master/buildbot.tac`,
+`bin/handoff_ci_lib.py`, `bin/rune-ci-handoff`, `tests/test_handoff.py`) live in the
+separate Rune CI deployment at `/home/john/services/rune-ci` — they are **NOT
+packaged in this Git repository and are NOT part of the tag's contents**. What this
+repository contributes to D8 is the test-only CL7e portability fix (`435c294`) and
+the evidence record (this section, LEARNINGS A-38/A-39). D8 was previously headed
+"Unreleased"; the candidate intentionally includes it, so the release wording here
+folds it under v0.1.0-dev.2 without claiming the CI service files ship in this tree.
+
+Pi Handoff now has two builders on the existing local Rune CI Buildbot
+(`/home/john/services/rune-ci`), running its suites off the agent's critical
+path. **Production context-guard code is untouched**; this entry records the
+CI integration only.
+
+#### Added
+- **`handoff-integration` builder** — `node --test test/` +
+  `scripts/e2e-rpc-two-process.mjs` + `scripts/check-skill-discovery.mjs`
+  (zero inference, ~33 s measured). Non-blocking submit/status/failures/logs
+  via `bin/rune-ci-handoff`; exact-SHA pinning (verify-revision reused
+  unmodified + HEAD before/after in the runner); isolated per-build Pi agent
+  state; bounded per-command timeouts with process-group kill (no orphans);
+  verdicts `passed | failed | build_failed | infra_error | incomplete(timeout)`
+  kept distinct; infra runs carry NO counts; counts are always the numbers the
+  tools printed.
+- **`handoff-live` builder** — adds `scripts/e2e-renew.mjs` (REAL Pi/Sushi
+  inference). Never automatic; the client refuses without `--allow-inference`.
+  Validated by unit/stub tests only; the first live-spending run is an
+  explicit operator decision (concurrency with interactive Pi sessions on the
+  same Sushi server is the exact case the opt-in guards).
+- **Namespace guarantees**: handoff builders are injected via
+  `master/buildbot.tac` (NOT fingerprinted) so every DRPLi fingerprint input —
+  `master.cfg` and the hashed CI scripts — stays byte-identical and cached
+  DRPLi verdicts/job identities are unchanged (asserted by
+  `tests/test_handoff.py`). Handoff has its own fingerprint domain
+  (`handoff-ci/1`), its own job store (`state/handoff-jobs.json`) and its own
+  project-keyed idempotency; a DRPLi result can never be reused for handoff.
+- **rune-ci test suite**: +41 tests (`tests/test_handoff.py`): DRPLi
+  backward-compatibility, revision pinning (match/mismatch/moved/unpinned),
+  the full classification table against stub commands, orphan-kill proof,
+  count parsing, live-suite opt-in gate, store separation. Full run:
+  133 tests OK (92 DRPLi unchanged + 41 new).
+
+#### Fixed
+- `test/cleanup.test.ts` CL7e assumed the gitignored `.pi-guard/sessions`
+  existed in the project tree — ENOENT in a fresh CI clone. The first real
+  integration build (bs54) reported it as FAILED with the test named
+  (199/201 FAILED 1) — the CI doing exactly its job; test-only fix,
+  re-verified green on the fixed tip in CI (bs56: 200/201 skip 1,
+  e2e 38/38, probe 8/8). LEARNINGS A-38.
+
+#### Evidence (live master, 2026-10-30)
+- bs54 failed 33s (found the CL7e defect) · bs55 probe `77ff8d3c` FAILED 33s
+  with `D8-PROBE: deliberate failure` named, exit-class `failed` not
+  `infra_error` · bs56 `435c294` PASSED 33s, warnings [], idempotent re-submit
+  returned `reused bs56` in 0.5s · bs57 DRPLi smoke still passed, no
+  fingerprint warning (cached-verdict semantics preserved).
+
+### Documentation (D9 — final skill & release documentation audit)
+
+Pre-tag audit of the bundled skill, the guide and the release wording; production guard
+behavior, renewal wiring and `handoff.config.json` NOT touched (docs + one test file).
+Confirmed defects fixed:
+
+- `references/bootstrap.md` §1 and `docs/long-project-guide.md` §1/§2 listed the
+  obsolete FIVE-module extension; dev.2 ships seven local modules (`recovery.ts`,
+  `diagnostics.ts` added by D4/D5c). Both recipes now list all seven — machine-checked
+  by the new `test/docs.test.ts` (DC1–DC5): every documented module list must equal
+  the runtime's transitive local-import closure of `index.ts` (which must in turn
+  equal the shipped file set), and every env override the extension reads —
+  `CONTEXT_GUARD_LEAN`, `GUARD_VERSION` included — must be documented in
+  `commands.md` and README.
+- `SKILL.md` now distinguishes the DEFAULT full six-file eager recovery from the
+  opt-in TIERED recovery (`recovery.lean: true` / `CONTEXT_GUARD_LEAN=1`, dev.2 D4:
+  operational → methodology → archive; authority never dropped), in "At session
+  start" and in the renewal successor-body description.
+- `references/commands.md`: version reference corrected from "Phase 2 increments
+  A+B+C" to the dev.2 candidate scope; D4 config rows (`recovery.lean`,
+  `recovery.budgetTokens`), D6 crossing-point reporting in `/guard status` + the
+  crossing arithmetic under Budget arithmetic, the D4 recovery-cost meter (status /
+  verify), the D5c `<stateDir>/diagnostics.jsonl` state location, and the previously
+  missing env overrides added.
+- Guide obsolete examples: module count/list; reserve & closing examples aligned
+  with the dev.2 project config (`generationReserve` 5 000 ⇒ nominal crossings
+  185k/195k/205k/210k used; P-7 live observation still open); the §5 closing line
+  gained `/handoff finalize` (D2); the §7 Rune CI mapping row reflects D8 (handoff
+  builders exist on the Buildbot; guard code still never touches CI); §6 proven/not-
+  proven list extended (A-35/A-36); §9 evidence pointer extended (A-26…A-41).
+- CHANGELOG: D8 folded under `v0.1.0-dev.2` (previously headed "Unreleased") with an
+  explicit packaging note that the Rune CI service files live in the external
+  deployment and are NOT part of this repository or the tag contents.
+- README: "Current status" extended with D8/D9 and the new suite baseline; the
+  experimental-reserve paragraph updated from the Phase 2 `20000` figure to the
+  dev.2 operator decision `5000` (nominal L4 closing ≈210 k used; A-36 observed the
+  crossing LINE live, the closing point itself was never REACHED — P-7 open).
+
+Evidence: LEARNINGS A-41 (docs-drift class + closure-check pattern).
+
 ### Compatibility
 
 - Checkpoint schema remains **v3**; runtime state schema unchanged; dev.1 checkpoints
@@ -190,25 +245,31 @@ disposable; dev.1 ignores the new config keys (whitelist merge skips unknowns).
 
 ### Release readiness
 
-- Gates on the candidate (zero inference): unit suite **200 pass / 1 gated skip**
-  (incl. D7 `test/cleanup.test.ts`); real-runtime
-  `scripts/e2e-rpc-two-process.mjs` **38/38**; skill discovery probe **8/8** — both
-  re-run green AFTER the D7 driver refactor with the REAL pi.
+- Gates on the candidate (zero inference): unit suite **205 pass / 1 gated skip**
+  (206 tests; incl. D7 `test/cleanup.test.ts` and the D9 `test/docs.test.ts`
+  doc-consistency regressions DC1–DC5); real-runtime
+  `scripts/e2e-rpc-two-process.mjs` **38/38**; skill discovery probe **8/8** — re-run
+  green after the D7 driver refactor AND after the D9 docs pass; the Rune CI
+  `handoff-integration` builder runs the same gates on the candidate tip (build
+  numbers recorded in PROGRESS.md/HANDOFF.md; D8 evidence above).
 - Real inference: `scripts/e2e-renew.mjs` **24/24** on the pre-D7 candidate `b07e29b`
   — model-initiated hop 1 under the D5b preview gate, byte-exact recovery message
   (D1), productive successor commits, cap refusal, zero replay, zero compaction
   (A-36). D7 changed only the driver's artifact lifecycle, NOT the renewal wiring;
   the live 24-check re-run after D7 has NOT been spent (operator decision — the
   real-inference budget rule applies).
-- Evidence trail: LEARNINGS A-28…A-37; commits `6e61967` (D1), `8674c90` (D2),
-  `1d48de3` (D3), `fcea69c`/`b6445aa` (pre-D5 adjustments), `05379b0` (D5),
-  `b86b0fe` (D4), `d77ef48` (D6) + checkpoint refreshes + D7.
+- Evidence trail: LEARNINGS A-28…A-37 (dev.2 + D7), A-38/A-39 (D8), A-41 (D9); commits
+  `6e61967` (D1), `8674c90` (D2), `1d48de3` (D3), `fcea69c`/`b6445aa` (pre-D5
+  adjustments), `05379b0` (D5), `b86b0fe` (D4), `d77ef48` (D6) + checkpoint refreshes
+  + D7 (`f399fce`) + D8 (`435c294` test fix, `9c94073` records) + D9 (docs audit commit).
 - NOT claimed (open, stated honestly): P-5 generalized concurrent renewal safety;
   P-7 live closing point under real token accounting (nominal crossings are printed
   live but were never REACHED); scripted full-audit procedure (P-3 gap); live campaign
-  benefit of lean tiers (fixture + meter projection only); the dev.2 candidate as the
-  dogfooding guard of THIS session series (this session loaded the pre-D6 candidate —
-  A-31 mechanics; a session restart picks up the tip).
+  benefit of lean tiers (fixture + meter projection only). Dogfooding status: sessions
+  started after `d77ef48` — including the D8 checkpoint session and the D9 docs
+  session — loaded the dev.2 candidate from the tree (identity banner
+  `v0.1.0-dev.2`); the pre-D6-load caveat of the morning session pair (A-31
+  mechanics) is superseded by that restart.
 - Operator actions outstanding: review, then (separately authorized) tag/reuse in
   `drpli`. Nothing pushed; DRPLi untouched.
 

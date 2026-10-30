@@ -127,10 +127,18 @@ Completed milestones (history; evidence in LEARNINGS.md, code in git):
       on signals); shared `scripts/lib/e2e-cleanup.mjs`; 13 lifecycle tests;
       LEARNINGS A-37; CHANGELOG.md. NOT tagged, NOT pushed.
 
+- [x] **D9 final skill & release documentation audit (COMPLETE 2026-10-30,
+      operator-authorized):** pre-tag docs pass — seven-module install recipes, SKILL.md
+      full-vs-lean recovery wording, commands.md dev.2 refresh (D4 config, D6 crossings,
+      env overrides, version), guide obsolete examples, CHANGELOG D8 folded under
+      v0.1.0-dev.2 (external Rune-CI files explicitly NOT claimed as packaged here),
+      README status/reserve corrections, regression guard `test/docs.test.ts` DC1–DC5
+      (LEARNINGS A-41). Docs + one test file; production guard untouched.
+
 Outstanding (operator decisions and open proofs — NOT development tasks):
 
-- [ ] **Operator review** of the v0.1.0-dev.2 candidate (and the earlier documentation
-      consolidation).
+- [ ] **Operator review** of the v0.1.0-dev.2 candidate (incl. D7, D8, D9 and the
+      earlier documentation consolidation).
 - [ ] **`drpli` reuse: separate, explicitly authorized operator action. Nothing has been
       deployed there.**
 - [ ] Operator decision: `renewal.autoRenew` project default (currently false; enabling
@@ -139,15 +147,18 @@ Outstanding (operator decisions and open proofs — NOT development tasks):
       projection ≈69 % less first-turn reading on this tree — A-36 — not activated).
 - [ ] P-5: generalized concurrent renewal safety — only the specific two-process
       invariants of A-16 were tested; do NOT claim concurrency is proven.
-- [ ] P-7: live observation of the ≈195 k closing point under real token accounting
-      (the renewal experiment triggered with synthetic pressure).
+- [ ] P-7: live observation of the nominal closing point under real token accounting
+      (≈195 k at the earlier reserve 20 000; dev.2 config reserves 5 000 ⇒ ≈210 k;
+      the renewal experiments triggered with synthetic pressure).
 - [ ] Live interactive-session walkthrough of `/guard simulate` with a real Sushi model
       (token-accounting sanity check; do not spend tokens hunting thresholds).
 - [ ] A-22 follow-up: "config-changed-since-session-start" notice (proposal, unbuilt).
 
 ## Next action
-**STOP — dev.2 + D7 + D8 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37/A-38/A-39,
-CHANGELOG.md). No further implementation without operator direction.** D8 adds
+**STOP — dev.2 + D7 + D8 + D9 COMPLETE, awaiting OPERATOR REVIEW (A-36/A-37/A-38/
+A-39/A-41, CHANGELOG.md §v0.1.0-dev.2 incl. D8 + D9). No further implementation
+without operator direction.** D9 closed the pre-tag documentation audit; the candidate
+docs now match the runtime surface (machine-checked by DC1–DC5). D8 adds
 decision points: authorize a `--suite live` spend (real inference; do not run it
 alongside interactive Pi sessions on Sushi), decide whether to keep/extend the
 tac-injection design, and optionally greenlight A-40 (unit-fixture /tmp cleanup).
@@ -218,10 +229,11 @@ Open caveats (durable knowledge lives in LEARNINGS.md):
 - RPC-mode startup race: commands dispatched before `session_start` hit an
   uninitialized extension; liveness probes must trigger a response (`/guard status`
   polling — A-9/A-20).
-- The identity banner in `index.ts` still self-describes as "Phase 2 increment B"
-  (hardcoded label, index.ts:311) although increment C is complete. Cosmetic
-  implementation-layer doc inconsistency; OUT OF SCOPE for this docs-only pass —
-  recorded here and in LEARNINGS (Proposed) as a finding.
+- The identity banner in `index.ts` once self-described as "Phase 2 increment B"
+  (hardcoded label; recorded as a finding in the pre-dev.2 docs pass). RESOLVED in
+  dev.2 D5d (commit `05379b0`): the banner is now `context-guard (project-local,
+  v<GUARD_VERSION>)` with an env-overridable `GUARD_VERSION` (P-9 resolved). Kept
+  here so this file's history stays honest about what was known when.
 - Historical note: before the consolidation, this file carried obsolete Phase 1c
   repair instructions ("suite is RED, do NOT commit", 55-test baseline, step lists)
   that could have misled a fresh session into re-doing completed work. The

@@ -298,6 +298,30 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
   state store (`state/handoff-jobs.json`) so the two clients can never reuse
   each other's results. A broken handoff module degrades to "master starts
   without handoff builders" (try/except in tac), never to "DRPLi is down".
+- [A-41] **Documented surfaces drift from runtime surfaces unless machine-checked
+  (D9 docs audit, accepted 2026-10-30).** The pre-tag audit found the bundled skill
+  (`references/bootstrap.md` §1) and `docs/long-project-guide.md` §1/§2 still
+  prescribing a FIVE-module extension although dev.2 D4/D5c shipped seven
+  (`recovery.ts`, `diagnostics.ts`) — the README Layout was correct, so only the
+  *install recipes* were wrong; `commands.md` carried the stale "Phase 2 increments
+  A+B+C" version reference, missed the D4 `recovery.lean`/`recovery.budgetTokens`
+  config keys, the D6 crossing-point reporting, the diagnostics state location and
+  the `CONTEXT_GUARD_LEAN`/`GUARD_VERSION` env overrides; README's "this project now
+  uses generationReserve: 20000" was obsolete after the dev.2 operator decision
+  (5000 ⇒ nominal crossings 185k/195k/205k/210k); the guide's §7 Rune-CI row still
+  claimed "the guard never touches CI" although D8 added handoff builders (operator-
+  authorized). LESSON (generalizes A-15 from load-time to documentation-time):
+  anything the docs enumerate about the code (module lists, env vars, config keys)
+  needs a regression test that DERIVES the truth from the code — `test/docs.test.ts`
+  DC1–DC5 computes the transitive local-import closure of `index.ts` and requires
+  bootstrap §1, guide §2 + module count, README Layout and both env-override lists
+  to match it exactly; proven red-then-green against the defective docs. Also
+  reconciled release wording: D8 was headed "Unreleased" although the candidate
+  intentionally includes it — folded under v0.1.0-dev.2 with an explicit note that
+  the Rune CI service files live in the external deployment (`/home/john/services/
+  rune-ci`) and are NOT packaged in this repository or the tag. Production guard,
+  renewal wiring and config UNCHANGED (docs + one test file; suite 205 pass/1 skip).
+  confidence: high. adopted: yes (DC tests in the gated suite; CHANGELOG dev.2 §D9).
 
 ## Proposed
 

@@ -12,10 +12,19 @@ alone** — no transcript replay, no lossy compaction.
 
 ## At session start
 
-1. Read the durable files in the order the project prescribes (typically
-   `AGENTS.md` → `PROTOCOL.md` → `GOAL.md` → `HANDOFF.md` → `PROGRESS.md` → `LEARNINGS.md`).
+1. Read the durable files in the order the project prescribes. Two recovery modes:
+   - **Full recovery (default, `recovery.lean: false`)** — read ALL six eagerly,
+     typically `AGENTS.md` → `PROTOCOL.md` → `GOAL.md` → `HANDOFF.md` → `PROGRESS.md`
+     → `LEARNINGS.md`.
+   - **Lean tiers (opt-in, dev.2 D4: `recovery.lean: true` or `CONTEXT_GUARD_LEAN=1`)**
+     — read the OPERATIONAL tier NOW (`HANDOFF.md`, `PROGRESS.md`); the METHODOLOGY
+     tier (`AGENTS.md`, `PROTOCOL.md`) when a procedure question arises; the ARCHIVE
+     tier (`GOAL.md`, `LEARNINGS.md`) by reference, on demand. Tiering DEFERS reading,
+     never drops authority: all six files stay authoritative and named, and an
+     explicit `renewal.recoveryPrompt` still overrides the successor body either way.
    In `HANDOFF.md`/`PROGRESS.md`, **manual prose always wins** over the
-   `<!-- guard:begin checkpoint -->` managed block.
+   `<!-- guard:begin checkpoint -->` managed block. The successor of a renewal receives
+   the matching recovery instruction automatically (tiered only when lean is on).
 2. Heed the guard's `session_start` notice (identity banner, checkpoint freshness:
    missing/corrupt/stale/current). If stale, refresh with `/handoff` — it rewrites only
    managed blocks; hand-authored text survives byte-for-byte.
@@ -59,7 +68,9 @@ A revocation notice means pressure dropped and a previous closing instruction is
 - `/handoff renew [notes]` (operator) or the `handoff_renew` tool (model; needs
   `renewal.autoRenew: true`): waits for a safe boundary, refreshes + attests, persists
   chain state, then replaces the session. The successor starts **fresh** — identity
-  banner + deterministic recovery naming only durable files.
+  banner + deterministic recovery naming only durable files; the recovery body is the
+  full six-file read unless `recovery.lean` is enabled (D4 tiers) or a
+  `renewal.recoveryPrompt` overrides it.
 - `/handoff renew stop|resume|status` — durable operator stop (inherited by successors),
   resume, chain state view. Hard cap `maxRenewals` per chain; each checkpoint seeds at
   most one successor (idempotence); pending switches are cancellable.
@@ -78,7 +89,9 @@ A revocation notice means pressure dropped and a previous closing instruction is
 - `/guard simulate <remainingTokens>` forces a threshold crossing; `/guard reset`
   re-arms alerts and re-baselines the GOAL hash (testing only).
 - `/guard status` prints the full budget breakdown, provenance, identity/readiness,
-  renewal line. `/guard events [n]` tails the structured diagnostics trail
+  renewal line, the escalation crossing points in estimated used tokens (dev.2 D6) and
+  the recovery-cost meter (full vs lean tiers, chars/4 estimates, dev.2 D4).
+  `/guard events [n]` tails the structured diagnostics trail
   (`<stateDir>/diagnostics.jsonl`; typed, bounded, never prompts/args/secrets;
   `agent_settled.aborted` is recorded for attribution and NEVER auto-retried).
 - Read-only audit session: `CONTEXT_GUARD_READONLY=1 CONTEXT_GUARD_STATE_DIR=/tmp/...

@@ -5,9 +5,12 @@ are COMPLETE:** Phases 1, 1b, 1c, 1d, Phase 2 increments A+B+C, the **v0.1.0-dev
 reliability/recovery-efficiency mission** (D1-D6 + all dogfood proofs — LEARNINGS
 A-28…A-36, CHANGELOG.md), the **D7 test-artifact lifecycle increment** (LEARNINGS
 A-37) and the **D8 Rune CI integration** (async integration builds on the existing
-Buildbot — LEARNINGS A-38/A-39; runner/test evidence in CHANGELOG Unreleased; the
-CL7e dev-tree-dependency fix `435c294` came out of the first real CI build bs54).
-Current next action: **STOP — operator review of the dev.2 + D7 + D8 candidate**;
+Buildbot — LEARNINGS A-38/A-39; runner/test evidence in CHANGELOG §v0.1.0-dev.2 "D8"; the
+CL7e dev-tree-dependency fix `435c294` came out of the first real CI build bs54), and
+the **D9 final skill & release documentation audit** (seven-module recipes, lean-tier
+wording, commands.md D4/D6/env refresh, guide obsolete examples, CHANGELOG D8 folded
+under dev.2; regression test `test/docs.test.ts` DC1–DC5 — LEARNINGS A-41).
+Current next action: **STOP — operator review of the dev.2 + D7 + D8 + D9 candidate**;
 tagging/push, the authorized live-suite spend and `drpli` reuse each require
 separate explicit authorization. No implementation work is pending.
 
@@ -23,7 +26,7 @@ Every fresh session:
 1. Read `AGENTS.md`, `PROTOCOL.md`, `GOAL.md`, `HANDOFF.md`, `PROGRESS.md` (in that
    order; manual prose in HANDOFF/PROGRESS wins over `guard:begin checkpoint` managed
    blocks — schema v3; freshness is reported at `session_start` and via `/handoff verify`).
-2. Verify with `node --test test/` (expect **200 pass / 1 gated skip**) before touching
+2. Verify with `node --test test/` (expect **205 pass / 1 gated skip**) before touching
    code. Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs`
    (**38/38**, incl. the capped-chain finalize proof), `node scripts/check-skill-discovery.mjs`
    (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate

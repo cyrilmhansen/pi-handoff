@@ -8,9 +8,12 @@ dependencies, no LLM involvement in the guard itself.
 
 **Current status.** Phases 1, 1b, 1c, 1d and Phase 2 (increments A+B+C) are COMPLETE;
 renewal is proven live with real inference (LEARNINGS A-23); the v0.1.0-dev.2 mission
-(D1–D6) plus the D7 test-artifact lifecycle increment are COMPLETE (pending operator
-review; not tagged/pushed). Verification baselines:
-`node --test test/` → 200 pass / 0 fail / 1 gated skip; `node
+(D1–D6) plus the D7 test-artifact lifecycle increment, the D8 Rune CI integration
+(records only — the CI service files live in the separate Rune CI deployment
+`/home/john/services/rune-ci`, NOT in this repository; LEARNINGS A-38/A-39) and the
+D9 final skill & release documentation audit (LEARNINGS A-41) are COMPLETE (pending
+operator review; not tagged/pushed). Verification baselines:
+`node --test test/` → 205 pass / 0 fail / 1 gated skip; `node
 scripts/e2e-rpc-two-process.mjs` → 38/38 (real runtime, zero inference); `node
 scripts/check-skill-discovery.mjs` → 8/8 (real runtime, zero inference); `node
 scripts/e2e-renew.mjs` → 24/24 (spends real inference — last live run on the dev.2
@@ -69,7 +72,7 @@ sibling modules. Pi loads it through `jiti` (verified).
 ## Run tests
 
 ```bash
-node --test test/          # 201 tests (200 pass + 1 skipped: gated real-Pi e2e), no inference, no installs
+node --test test/          # 206 tests (205 pass + 1 skipped: gated real-Pi e2e), no inference, no installs
 node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (38 checks)
 node scripts/check-skill-discovery.mjs # real pi 1.4.0: project skill discovery + trust-gated extension auto-load, zero inference (8 checks)
 node scripts/e2e-renew.mjs             # REAL inference: A→B→C renewal chain proof (24 checks); re-run after any renewal-wiring change
@@ -157,20 +160,22 @@ be active at session start. Example profile: `docs/profiles/experimental-95k.jso
 real `mergeConfig` path, D6x1 reproduces the A-11 Sushi figures (124 464 / 134 464 /
 144 464 / 149 464) from the same function.
 
-**Experimental policy change (Phase 2, adopted for this project):** this project now uses
-`"generationReserve": 20000` (LEARNINGS P-7, adopted experimentally for renewal work).
-With the declared 220 000 window and default thresholds this moves nominal closing from
-≈150 k to ≈195 k estimated tokens used — level crossings at used ≥ 170 000 (L1),
-180 000 (L2), 190 000 (L3), **195 000 (L4 enforced)** — verified arithmetically through
-`computeBudget` + `ContextPressureMachine` (220000 − 20000 − 5000 = 195000). This is a
-BUDGET change only: it does NOT modify global Pi or Sushi settings and does NOT cap
-output; per A-12 Pi still clamps `max_tokens` per request, so a generation that outruns
-the reserve is provider-truncated, the estimate grows, and the guard escalates. Trade-off
-accepted for Phase 2: longer productive window per session before renewal, at the cost of
-less headroom between the L4 alert and the true window edge. **Accuracy caveat:** the
-real-inference renewal experiment (A-23) triggered with *synthetic* pressure, so the
-≈195 k closing point is arithmetically verified but has NOT been live-observed under real
-token accounting (LEARNINGS P-7 — live confirmation still open).
+**Experimental policy (current for this project, dev.2):** Phase 2 adopted
+`"generationReserve": 20000` experimentally for renewal work (LEARNINGS P-7); the
+dev.2 operator decisions moved it to **5 000** (chain-safe per A-32 + RN15) with
+thresholds 30k/20k/10k/5k. With the declared 220 000 window the nominal crossings are
+then at used ≥ 185 000 (L1), 195 000 (L2), 205 000 (L3), **210 000 (L4 enforced)**
+(220000 − 5000 − threshold) — `crossingPoints`/`/guard status` print these since D6,
+and the numeric line was observed live (A-36). This is a BUDGET change only: it does
+NOT modify global Pi or Sushi settings and does NOT cap output; per A-12 Pi still
+clamps `max_tokens` per request, so a generation that outruns the reserve is
+provider-truncated, the estimate grows, and the guard escalates. Trade-off accepted:
+longer productive window per session before renewal, at the cost of less headroom
+between the L4 alert and the true window edge. **Accuracy caveat:** the real-inference
+renewal experiments (A-23/A-36) triggered with *synthetic* pressure, so the nominal
+closing point — ≈195 k at the earlier reserve 20 000, ≈210 k now — is arithmetically
+verified but has NOT been live-observed (crossings printed live, never REACHED;
+LEARNINGS P-7 — live confirmation still open).
 
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<tokens>`, `CONTEXT_GUARD_READONLY=1`,

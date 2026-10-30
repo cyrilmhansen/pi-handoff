@@ -1,20 +1,23 @@
 # context-guard — command, configuration and state reference
 
-Verified against pi-handoff (Pi 1.4.0, context-guard Phase 2 increments A+B+C).
-Everything below exists in the installed extension; behavior details live in the
-project's `PROTOCOL.md`.
+Verified against pi-handoff **v0.1.0-dev.2** (Pi 1.4.0): Phases 1a–1d, Phase 2
+increments A+B+C, dev.2 D1–D6 (recovery-prompt fix, finalization, durable-edit script,
+lean recovery tiers, honest alerts + diagnostics, crossing points). D7 covers only the
+repo's e2e script lifecycle; D8 (Rune CI integration) lives OUTSIDE this extension —
+the CI service files are not part of the guard and nothing here changes with them.
+Behavior details live in the project's `PROTOCOL.md`.
 
 ## Commands (extension slash-commands; handled without a model turn)
 
 | Command | Effect |
 |---|---|
-| `/guard status` | Full budget report: model, window + source, estimated used, raw remaining, reserve + source + fraction, usable remaining, level, next threshold, measurement provenance (real/synthetic/unknown), inconsistencies, checkpoint identity/readiness, renewal line |
+| `/guard status` | Full budget report: model, window + source, estimated used, raw remaining, reserve + source + fraction, usable remaining, level, next threshold, **escalation crossing points in estimated used tokens** (dev.2 D6: `window − reserve − threshold` per level, reserve provenance, enforced/advisory kind, `!! too tight` flag for crossings ≤ 0, honest "the guard never changes the model window" line), measurement provenance (real/synthetic/unknown), inconsistencies, checkpoint identity/readiness, renewal line, **recovery-cost meter** (dev.2 D4: full-set vs lean-tier chars and chars/4 estimates, A-1 caveat) |
 | `/guard simulate <remainingTokens>` | Synthetic pressure for this session (state-machine testing, no inference) |
 | `/guard reset` | Re-arm alerts, re-baseline GOAL hash, rebuild the machine (testing/re-baselining only) |
 | `/guard verify-checkpoint` | Checkpoint classification + readiness + renewal authorization |
 | `/guard events [n]` | Tail of `<stateDir>/diagnostics.jsonl` (dev.2 D5c): typed, bounded events — session_start/alert/revocation/renewal_request/renewal_result/finalize/tool_block/turn_aborted; never prompts/args/secrets; audit mode with in-tree stateDir reports "not persisted" |
 | `/handoff [notes]` | Write checkpoint (managed blocks of HANDOFF.md + PROGRESS.md only) |
-| `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources) |
+| `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources); also prints the recovery-cost meter (dev.2 D4) |
 | `/handoff ready` | Evaluate + attest readiness (bound to checkpoint id). `/handoff ready check` = evaluate only |
 | `/handoff finalize [notes]` | Independent closing (dev.2 D2): refresh-if-stale + readiness + attest in one synchronous step; works with renewal disabled/capped/stopped; NEVER switches sessions or touches chain state; read-only mode = reported dry run |
 | `/handoff renew [notes]` | Operator renewal: waitForIdle → refresh+attest → gate → persist chain state → new session |
@@ -54,12 +57,16 @@ managed blocks). At the exhausted renewal cap this is the safe path: finalize, t
 | `renewal.maxRenewals` | `2` | hard cap per renewal chain |
 | `renewal.recoveryPrompt` | (built-in) | replaces the generic recovery body; the mandatory identity header and safety trailer of the successor message are always kept (dev.2 D1) |
 | `renewal.testCommand` | `null` | project-configured build-verify command in the successor prompt; `null` = no build-verify line at all (never assume a generic one) |
+| `recovery.lean` | `false` | dev.2 D4 opt-in: successor recovery instruction uses TIERS — operational (HANDOFF/PROGRESS, read NOW) → methodology (AGENTS/PROTOCOL, on procedure need) → archive (GOAL/LEARNINGS, by reference, on demand). All six files stay authoritative and named; tiering defers reading, never drops authority. An explicit `renewal.recoveryPrompt` still wins |
+| `recovery.budgetTokens` | `12000` | target budget for the operational tier, in chars/4 ESTIMATED tokens (the meter reports estimates, not accounting — A-1) |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable file names |
 
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<n>`, `CONTEXT_GUARD_READONLY=1`,
 `CONTEXT_GUARD_STATE_DIR=<path>` (may live outside the tree),
-`CONTEXT_GUARD_AUTO_RENEW=1|0`. CLI flags: `--guard-synthetic <n>`,
+`CONTEXT_GUARD_AUTO_RENEW=1|0`, `CONTEXT_GUARD_LEAN=1|0` (force lean recovery tiers
+for one process, dev.2 D4), `GUARD_VERSION=<string>` (identity-banner version override
+for probes/forensics, dev.2 D5d). CLI flags: `--guard-synthetic <n>`,
 `--guard-readonly 1` (flags require an explicit value).
 
 ## Budget arithmetic
@@ -80,6 +87,13 @@ usable remaining = contextWindow − estimatedTokensUsed − max(generationReser
   (e.g. 20 000) moves closing to ≈195 k used but leaves less headroom to the true edge.
 - Mid-session config edits do NOT re-baseline a running session (config is read at
   `session_start`); use `/reload` or a new session, and `/guard reset` to re-arm.
+- Crossing points (dev.2 D6) are the same arithmetic as the live budget, expressed in
+  estimated USED tokens: `used ≥ window − reserve − threshold` per level. They are
+  advisory policy budgets over Pi's estimate — the guard never changes the model
+  window (model/provider-owned). A crossing ≤ 0 means that level would already be
+  active at session start; `/guard status` flags it `!! too tight` instead of hiding
+  it. Example profile: `docs/profiles/experimental-95k.json` (window 95k, reserve 5k,
+  thresholds 20k/12k/8k/5k → crossings 70k/78k/82k/85k used).
 
 ## State locations
 
@@ -89,6 +103,11 @@ usable remaining = contextWindow − estimatedTokensUsed − max(generationReser
 - `<stateDir>/renewal-state.json` — durable chain state (`chainId`, `renewalsDone`,
   `renewedFromCheckpointId`, `stopped`); survives session replacement and process
   restart; carries the operator stop.
+- `<stateDir>/diagnostics.jsonl` — dev.2 D5c structured event trail (JSONL, ISO+epoch;
+  closed type vocabulary: session_start/alert/revocation/renewal_request/
+  renewal_result/finalize/tool_block/turn_aborted; allowlisted fields only — never
+  prompts, tool arguments or secrets; rotation ~500; audit mode with an in-tree
+  stateDir persists nothing, an external one is allowed). Read with `/guard events [n]`.
 - Pi session transcripts live under `$PI_CODING_AGENT_DIR/sessions/`, never in the
   project tree.
 

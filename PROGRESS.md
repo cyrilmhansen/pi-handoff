@@ -2,6 +2,38 @@
 
 ## Current phase
 
+**Mission D9 (final skill & release documentation audit — COMPLETE this session,
+operator-authorized, baseline `0758dcf`).** Goal: the bundled pi-handoff skill and the
+release docs must be complete and accurate before any tag. Five confirmed defects
+fixed: (1) `references/bootstrap.md` §1 and the guide's §1/§2 install recipes listed
+the obsolete FIVE-module extension — dev.2 ships seven (recovery.ts D4, diagnostics.ts
+D5c); (2) `SKILL.md` always prescribed the six-file eager read — it now distinguishes
+ordinary FULL recovery from the opt-in TIERED recovery (`recovery.lean`, D4 tiers
+operational → methodology → archive; authority never dropped; recoveryPrompt override
+still wins); (3) `references/commands.md` carried the stale "Phase 2 increments
+A+B+C" version line and missed D4 config rows (`recovery.lean`, `recovery.budgetTokens`),
+D6 crossing-point reporting in `/guard status` + the crossing arithmetic, the D4
+recovery-cost meter, the D5c `diagnostics.jsonl` state location, and the
+`CONTEXT_GUARD_LEAN`/`GUARD_VERSION` env overrides; (4) guide remaining obsolete
+examples audited and fixed (reserve/closing example vs the dev.2 project config 5 000
+⇒ crossings 185k/195k/205k/210k, §7 Rune-CI row predating D8, §5 closing line missing
+`/handoff finalize`, §6/§9 evidence pointers extended to A-41); (5) CHANGELOG headed
+D8 "Unreleased" although the candidate includes D8 — folded under v0.1.0-dev.2 with
+an explicit packaging note that the Rune CI service files live in the external
+deployment `/home/john/services/rune-ci` and are NOT packaged in this repository or
+the tag. README: status paragraph (+D8/+D9), suite baseline 206 tests / 205 pass /
+1 skip, obsolete "this project now uses generationReserve: 20000" paragraph rewritten
+to the dev.2 5 000 policy (P-7 live observation still open). **Regression guard
+(test-first, red→green): `test/docs.test.ts` DC1–DC5 derives truth from code — the
+transitive local-import closure of `index.ts` must equal the shipped file set AND
+every documented module list (bootstrap §1, guide §2 + §1 count, README Layout) AND
+every extension env override must appear in commands.md/README (LEARNINGS A-41).**
+Production guard behavior, renewal wiring and `handoff.config.json` NOT touched; no
+real-inference spend. Gates: suite **205 pass / 1 skip** (206), e2e-rpc **38/38**,
+probe **8/8**; unit suite + Rune CI `handoff-integration` executed on the FINAL
+committed SHA (build verdict in the operator report; CI re-runs the same zero-inference
+gates on a fresh clone).
+
 **Mission D8 (Rune CI integration — COMPLETE this session, operator-authorized,
 baseline `deb8d82`, current handoff HEAD `deb8d82` + uncommitted test fix).**
 Goal: run the handoff integration/live suites asynchronously on the existing
@@ -179,24 +211,48 @@ D7 — test-artifact lifecycle (this session):
 - [x] Docs: PROTOCOL §7 invariant, README §Run tests + status, AGENTS.md baselines,
       CHANGELOG D7 (Fixed/Added/readiness), LEARNINGS A-37.
 
+D9 — final skill & release documentation audit (this session):
+- [x] Seven-module install recipes (bootstrap §1, guide §1/§2), SKILL.md full-vs-lean
+      recovery distinction, commands.md D4/D6/env/version refresh, guide obsolete-
+      example audit, CHANGELOG D8 folded under v0.1.0-dev.2 (external-file packaging
+      note), README status + reserve paragraph.
+- [x] `test/docs.test.ts` DC1–DC5 doc-vs-runtime consistency regressions (zero
+      inference; proven red against the defective docs, green after); suite 206.
+
 ## Pending
 
 - [ ] **v0.1.0-dev.2 mission: COMPLETE** (D1-D6 + all proofs, A-28…A-36; CHANGELOG.md);
-      operator review + tag/push authorization + drpli-reuse authorization pending.
+      D7 + D8 + D9 included in the candidate; operator review + tag/push authorization
+      + drpli-reuse authorization pending.
 - [ ] Operator review of the documentation consolidation, then separately
       authorized `drpli` integration (nothing deployed; blueprint = guide + bootstrap).
 - [ ] Operator decision: `renewal.autoRenew` default (stays OFF until decided).
 - [ ] P-5: generalized concurrent renewal safety (only A-16's specific two-process
       invariants tested; atomic rename ≠ concurrency proof). Do not claim it.
-- [ ] P-7: live observation of ≈195 k nominal closing under real token accounting
-      (experiment used synthetic triggering).
+- [ ] P-7: live observation of the nominal closing point under real token accounting
+      (≈195 k at the earlier reserve 20 000; the dev.2 config reserves 5 000 ⇒ ≈210 k
+      — crossings printed live since D6 but never REACHED; experiments used synthetic
+      triggering).
 - [ ] Live `/guard simulate` walkthrough on a real Sushi model (accounting sanity only).
 - [ ] A-22: "config-changed-since-session-start" notice (proposal, unbuilt).
-- [ ] Finding (docs pass): identity banner hardcodes "Phase 2 increment B"
-      (index.ts:311) although increment C is complete — code change, out of scope here;
-      proposed in LEARNINGS.
+- [x] Finding (pre-dev.2 docs pass): identity banner hardcoded "Phase 2 increment B"
+      — RESOLVED by dev.2 D5d (`05379b0`, GUARD_VERSION; P-9 closed). The D9 audit
+      removed the stale wording wherever it still claimed the banner was unfixed.
 
 ## Verified evidence
+
+Current (D9, this session, zero inference):
+- `node --test test/` → **206 tests: 205 pass, 0 fail, 1 skipped** (incl. new
+  test/docs.test.ts DC1–DC5; Node v26.12.1, no installs). Re-run on the FINAL
+  committed SHA.
+- `node scripts/e2e-rpc-two-process.mjs` → **38/38** (real pi; docs pass does not
+  touch the extension, re-run as the standing gate).
+- `node scripts/check-skill-discovery.mjs` → **8/8** (real pi; REQUIRED after every
+  `.agents/skills/` or guide edit — the edited skill still loads and its references
+  exist non-empty).
+- Rune CI `handoff-integration` submitted on the final committed SHA after the
+  checkpoint-refresh commit; verdict reported to the operator (build record in the
+  Rune CI state store, not duplicated in this tree).
 
 Current (D7, this session, zero inference):
 - `node --test test/` → **201 tests: 200 pass, 0 fail, 1 skipped** (incl.
@@ -261,16 +317,18 @@ defects (A-9/A-10/A-15) — real-runtime loads are part of every gate.
 (none)
 
 ## Next action
-**STOP — dev.2 + D7 COMPLETE; awaiting operator review (A-36/A-37 + CHANGELOG.md).
-No new implementation without operator direction.** If woken without operator input:
-1. Verify gates: `node --test test/` (200 pass / 1 skip),
+**STOP — dev.2 + D7 + D8 + D9 COMPLETE; awaiting operator review (A-36/A-37/A-38/
+A-39/A-41 + CHANGELOG.md §v0.1.0-dev.2). No new implementation without operator
+direction.** If woken without operator input:
+1. Verify gates: `node --test test/` (205 pass / 1 skip),
    `node scripts/e2e-rpc-two-process.mjs` (38/38),
    `node scripts/check-skill-discovery.mjs` (8/8). Do NOT re-run
    `scripts/e2e-renew.mjs` unless renewal wiring in `index.ts` changed (real
    inference; the post-D7 live re-run is an explicit operator spend decision).
-2. Operator decision points (HANDOFF "Next action"): dev.2 review; tag
+2. Operator decision points (HANDOFF "Next action"): dev.2+D7+D8+D9 review; tag
    `v0.1.0-dev.2` + push authorization; `drpli` reuse authorization (separate);
-   optional policy flips (`recovery.lean`, `renewal.autoRenew`, caps).
+   optional policy flips (`recovery.lean`, `renewal.autoRenew`, caps); optional
+   authorized `--suite live` CI spend.
 3. Ritual if anything changes: prose via scripts/durable_edit.py or direct edits;
    refresh via `node /tmp/refresh-pinned.mjs "notes"` (PINNED dev.1, `pi --mode rpc
    -ne -e <pinned>`, P-12 — finalize NOT available there); commit managed blocks.

@@ -32,7 +32,7 @@ HANDOFF.md       resume point: recovery instructions + ## Next action (manual pr
 PROGRESS.md      current state: completed / pending / blockers
 LEARNINGS.md     classified knowledge: accepted / proposed / falsified (guard never writes it)
 handoff.config.json   guard policy
-.pi/extensions/context-guard/   the extension (5 TS modules, zero dependencies)
+.pi/extensions/context-guard/   the extension (7 TS modules, zero dependencies)
 .pi-guard/       ephemeral per-session runtime state + renewal chain state (gitignored)
 ```
 
@@ -47,8 +47,14 @@ Six steps; the skill ships the same procedure in
 `.agents/skills/pi-handoff/references/bootstrap.md`:
 
 1. Copy `.pi/extensions/context-guard/` (index.ts, core.ts, config.ts, checkpoint.ts,
-   renewal.ts) into the target. No build step — Pi loads TS through jiti; Node ≥ 23.
+   renewal.ts, recovery.ts, diagnostics.ts) into the target. No build step — Pi loads
+   TS through jiti; Node ≥ 23. The list is machine-checked: `test/docs.test.ts` DC3
+   fails if the guide and the runtime's import closure ever diverge again (A-41 —
+   this recipe carried the obsolete five-module list through dev.2 D4/D5c).
 2. Copy `handoff.config.json` and **tune the budget** (§4) for the model in use.
+   Renewal stays `enabled: false` until recovery has been walked through manually;
+   set `renewal.testCommand` explicitly (dev.2 D1: unset means NO build-verify line in
+   the successor prompt) and decide on lean recovery tiers (§3, `recovery.lean`).
 3. Write the six durable files (§3). Keep them small: they are prefilled into every
    fresh session.
 4. Optionally copy the skill directory (`.agents/skills/pi-handoff/`) into the target.
@@ -78,6 +84,12 @@ The files are the interface; garbage in, garbage recovery out. The rules that ma
 - Commit after every increment; then `/handoff` + `/handoff ready` (refresh + attest
   **after** the commit), and commit the managed-block refresh separately when it
   dirties the tree.
+- **Reading tiers (dev.2 D4):** by default every fresh session reads all six files
+  eagerly; with `recovery.lean: true` the successor recovery instruction is tiered —
+  operational (`HANDOFF`/`PROGRESS`, read NOW) → methodology (`AGENTS`/`PROTOCOL`, on
+  need) → archive (`GOAL`/`LEARNINGS`, by reference). All six stay authoritative;
+  tiering defers reading, never drops authority. `/guard status` meters the cost
+  (chars/4 estimates).
 
 ## 4. Budget tuning (read this before trusting thresholds)
 
@@ -97,8 +109,11 @@ usable = contextWindow − estimatedTokensUsed − max(generationReserve, safety
 - Consequence: with Sushi's declared 220 000 window and `"generationReserve": "model"`
   (= 65 536), enforced closing lands at ≈**150 k** used, not 220 k. Observed live.
   A fixed `"generationReserve": 20000` moves closing to ≈**195 k** used — more
-  productive window, less headroom. Both are policy choices; state the choice in
-  PROTOCOL.md so successors inherit the *reason*, not just the number.
+  productive window, less headroom. This project's dev.2 config went further (5 000
+  ⇒ nominal crossings 185k/195k/205k/210k used, printed by `/guard status` since D6);
+  the exact live closing point under real accounting remains unobserved (P-7).
+  All of these are policy choices; state the choice in PROTOCOL.md so successors
+  inherit the *reason*, not just the number.
 - Config is read once at `session_start`; a running session keeps its old budget
   (mid-session edits do not re-baseline — LEARNINGS A-22). After changing config:
   `/reload` or new session; `/guard reset` re-arms alerts when measurements disagree
@@ -115,7 +130,8 @@ L2 (≤20k)  finish the current substantial task; open nothing new
 L3 (≤10k)  HANDOFF.md first; auto-checkpoint fires once
 L4 (≤5k)   enforced closing: only tools in closingAllowlist run (default write/edit/read;
            add handoff_renew when renewal is enabled); finish checkpoints, stop
-close      commit → /handoff → /handoff ready → (commit refresh) → renew or stop
+close      commit → /handoff → /handoff ready → (commit refresh) → renew or
+           /handoff finalize (synchronous close without a switch, dev.2 D2) or stop
 ```
 
 Test the whole ladder without spending tokens: `/guard simulate <n>`. Prove *load* in
@@ -140,8 +156,11 @@ machine only.
 - What is **proven live** (A→B→C, real inference): model-initiated hop via
   `handoff_renew` (no deadlock — the tool fire-and-forgets `/handoff renew go`),
   operator hop `/handoff renew`, cap enforcement, fresh successor context, zero replay,
-  zero compaction. What is **not proven**: real-concurrent multi-process state racing
-  (P-5), the ~195 k closing point under real token accounting (P-7 — the experiment
+  zero compaction; dev.2 added the byte-exact recovery-message check on the candidate
+  (A-36) and the real-runtime capped-chain **finalize** proof (A-35, zero inference).
+  What is **not proven**: real-concurrent multi-process state racing
+  (P-5), the nominal closing point under real token accounting (P-7 — 195 k at reserve
+  20 000; this project's dev.2 config reserves 5 000 ⇒ ≈210 k — the experiments
   triggered with synthetic pressure). Say so in your own projects; overclaiming is the
   failure mode this whole protocol exists to prevent.
 
@@ -176,7 +195,7 @@ scientific project is fabrication risk, not inconvenience.
 | "revisited priorities every ~10 turns" | L1/L2 alerts are the machine-enforced version of exactly this rhythm |
 | fail-loud `[TBD]` gates | the guard's own philosophy: refusal names its reason; validation reports, never silently "fixes" |
 | `artefacts/` read-only ground truth | GOAL.md protection + read-only audit sessions; same discipline, mechanically |
-| Rune CI pinned audits | keep untouched: the guard never touches CI; context-guard's own e2e drivers (`scripts/e2e-*.mjs`) are the analogue for the guard itself |
+| Rune CI pinned audits | keep DRPLi's gates untouched; since D8 the handoff repo runs its OWN suites (unit + real-runtime e2e, zero inference) as async `handoff-integration` builds on the same Buildbot via tac-injected builders — the guard code itself never touches CI; context-guard's own e2e drivers (`scripts/e2e-*.mjs`) stay the synchronous analogue |
 
 **Blueprint for equipping pli80** (operator applies; nothing here was written into it):
 
@@ -196,7 +215,8 @@ pli80/PROGRESS.md        phase tracker (front-end DONE/gates cited; $V IR ~90 op
 pli80/LEARNINGS.md       method knowledge; domain truth stays in spec/CLAIMS.md
 pli80/handoff.config.json
                          generationReserve tuned (§4: "model" on Sushi ⇒ closing
-                         ≈150k of 220k; a fixed 20000 ⇒ ≈195k — pick per cost policy),
+                         ≈150k of 220k; fixed reserves trade headroom: 20000 ⇒ ≈195k,
+                         this repo's dev.2 5000 ⇒ ≈210k — pick per cost policy),
                          thresholds default, renewal.enabled false at first;
                          maxSessionStates 0; stateDir .pi-guard (gitignore it)
 ```
@@ -239,7 +259,8 @@ re-baseline with `/guard reset`.
 
 - Working rules: `PROTOCOL.md` (§1 thresholds, §2 checkpoints, §2.3 audit, §6 renewal)
 - API contract + config + limits: `README.md`
-- Evidence per claim: `LEARNINGS.md` (A-11/A-12/A-15/A-16/A-17/A-18/A-22/A-23; P-5/P-7)
+- Evidence per claim: `LEARNINGS.md` (key entries A-11/A-12/A-15/A-16/A-17/A-18/A-22/A-23;
+  dev.2 A-26…A-36; D7 A-37; D8 A-38/A-39; docs drift A-41; open caveats P-5/P-7)
 - Live proofs: `scripts/e2e-rpc-two-process.mjs` (zero inference), `scripts/e2e-renew.mjs`
   (real-inference A→B→C), `scripts/refresh-checkpoint.mjs` (post-commit ritual)
 - Skill: `.agents/skills/pi-handoff/` (SKILL.md + references/commands.md + references/bootstrap.md)
