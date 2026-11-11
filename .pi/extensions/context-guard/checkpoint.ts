@@ -540,7 +540,13 @@ export interface FileValidation {
 export function validateFile(fs: FsOps, file: string, kind: keyof GuardFilesInput): FileValidation {
   const content = fs.readFile(file);
   if (content === undefined) return { file, ok: false, missingSections: REQUIRED_SECTIONS[kind], unreadable: true };
-  const missingSections = REQUIRED_SECTIONS[kind].filter((s) => !content.includes(s));
+  // Required headings must be real, unique manual sections: inline mentions,
+  // fenced examples, quotes and machine-managed blocks do not count.
+  const manual = kind === "handoff" || kind === "progress" ? stripManagedSection(content) : content;
+  const missingSections = REQUIRED_SECTIONS[kind].flatMap((heading) => {
+    const count = matchingMarkdownHeadings(manual, heading).length;
+    return count === 1 ? [] : [count > 1 ? `${heading} (duplicate headings)` : heading];
+  });
   return { file, ok: missingSections.length === 0, missingSections, unreadable: false };
 }
 
@@ -843,6 +849,32 @@ export function validateCheckpoint(fs: FsOps, cwd: string, files: GuardFiles, co
     };
   }
 
+  // Old parser versions could attest a checkpoint extracted from an inline
+  // `## Next action` mention rather than a real heading. Source hashes alone
+  // cannot expose that bug: on read-only revalidation of an ATTESTED generation,
+  // cross-check both saved actions against exactly one genuine manual section.
+  if (readiness.state === "attested") {
+    const manual = stripManagedSection(handoffContent);
+    const candidates = matchingMarkdownHeadings(manual, "## Next action");
+    const authoritative = sectionBody(manual, "## Next action");
+    const managed = sectionBody(inner, "### Next action");
+    const progressSaved = progressBlock?.["next-action"];
+    if (candidates.length !== 1 || !authoritative || managed !== authoritative ||
+        progressSaved !== authoritative.split("\n")[0].trim()) {
+      return {
+        kind: "stale",
+        legacy: false,
+        changed: ["handoff:next-action"],
+        partial: false,
+        detail: "attested checkpoint's saved Next action disagrees with the unique real manual ## Next action heading; review, refresh with /handoff and re-attest with /handoff ready",
+        identity: identityOf(hView),
+        readiness,
+        checkpointed: block["checkpointed"],
+        session: sessionMatch?.[1],
+      };
+    }
+  }
+
   const delta = hView.delta === "new" || hView.delta === "none" || hView.delta === "initial" ? hView.delta : "unknown";
   return {
     kind: "current",
@@ -981,6 +1013,11 @@ export function writeCheckpoint(fs: FsOps, input: CheckpointInput, opts: { dryRu
   const prevFingerprint = prev ? blockFingerprint(prev.keys) : null;
   const contentDelta: ContentDelta = prevFingerprint == null ? "initial" : prevFingerprint === sources.fingerprint ? "none" : "new";
   const kind: "auto" | "manual" = input.kind === "auto" ? "auto" : "manual";
+  // The manual section is authoritative even when the caller supplies an obsolete
+  // nextAction (e.g. a pre-parser-fix recovery bundle). A missing/ambiguous manual
+  // heading is rejected by the structural/readiness checks, not silently inferred.
+  const manualNextAction = sectionBody(stripManagedSection(existingHandoff), "## Next action");
+  const recordedNextAction = manualNextAction ?? input.nextAction;
 
   // Information-loss guard: an automatic checkpoint with no notes must not erase a
   // substantive summary recorded by an earlier checkpoint.
@@ -1017,7 +1054,7 @@ export function writeCheckpoint(fs: FsOps, input: CheckpointInput, opts: { dryRu
     ...(input.unfinishedOperations.length ? input.unfinishedOperations.map((o) => `- ${o}`) : ["- (none recorded)"]),
     "",
     "### Next action",
-    input.nextAction,
+    recordedNextAction,
     notes ? `\n### Guard notes\n${notes}` : "",
   ]
     .filter((line) => line !== undefined)
@@ -1029,7 +1066,7 @@ export function writeCheckpoint(fs: FsOps, input: CheckpointInput, opts: { dryRu
     `guard-level: ${input.level}`,
     `checkpointed: ${stamp}`,
     sourceLines(sources.entries),
-    `next-action: ${input.nextAction}`,
+    `next-action: ${recordedNextAction}`,
   ].join("\n");
   const newProgress = replaceManagedSection(existingProgress, "checkpoint", progressBlock);
 
@@ -1318,10 +1355,65 @@ export function readRecoveryBundle(fs: FsOps, cwd: string, files: GuardFiles, op
   };
 }
 
+/**
+ * Minimal ATX heading scanner for our fixed durable-file headings.
+ * Only true, line-anchored Markdown headings are accepted. Fences (backtick or
+ * tilde), indented code, quoted/list references and inline code are never headings.
+ * This is not a general Markdown AST; it deliberately rejects ambiguous duplicate
+ * heading identities rather than choosing an arbitrary first occurrence.
+ */
+interface MarkdownHeading {
+  level: number;
+  title: string;
+  start: number;
+  bodyStart: number;
+}
+
+function markdownHeadings(content: string): MarkdownHeading[] {
+  const headings: MarkdownHeading[] = [];
+  let fence: { marker: string; width: number } | null = null;
+  let offset = 0;
+  for (const raw of content.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    const fenceLine = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence !== null) {
+      if (fenceLine && fenceLine[1][0] === fence.marker && fenceLine[1].length >= fence.width && fenceLine[2].trim() === "") {
+        fence = null;
+      }
+    } else if (fenceLine) {
+      fence = { marker: fenceLine[1][0], width: fenceLine[1].length };
+    } else {
+      const found = /^ {0,3}(#{1,6})(?:[ \t]+(.*))?$/.exec(line);
+      if (found) {
+        const title = (found[2] ?? "").replace(/[ \t]+#+[ \t]*$/, "").trim();
+        if (title) headings.push({ level: found[1].length, title, start: offset, bodyStart: offset + raw.length + 1 });
+      }
+    }
+    offset += raw.length + 1;
+  }
+  return headings;
+}
+
+function headingMatchesTitle(actual: MarkdownHeading, expected: string): boolean {
+  const target = /^(#{1,6}) (.+)$/.exec(expected);
+  if (!target || actual.level !== target[1].length) return false;
+  const label = target[2];
+  if (actual.title === label) return true;
+  if (!actual.title.startsWith(label)) return false;
+  // A descriptive suffix must be visibly separated, e.g.:
+  // "## Next action — E2E-48/P2e" or "## Next action (phase 2)".
+  return /^(?:\s*[—–:-]\s*|\s+\()/.test(actual.title.slice(label.length));
+}
+
+function matchingMarkdownHeadings(content: string, expected: string): MarkdownHeading[] {
+  return markdownHeadings(content).filter((h) => headingMatchesTitle(h, expected));
+}
+
 function sectionBody(content: string, heading: string): string | undefined {
-  const start = content.indexOf(heading);
-  if (start < 0) return undefined;
-  const rest = content.slice(start + heading.length);
-  const next = rest.search(/\n#{1,6} /);
-  return (next >= 0 ? rest.slice(0, next) : rest).trim() || undefined;
+  const headings = markdownHeadings(content);
+  const matches = headings.filter((h) => headingMatchesTitle(h, heading));
+  if (matches.length !== 1) return undefined;
+  const selected = matches[0];
+  const next = headings.find((h) => h.start > selected.start);
+  return content.slice(selected.bodyStart, next?.start ?? content.length).trim() || undefined;
 }
