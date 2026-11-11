@@ -907,22 +907,19 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
    */
   function verifyReport(): string {
     if (!g) return "context-guard: not initialized";
-    g.checkpoint = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
-    const f = g.checkpoint;
-    g.checkpointId = f.kind === "current" || f.kind === "stale" ? f.identity?.id ?? null : null;
-    g.handoffReady = "readiness" in f ? f.readiness : undefined;
+    const f = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+    const checkpointId = f.kind === "current" || f.kind === "stale" ? f.identity?.id ?? null : null;
     const readiness = "readiness" in f ? f.readiness : undefined;
     const auth = renewAuthorization(f);
     const lines = [
       `context-guard verify: checkpoint ${f.kind}${"detail" in f ? `: ${f.detail}` : ""}` +
         ("checkpointed" in f && f.checkpointed ? ` (written ${f.checkpointed}${f.session ? `, session ${f.session}` : ""})` : ""),
-      `  identity: ${g.checkpointId ?? "none"}${f.kind === "current" ? `; content-delta ${f.contentDelta}` : ""}`,
+      `  identity: ${checkpointId ?? "none"}${f.kind === "current" ? `; content-delta ${f.contentDelta}` : ""}`,
       `  readiness: ${readiness ? `${readiness.state} — ${readiness.detail}` : "unknown (checkpoint is not current)"}`,
       `  renewal authorization (gate for /handoff renew): ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}`,
       `  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`,
       "  manual prose in HANDOFF.md/PROGRESS.md always takes precedence over these blocks.",
     ];
-    persistState();
     return lines.join("\n");
   }
 
@@ -1385,13 +1382,17 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   } as never);
 
   pi.registerCommand("handoff", {
-    description: "Durable checkpoint + renewal + finalization. Subcommands: verify, ready [check], finalize [notes], renew [notes] | renew go | renew stop | renew resume | renew status",
+    description: "Read-only status/verify; explicit checkpoint, readiness, finalization and renewal. Use /handoff checkpoint [notes] to write.",
     handler: async (args: string, ctx: ExtensionContext) => {
       if (!g) {
         ctx.ui.notify("context-guard: not initialized", "error");
         return;
       }
       const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts[0] === "status") {
+        ctx.ui.notify(`${verifyReport()}\n${renewStatusReport()}`, "info");
+        return;
+      }
       if (parts[0] === "verify") {
         ctx.ui.notify(verifyReport(), g.checkpoint.kind === "current" ? "info" : "warning");
         return;
@@ -1426,7 +1427,14 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         await runRenewal(trigger, ctx as ExtensionCommandContext, notes);
         return;
       }
-      const notes = args.trim();
+      if (parts.length > 0 && parts[0] !== "checkpoint") {
+        ctx.ui.notify(
+          "usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew go | renew stop | renew resume | renew status. Slash commands are Pi operator commands, not Bash commands.",
+          "warning",
+        );
+        return;
+      }
+      const notes = parts[0] === "checkpoint" ? parts.slice(1).join(" ").trim() : "";
       const dry = !canWriteProjectTree();
       const result = checkpoint(ctx, dry ? `read-only audit (${notes || "manual /handoff"})` : notes || "manual /handoff", notes || undefined, { dryRun: dry });
       if (!result) return;

@@ -240,7 +240,7 @@ test("R8: unresolved discoveries survive an auto checkpoint", async () => {
 test("R9: /handoff writes a checkpoint whose next action and objective survive a simulated fresh restore", async () => {
   const h = harness();
   await startSession(h);
-  await h.command("handoff", "phase 1 demo");
+  await h.command("handoff", "checkpoint phase 1 demo");
   const bundle = readRecoveryBundle(h.memFs, "/project", FILES);
   assert.equal(bundle.objective, "Build a context guard prototype.");
   assert.ok(bundle.nextAction && bundle.nextAction.length > 0);
@@ -254,13 +254,37 @@ test("R9: /handoff writes a checkpoint whose next action and objective survive a
   assert.equal(bundle2.checkpoint.kind, "current");
 });
 
+test("A2: /handoff status and unknown verbs are read-only on an attested checkpoint", async () => {
+  const h = harness({ config: { renewal: { enabled: true, autoRenew: true, maxRenewals: 8 } } });
+  await startSession(h);
+  await h.command("handoff", "checkpoint preserve these notes");
+  await h.command("handoff", "ready");
+  assert.match(h.memFs.files.get("/project/HANDOFF.md") ?? "", /Guard notes\npreserve these notes/);
+  assert.match(h.memFs.files.get("/project/HANDOFF.md") ?? "", /readiness: attested/);
+
+  const before = [...h.memFs.files.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const writesBefore = h.memFs.writes.length;
+  const checkpointId = h.memFs.files.get("/project/HANDOFF.md")?.match(/checkpoint-id: ([^\n]+)/)?.[1];
+  await h.command("handoff", "status");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /context-guard verify: checkpoint current/);
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /renewal status/);
+  assert.deepEqual([...h.memFs.files.entries()].sort(([a], [b]) => a.localeCompare(b)), before);
+  assert.equal(h.memFs.writes.length, writesBefore);
+  assert.equal(h.memFs.files.get("/project/HANDOFF.md")?.match(/checkpoint-id: ([^\n]+)/)?.[1], checkpointId);
+
+  await h.command("handoff", "statuz");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /usage: \/handoff status/);
+  assert.deepEqual([...h.memFs.files.entries()].sort(([a], [b]) => a.localeCompare(b)), before);
+  assert.equal(h.memFs.writes.length, writesBefore);
+});
+
 test("R10: no compaction, no session switching, no settings/install writes, stable system prompt", async () => {
   const h = harness();
   await startSession(h);
   await h.turnEnd(125464);
   await h.command("guard", "simulate 4000");
   await h.toolCall("bash", {});
-  await h.command("handoff", "final");
+  await h.command("handoff", "checkpoint final");
   await h.mockPi.emit({ type: "session_shutdown", reason: "quit" } as never, h.mockCtx.ctx as never);
 
   assert.equal(h.mockCtx.compactCalls, 0);

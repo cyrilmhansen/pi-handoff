@@ -55,8 +55,9 @@ protected at all levels when `protectGoal` is true.
 
 ## 2. Checkpoint semantics
 
-- Checkpoints are written by `/handoff [notes]` or automatically once per escalation to
-  level ≥ 3. They update **managed sections only** (`<!-- guard:begin ... -->` blocks) of
+- Checkpoints are written by `/handoff checkpoint [notes]` (bare `/handoff` remains the
+  no-notes compatibility form) or automatically once per escalation to level ≥ 3. They
+  update **managed sections only** (`<!-- guard:begin ... -->` blocks) of
   `HANDOFF.md` and `PROGRESS.md`; all agent-authored text outside markers is preserved
   byte-for-byte. `LEARNINGS.md` and `GOAL.md` are never written by the guard. Managed
   blocks carry source-state content hashes (§2.1).

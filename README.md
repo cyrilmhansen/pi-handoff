@@ -355,13 +355,16 @@ byte-for-byte identical after a full audit session (startup + status + simulate 
 ## Invoking a checkpoint
 
 ```
-/handoff optional notes
+/handoff checkpoint optional notes
+/handoff                       # compatibility form: checkpoint without notes
+/handoff status                # read-only report; no durable or runtime-state writes
 ```
 
 Writes the managed checkpoint block in `HANDOFF.md` + `PROGRESS.md` (agent text outside
 markers preserved), embeds fresh source-state fingerprints, validates required sections
 of all four durable files, persists guard state to the per-session file, and reports via
-notification. `/handoff verify` validates freshness without writing. The original Phase 1
+notification. Unknown verbs show usage and never create a checkpoint. `/handoff verify`
+and `/handoff status` validate without writing. The original Phase 1
 build did **not** switch sessions; in-place session replacement arrived with Phase 2
 (§Renewal above, PROTOCOL §6).
 

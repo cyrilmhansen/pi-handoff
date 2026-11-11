@@ -16,8 +16,9 @@ Behavior details live in the project's `PROTOCOL.md`.
 | `/guard reset` | Re-arm alerts, re-baseline GOAL hash, rebuild the machine (testing/re-baselining only) |
 | `/guard verify-checkpoint` | Checkpoint classification + readiness + renewal authorization |
 | `/guard events [n]` | Tail of `<stateDir>/diagnostics.jsonl` (dev.2 D5c): typed, bounded events — session_start/alert/revocation/renewal_request/renewal_result/finalize/tool_block/turn_aborted; never prompts/args/secrets; audit mode with in-tree stateDir reports "not persisted" |
-| `/handoff [notes]` | Write checkpoint (managed blocks of HANDOFF.md + PROGRESS.md only) |
+| `/handoff status` | Read-only checkpoint/readiness/renewal report; writes no files or state |
 | `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources); also prints the recovery-cost meter (dev.2 D4) |
+| `/handoff checkpoint [notes]` | Explicit checkpoint write (managed blocks only); bare `/handoff` remains the no-notes form |
 | `/handoff ready` | Evaluate + attest readiness (bound to checkpoint id). `/handoff ready check` = evaluate only |
 | `/handoff finalize [notes]` | Independent closing (dev.2 D2): refresh-if-stale + readiness + attest in one synchronous step; works with renewal disabled/capped/stopped; NEVER switches sessions or touches chain state; read-only mode = reported dry run |
 | `/handoff renew [notes]` | Operator renewal: waitForIdle → refresh+attest → gate → persist chain state → new session |
@@ -126,7 +127,7 @@ readiness to unattested.
 After upgrading from a parser that searched for `## Next action` as plain text, an
 older schema-v3 checkpoint can be reclassified `stale` even when its source hashes
 match: hashes prove byte freshness, not that its attested action came from the real
-manual heading. Review the manual `## Next action`, refresh with `/handoff [notes]`,
+manual heading. Review the manual `## Next action`, refresh with `/handoff checkpoint [notes]`,
 then attest with `/handoff ready`. Never edit either managed checkpoint block by hand.
 Duplicate or missing real headings must be corrected in manual prose before
 attestation.
