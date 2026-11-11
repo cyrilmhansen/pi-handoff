@@ -39,7 +39,7 @@ export function defaultThresholds(t: ThresholdsInput, opts: { enforceClosing?: b
       kind: "advisory",
       label: "checkpoint",
       guidance:
-        "CONTEXT PRESSURE (advisory): checkpoint now (nothing is enforced at this level). Update PROGRESS.md (completed work, blockers, exact next action) and record in LEARNINGS.md every " +
+        "CONTEXT PRESSURE (advisory): checkpoint now (nothing is enforced at this level). Use the handoff_inspect tool to review checkpoint freshness and renewal gates; it is read-only. Update PROGRESS.md (completed work, blockers, exact next action) and record in LEARNINGS.md every " +
         "important discovery, failed assumption, technical insight and improvement proposal you gained since the last checkpoint. " +
         "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },
@@ -49,7 +49,7 @@ export function defaultThresholds(t: ThresholdsInput, opts: { enforceClosing?: b
       kind: "advisory",
       label: "wrap-up",
       guidance:
-        "CONTEXT PRESSURE (advisory): finish the bounded task you are on; do not open substantial new investigations. Preserve newly learned procedures and unresolved questions " +
+        "CONTEXT PRESSURE (advisory): finish the bounded task you are on; do not open substantial new investigations. Use handoff_inspect to review checkpoint freshness and renewal gates; it is read-only. Preserve newly learned procedures and unresolved questions " +
         "in PROGRESS.md and LEARNINGS.md (proposals stay proposals, never adopted silently). " +
         "Classify each item: accepted (verified), proposed (unverified) or falsified (disproven).",
     },

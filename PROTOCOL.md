@@ -211,6 +211,14 @@ into a general orchestration framework is out of contract.
 
 ## 6. Renewal contract (Phase 2 — IMPLEMENTED and live-proven: increments A+B+C, LEARNINGS A-23)
 
+The model-callable `handoff_inspect` tool and operator `/handoff status`, `/handoff verify`,
+and `/guard verify-checkpoint` share the same read-only inspection path. It reports
+checkpoint freshness, identity, attestation, action validation, changed sources, and the
+model renewal gate as ready-now, preparation-required, or refused. Inspection does not
+write project/state files or mutate checkpoint, attestation, chain, or stop state; it
+does not verify scientific claims. Pi slash commands are operator interface commands,
+not shell commands available to the model.
+
 Renewal policy lives in `renewal.ts` (pure) + `handoff.config.json` `renewal`
 (`enabled` default **false**, `autoRenew` default **false**, `maxRenewals` default 2,
 `recoveryPrompt` override, `recovery` policy block — dev.2 D4 lean tiers, see below). Chain state (`chainId`, `renewalsDone`,

@@ -37,6 +37,14 @@ test("G1: every level's guidance tells the model to preserve LEARNINGS.md explic
   assert.match(byLevel[4], /valid/i, "closing must tell the agent to validate the handoff");
 });
 
+test("A4: L1/L2 guidance directs agents to the callable inspection tool, not operator slash commands", () => {
+  const byLevel = Object.fromEntries(defaultThresholds(T).map((t) => [t.level, t.guidance]));
+  for (const level of [1, 2]) {
+    assert.match(byLevel[level], /handoff_inspect/);
+    assert.doesNotMatch(byLevel[level], /\/handoff|\/guard/);
+  }
+});
+
 test("G2: classification of knowledge survives (accepted/proposed/falsified) and alerts stay short", () => {
   const all = defaultThresholds(T).map((t) => t.guidance).join("\n");
   assert.match(all, /accepted/i);
