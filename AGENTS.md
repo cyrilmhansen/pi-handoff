@@ -1,18 +1,23 @@
 # AGENTS.md — handoff prototype (Pi context-guard)
 
-Pi 1.4.0 context-guard extension + durable handoff files. **All development milestones
-are COMPLETE:** Phases 1, 1b, 1c, 1d, Phase 2 increments A+B+C, the **v0.1.0-dev.2
-reliability/recovery-efficiency mission** (D1-D6 + all dogfood proofs — LEARNINGS
-A-28…A-36, CHANGELOG.md), the **D7 test-artifact lifecycle increment** (LEARNINGS
-A-37) and the **D8 Rune CI integration** (async integration builds on the existing
-Buildbot — LEARNINGS A-38/A-39; runner/test evidence in CHANGELOG §v0.1.0-dev.2 "D8"; the
-CL7e dev-tree-dependency fix `435c294` came out of the first real CI build bs54), and
-the **D9 final skill & release documentation audit** (seven-module recipes, lean-tier
-wording, commands.md D4/D6/env refresh, guide obsolete examples, CHANGELOG D8 folded
-under dev.2; regression test `test/docs.test.ts` DC1–DC5 — LEARNINGS A-41).
-Current next action: **STOP — operator review of the dev.2 + D7 + D8 + D9 candidate**;
-tagging/push, the authorized live-suite spend and `drpli` reuse each require
-separate explicit authorization. No implementation work is pending.
+Pi 1.4.0 context-guard extension + durable handoff files. Original
+Phase 1 and Phase 2, the released `v0.1.0-dev.3`, and Lot A reliability
+improvements (#8, #12, #1, #13) are integrated in `main` at `2f2c630`.
+Documentation guidance for #4 (PR #5) is also integrated. See CHANGELOG
+`v0.1.0-dev.4` candidate for scope, compatibility and exact verification status.
+**Do not claim dev.4 has been tagged or its renewed Pi/Sushi inference path
+revalidated.** Operator-reported Rune CI was green on final Lot A tree
+`5312ae6` (byte-identical to the merged main tree).
+
+**Current authorized work:** prepare and validate the dev.4 release candidate,
+then implement **Lot B** as separate reviewable increments: #10's
+operator-authored next-task-on-renew capability, and #9's experimental,
+explicitly provenance-labelled successor start turn. Read those GitHub
+issues and comments before implementation. Do not silently turn operator
+text into model/predecessor notes or vice versa. Keep default renewal gates,
+attestation, no-transcript-replay, stop/cap/idempotence, and never-push
+boundaries intact. No release tag or publication without a separate explicit
+operator decision. No cross-project deployment authorized.
 
 Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
 false; this project sets `enabled: true, autoRenew: false, maxRenewals: 8` with
@@ -26,7 +31,7 @@ Every fresh session:
 1. Read `AGENTS.md`, `PROTOCOL.md`, `GOAL.md`, `HANDOFF.md`, `PROGRESS.md` (in that
    order; manual prose in HANDOFF/PROGRESS wins over `guard:begin checkpoint` managed
    blocks — schema v3; freshness is reported at `session_start` and via `/handoff verify`).
-2. Verify with `node --test test/` (expect **205 pass / 1 gated skip**) before touching
+2. Verify with `node --test test/` (last Lot A report **223 pass / 1 gated skip**) before touching
    code. Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs`
    (**38/38**, incl. the capped-chain finalize proof), `node scripts/check-skill-discovery.mjs`
    (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate

@@ -6,24 +6,20 @@ checkpoints, and — since Phase 2 — renew a session in-place into a fresh suc
 recovers from files alone (no transcript replay, no lossy compaction). No third-party
 dependencies, no LLM involvement in the guard itself.
 
-**Current status.** Phases 1, 1b, 1c, 1d and Phase 2 (increments A+B+C) are COMPLETE;
-renewal is proven live with real inference (LEARNINGS A-23); the v0.1.0-dev.2 mission
-(D1–D6) plus the D7 test-artifact lifecycle increment, the D8 Rune CI integration
-(records only — the CI service files live in the separate Rune CI deployment
-`/home/john/services/rune-ci`, NOT in this repository; LEARNINGS A-38/A-39) and the
-D9 final skill & release documentation audit (LEARNINGS A-41) are COMPLETE (pending
-operator review; not tagged/pushed). Verification baselines:
-`node --test test/` → 205 pass / 0 fail / 1 gated skip; `node
-scripts/e2e-rpc-two-process.mjs` → 38/38 (real runtime, zero inference); `node
-scripts/check-skill-discovery.mjs` → 8/8 (real runtime, zero inference); `node
-scripts/e2e-renew.mjs` → 24/24 (spends real inference — last live run on the dev.2
-candidate `b07e29b`, A-36; re-run after renewal-wiring changes). `GOAL.md` still
-describes the *original* Phase 1 scope ("no automatic session
-switching"): that is historically correct, the file is protected, and it is deliberately
-left untouched — subsequent phases (1b/1c/1d and Phase 2) extended the original scope
-under explicit operator authorization; the history lives in `PROGRESS.md` /
-`LEARNINGS.md`, never in a silent goal rewrite. Reuse in another project (`drpli`) is a
-separate, operator-authorized action: this repository has deployed nothing anywhere.
+**Current status.** The released baseline is `v0.1.0-dev.3`; the Lot A
+checkpoint/renewal reliability fixes (#8, #12, #1, #13) are merged in `main`
+at `2f2c630` and are being prepared as **`v0.1.0-dev.4` (candidate, not tagged)**.
+Documentation-only consolidation guidance (#4 / PR #5) is also present.
+Operator-reported gates on the exact final Lot A tree: `node --test test/`
+**223 pass / 1 skip**, Pi 1.4.0 real-RPC **38/38**, skill discovery **8/8**,
+Rune CI green for `5312ae6` (tree identical to merged main). The
+**post-Lot-A real Pi/Sushi inference-driven renewal** has not been rerun and
+must not be claimed as proven by these zero-inference results. The next
+approved development scope is Lot B: operator-authored task on renewal (#10)
+and an opt-in, explicitly provenance-labelled successor first turn (#9).
+These are **not yet implemented**. `GOAL.md` retains the original, protected
+Phase 1 goal; later scope changes were explicitly approved, never silently
+rewritten. Deployment into `drpli` remains a separate authorization.
 
 Environment this was built and verified against: Pi 1.4.0 (`/usr/lib/node_modules/@earendil-works/pi-coding-agent`),
 Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compaction disabled.

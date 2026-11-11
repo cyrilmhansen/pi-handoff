@@ -1,11 +1,13 @@
 # context-guard — command, configuration and state reference
 
-Verified against pi-handoff **v0.1.0-dev.2** (Pi 1.4.0): Phases 1a–1d, Phase 2
-increments A+B+C, dev.2 D1–D6 (recovery-prompt fix, finalization, durable-edit script,
-lean recovery tiers, honest alerts + diagnostics, crossing points). D7 covers only the
-repo's e2e script lifecycle; D8 (Rune CI integration) lives OUTSIDE this extension —
-the CI service files are not part of the guard and nothing here changes with them.
-Behavior details live in the project's `PROTOCOL.md`.
+Baseline Pi 1.4.0; updated through the **v0.1.0-dev.4 candidate**
+(Lot A #8/#12/#1/#13; not yet tagged). Original dev.2 covered D1–D6
+(recovery prompt, finalization, durable-edit script, lean recovery, diagnostics,
+crossing points); D7 concerns test artifact cleanup and D8's Rune CI service
+configuration lives OUTSIDE this repository. The current code also exposes
+read-only `/handoff status` and the agent tool `handoff_inspect`.
+Behavior details live in the project's `PROTOCOL.md`. Release status and
+remaining live-test gate are recorded in `CHANGELOG.md`.
 
 ## Commands (extension slash-commands; handled without a model turn)
 

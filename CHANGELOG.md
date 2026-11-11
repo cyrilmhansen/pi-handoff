@@ -3,6 +3,65 @@
 All notable changes. Versions are pre-1.0 development tags; the guard ships as
 project-local files (`.pi/extensions/context-guard/`), no package registry.
 
+## v0.1.0-dev.4 — release candidate, NOT tagged (prepared 2026-11-11)
+
+Baseline: released `v0.1.0-dev.3` plus the operator-approved Lot A
+reliability improvements, integrated in `main` at `2f2c630`. The cumulative
+file tree equals the locally/Rune-CI-validated `5312ae6`. This section
+describes a **candidate**, not a published tag or a completed live-inference gate.
+
+### Correctness and safety fixes (Lot A)
+
+- **#8 — genuine Markdown headings:** recovery and required-section validation
+  no longer accept inline `## Next action` mentions, fenced examples, quotations
+  or falsely duplicated headings as active sections. The one manual action is
+  authoritative; duplicate genuine sections fail closed. Previously attested
+  schema-v3 checkpoints with mismatched saved actions are reported stale,
+  even when their source fingerprints match. Recovery is explicit: review the
+  authoritative manual action, refresh with `/handoff checkpoint` or bare
+  `/handoff`, then re-attest with `/handoff ready`. Do not edit managed blocks.
+- **#12 — read-only status:** `/handoff status` and unrecognized command verbs
+  cannot silently create a new checkpoint, erase notes, increment a generation
+  or revoke attestation. `/handoff checkpoint [notes]` names the mutating path;
+  bare `/handoff` remains supported.
+- **#1 — truthful renewal advice:** L3/L4 preview now reflects the state
+  **after** an automatic checkpoint, distinguishing preparable refusal from
+  terminal/policy refusal. A genuine successor can obtain a fresh, attested
+  identity for authorized continuation with no content delta; a consumed
+  checkpoint ID remains unrepeatable. Cap, stop, pending, read-only and
+  readiness gates remain authoritative.
+- **#13 — agent inspection:** `handoff_inspect` exposes checkpoint freshness,
+  attestation, changed sources and renewal-gate status to the model via a
+  read-only tool. Skill/alert guidance distinguishes operator-only slash
+  commands from callable agent tools; inspection does not write or attest.
+- **#4 — operator-approved document consolidation procedure:** merged PR #5
+  documents safe manual archive/goal-pivot review, without autonomous pruning.
+
+### Verification reported
+
+- Node suite at final Lot A tip: **223 passed, 1 skipped**.
+- Pi real-RPC (zero inference): **38/38**; skill discovery: **8/8**.
+- Operator reports Rune CI **green on `5312ae6`**; the merged `main`
+  contains its exact tree. This is not a claim of a separate CI run on a new SHA.
+- Real Pi/Sushi **inference-driven renewal after the Lot A wiring changes is
+  NOT YET REVALIDATED**. Run the explicit opt-in live test and inspect the
+  consumed-checkpoint → fresh-generation → successor behavior before declaring
+  release readiness. Never silently spend inference or run concurrent suites
+  that race in shared `/tmp`.
+
+### Compatibility and release gate
+
+- No schema-v3 or renewal-state migration. Existing well-formed checkpoints
+  remain compatible; a checkpoint previously attested with an incorrect
+  extracted action can become stale **intentionally** and must be reviewed,
+  refreshed and re-attested before renewal.
+- Existing user/operator approval boundaries remain intact; no automatic push,
+  goal edits, transcript replay, hidden chain reset, or autonomous doc pruning.
+- This candidate is **not released** until the final integration/live gates
+  are evaluated and the operator authorizes tagging/publishing. Rollback source
+  is the existing `v0.1.0-dev.3` tag; preserve current state files and report
+  incompatibilities rather than deleting them.
+
 ## v0.1.0-dev.3 — 2026-10-30
 
 - Fix #1: clarified L3/L4 guidance to prioritize authorized
