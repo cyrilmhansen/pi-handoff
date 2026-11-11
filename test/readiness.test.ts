@@ -41,7 +41,7 @@ test("RD1: /handoff ready attests the current generation and opens the renewal g
   const fs = createMemoryFs(DEFAULT_FILES);
   const s = session(fs, "sess-ready");
   await s.start();
-  await s.command("handoff", "phase 1c readiness demo");
+  await s.command("handoff", "checkpoint phase 1c readiness demo");
 
   // before attestation: technically current but semantically unattested
   await s.command("handoff", "verify");
@@ -81,7 +81,7 @@ test("RD2: readiness refuses a placeholder next action and writes nothing", asyn
   });
   const s = session(fs, "sess-placeholder");
   await s.start();
-  await s.command("handoff", "auto-ish");
+  await s.command("handoff", "checkpoint auto-ish");
   // only DURABLE files matter here: runtime state persistence is legitimate
   const durableWrites = () => fs.writes.filter((w) => !w.startsWith("/project/.pi-guard")).length;
   const writesBefore = durableWrites();
@@ -100,7 +100,7 @@ test("RD3: read-only audit mode never attests — an audit session with nothing 
   const snap1 = treeOf(fs1);
   const a1 = session(fs1, "audit-nockpt", { env: { CONTEXT_GUARD_READONLY: "1", CONTEXT_GUARD_STATE_DIR: "/tmp/guard-ready-state-a" } });
   await a1.start();
-  await a1.command("handoff", "would-be checkpoint");
+  await a1.command("handoff", "checkpoint would-be checkpoint");
   await a1.command("handoff", "ready");
   assert.match(a1.text(), /readiness: NOT READY/);
   assert.match(a1.text(), /ATTESTATION REFUSED: checkpoint-current: checkpoint is missing/);
@@ -112,7 +112,7 @@ test("RD3: read-only audit mode never attests — an audit session with nothing 
   const fs2 = createMemoryFs(DEFAULT_FILES);
   const w = session(fs2, "writer");
   await w.start();
-  await w.command("handoff", "written before the audit");
+  await w.command("handoff", "checkpoint written before the audit");
   await w.command("handoff", "ready");
   assert.match(w.text(), /\[PASS\] checkpoint-current/);
   const ckpt = validateCheckpoint(fs2, "/project", FILES);
@@ -133,10 +133,10 @@ test("RD4: a new checkpoint generation voids the attestation; verify shows both 
   const fs = createMemoryFs(DEFAULT_FILES);
   const s = session(fs, "sess-void");
   await s.start();
-  await s.command("handoff", "first");
+  await s.command("handoff", "checkpoint first");
   await s.command("handoff", "ready");
   assert.match(s.text(), /renewal authorization \(gate for \/handoff renew\): AUTHORIZED/);
-  await s.command("handoff", "second"); // new generation => readiness resets
+  await s.command("handoff", "checkpoint second"); // new generation => readiness resets
   await s.command("guard", "verify-checkpoint");
   assert.match(s.text(), /readiness: unattested/);
   assert.match(s.text(), /not authorized — handoff readiness has not been attested/);
@@ -147,7 +147,7 @@ test("RD5: /guard status reports identity, readiness, provenance and the learnin
   const fs = createMemoryFs(DEFAULT_FILES);
   const s = session(fs, "sess-status");
   await s.start();
-  await s.command("handoff", "status demo");
+  await s.command("handoff", "checkpoint status demo");
   await s.command("guard", "status");
   const text = s.text();
   assert.match(text, /checkpoint: current g1-/);

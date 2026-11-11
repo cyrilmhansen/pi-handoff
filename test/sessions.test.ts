@@ -177,7 +177,7 @@ test("S6: read-only audit mode performs zero writes to the project tree", async 
   await s.start();
   await s.turnEnd(LEVEL1_TOKENS);
   await s.command("guard", "simulate 9000"); // would auto-checkpoint in normal mode
-  await s.command("handoff", "audit notes"); // would write HANDOFF/PROGRESS in normal mode
+  await s.command("handoff", "checkpoint audit notes"); // would write HANDOFF/PROGRESS in normal mode
   assert.ok(s.ctx.notifications.some((n) => n.text.includes("read-only audit mode") && n.text.includes("suppressed")));
   assert.ok(s.ctx.notifications.some((n) => n.text.includes("dry run")));
   await s.command("guard", "status");
@@ -193,7 +193,7 @@ test("S6b: read-only mode also activates via the --guard-readonly CLI flag (real
   await s.start();
   await s.turnEnd(LEVEL1_TOKENS);
   await s.command("guard", "simulate 9000");
-  await s.command("handoff", "flag notes");
+  await s.command("handoff", "checkpoint flag notes");
   assert.equal(fs.writes.length, 0);
   assert.equal(JSON.stringify([...fs.files.entries()].sort()), before);
   assert.ok(s.ctx.notifications.some((n) => n.text.includes("read-only audit mode")));
@@ -204,7 +204,7 @@ test("S7: read-only mode may still persist runtime state OUTSIDE the audited tre
   const s = session(fs, "audit-2", { env: { CONTEXT_GUARD_READONLY: "1", CONTEXT_GUARD_STATE_DIR: "/tmp/guard-audit-state" } });
   await s.start();
   await s.turnEnd(LEVEL1_TOKENS);
-  await s.command("handoff", "would-be checkpoint"); // dry run: no tree write
+  await s.command("handoff", "checkpoint would-be checkpoint"); // dry run: no tree write
   const projectWrites = fs.writes.filter((p) => p.startsWith("/project"));
   assert.deepEqual(projectWrites, [], "no writes inside the audited tree");
   const external = fs.readFile("/tmp/guard-audit-state/sessions/audit-2.json");
@@ -217,7 +217,7 @@ test("S8: manual discoveries survive a checkpoint refresh after staleness is det
   const learningsBefore = fs.readFile("/project/LEARNINGS.md")!;
   const s1 = session(fs, "sess-1");
   await s1.start();
-  await s1.command("handoff", "first checkpoint");
+  await s1.command("handoff", "checkpoint first checkpoint");
   assert.equal(readRecoveryBundle(fs, "/project", FILES).checkpoint.kind, "current");
 
   // agent adds manual discoveries (prose edits) after the checkpoint
@@ -229,7 +229,7 @@ test("S8: manual discoveries survive a checkpoint refresh after staleness is det
   await s2.start();
   assert.ok(s2.ctx.notifications.some((n) => n.text.includes("stale") && n.text.includes("manual")), "fresh session warns about staleness, not silently overwrites");
 
-  await s2.command("handoff", "refresh");
+  await s2.command("handoff", "checkpoint refresh");
   const handoff = fs.readFile("/project/HANDOFF.md")!;
   assert.ok(handoff.includes(discovery), "manual discovery preserved verbatim");
   assert.ok(!handoff.includes("A-9"), "guard never copies LEARNINGS content into HANDOFF body");
@@ -243,7 +243,7 @@ test("S9: fresh-session recovery works from durable files alone (no runtime stat
   const fs1 = createMemoryFs(DEFAULT_FILES);
   const s1 = session(fs1, "sess-1");
   await s1.start();
-  await s1.command("handoff", "durable-only recovery");
+  await s1.command("handoff", "checkpoint durable-only recovery");
   fs1.writeFile("/project/HANDOFF.md", fs1.readFile("/project/HANDOFF.md")!.replace("Run the test suite.", "Run node --test test/, then human review."));
 
   const durableOnly: Record<string, string> = {};
