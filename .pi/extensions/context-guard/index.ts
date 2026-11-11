@@ -68,9 +68,11 @@ import {
 } from "./checkpoint.ts";
 import { recoveryCost, recoveryCostLine } from "./recovery.ts";
 import {
+  buildSuccessorUserMessage,
   buildRecoveryPrompt,
   decideRenewal,
   INITIAL_RENEWAL_STATE,
+  parseRenewalArgs,
   type RenewalState,
   type RenewalTrigger,
 } from "./renewal.ts";
@@ -84,6 +86,7 @@ import {
 } from "./diagnostics.ts";
 
 export const CUSTOM_TYPE = "context-guard";
+const MAX_OPERATOR_TASK_BYTES = 64 * 1024;
 
 /**
  * dev.2 D5d (P-9): the runtime identity carries a VERSION, never a milestone label.
@@ -1056,7 +1059,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const cpId = fresh.kind === "current" || fresh.kind === "stale" ? fresh.identity?.id ?? null : null;
     const lines = [
       `context-guard renewal status (state dir ${resolvedStateDir(g)})`,
-      `  policy: enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}${r.recoveryPrompt ? " recoveryPrompt=custom" : ""}${r.testCommand ? ` testCommand=${JSON.stringify(r.testCommand)}` : " testCommand=(none — successor prompt carries no build-verify line)"}`,
+      `  policy: enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals} successorTurn=${r.successorTurn}${r.recoveryPrompt ? " recoveryPrompt=custom" : ""}${r.testCommand ? ` testCommand=${JSON.stringify(r.testCommand)}` : " testCommand=(none — successor prompt carries no build-verify line)"}`,
       `  chain: ${chain.state.chainId || "(none yet)"} renewalsDone=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}${chain.state.lastSuccessorSessionId ? ` lastSuccessor=${chain.state.lastSuccessorSessionId}` : ""}`,
       `  operator stop: in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${chain.corrupt ? "; CHAIN STATE CORRUPT (treated as initial)" : ""}`,
       `  pending switch: ${renewalRuntime.pending ? `${renewalRuntime.pending.trigger} from ${renewalRuntime.pending.fromSessionId} (checkpoint ${renewalRuntime.pending.checkpointId})` : renewalRuntime.running ? "renewal command running" : renewalRuntime.toolScheduled ? "model renewal request scheduled" : "none"}`,
@@ -1167,15 +1170,46 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return { ok, text: lines.join("\n"), checkpointId: cpId, dry };
   }
 
+  function validateOperatorTask(task: string): string | undefined {
+    if (task.trim().length === 0) return "operator task is empty";
+    const size = Buffer.byteLength(task, "utf8");
+    if (size > MAX_OPERATOR_TASK_BYTES) return `operator task is ${size} bytes; maximum is ${MAX_OPERATOR_TASK_BYTES} bytes (64 KiB)`;
+    return undefined;
+  }
+
+  function readOperatorTaskFile(inputPath: string): { task?: string; error?: string } {
+    if (!g) return { error: "context-guard is not initialized" };
+    const candidate = pathDefault.resolve(g.cwd, inputPath);
+    const projectRoot = normalizePath(g.cwd);
+    if (!isLexicallyInside(candidate, projectRoot) || normalizePath(candidate) === projectRoot) {
+      return { error: "--task-file must name a file inside the project directory" };
+    }
+    if (!fs.realpath) return { error: "--task-file refused because this filesystem cannot verify symlinks" };
+    const realRoot = fs.realpath(g.cwd);
+    const realFile = fs.realpath(candidate);
+    if (!realRoot || !realFile || !isLexicallyInside(realFile, realRoot) || normalizePath(realFile) === normalizePath(realRoot)) {
+      return { error: "--task-file must resolve to a file inside the project directory; symlink escapes are refused" };
+    }
+    // Read the canonical target after the containment check, not the original path.
+    if (!fs.readFileLimited) return { error: "--task-file refused because this filesystem cannot enforce the size limit while reading" };
+    const result = fs.readFileLimited(realFile, MAX_OPERATOR_TASK_BYTES);
+    if (result === undefined) return { error: "--task-file could not be read (missing file, directory, or permission error)" };
+    if (result.tooLarge) return { error: `--task-file exceeds the ${MAX_OPERATOR_TASK_BYTES}-byte (64 KiB UTF-8) limit` };
+    const task = result.content;
+    const sizeError = validateOperatorTask(task);
+    if (sizeError) return { error: sizeError };
+    return { task };
+  }
+
   /**
    * The renewal transition (P-6 / A-17 / PROTOCOL §6). Safe boundary first
    * (waitForIdle — never mid tool call), then refresh + attest the checkpoint, gate,
-   * persist chain state BEFORE the switch (crash-safe), then newSession with a
-   * fire-and-track recovery send (O-1: awaiting would block newSession until the
-   * successor's first turn ENDS). After the switch the old ctx is INVALID (A-17.5):
+   * persist chain state BEFORE the switch (crash-safe), then newSession with one
+   * successor-turn trigger (custom or user-role). After the switch the old ctx is
+   * INVALID (A-17.5):
    * only plain data and the successor's own session_start reporting remain.
    */
-  async function runRenewal(trigger: RenewalTrigger, ctx: ExtensionCommandContext, notes?: string): Promise<void> {
+  async function runRenewal(trigger: RenewalTrigger, ctx: ExtensionCommandContext, notes?: string, operatorTask?: string): Promise<void> {
     if (!g) {
       notify(ctx, "context-guard: not initialized", "error");
       return;
@@ -1305,28 +1339,71 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         testCommand: g.config.renewal.testCommand,
         lean: g.config.recovery.lean,
         extraNotes: notes,
+        operatorTask,
       });
       const fromSessionId = g.sessionId;
       const maxRen = g.config.renewal.maxRenewals;
+      const successorTurn = g.config.renewal.successorTurn;
       const res = await ctx.newSession({
         parentSession: parentSessionFile,
         withSession: async (nctx: ReplacedSessionContext) => {
           // From here on the OLD ctx is invalid (A-17.5): report via nctx only.
           notify(nctx, `context-guard: session renewed (${renewalIndex}/${maxRen}) from checkpoint ${checkpointId}; starting successor turn…`, "info");
           recordDiag("renewal_result", { trigger, ok: true, checkpoint: checkpointId, chain: chainId, renewalsDone: renewalIndex, maxRenewals: maxRen });
-          void nctx
-            .sendMessage(
-              {
-                customType: `${CUSTOM_TYPE}-recovery`,
-                content: recovery,
-                display: true,
-                details: { checkpointId, chainId, renewalIndex, parentSessionId: fromSessionId },
-              },
-              { triggerTurn: true },
-            )
-            .catch((err: unknown) => {
-              notify(nctx, `context-guard: recovery turn FAILED to start: ${err instanceof Error ? err.message : String(err)}`, "error");
-            });
+          try {
+            if (successorTurn === "user") {
+              // Keep a machine-origin marker with structured metadata. It is explicitly
+              // non-triggering; the following user-role message is the sole turn start.
+              await nctx.sendMessage(
+                {
+                  customType: `${CUSTOM_TYPE}-continuation-origin`,
+                  content: "Handoff is appending an automated successor continuation message; this marker is extension-generated, not operator-authored.",
+                  display: true,
+                  details: {
+                    origin: "context-guard-extension",
+                    generated: true,
+                    purpose: "successor-continuation",
+                    checkpointId,
+                    chainId,
+                    renewalIndex,
+                    parentSessionId: fromSessionId,
+                    operatorTaskPresent: operatorTask !== undefined,
+                  },
+                },
+                { triggerTurn: false },
+              );
+              const dispatch = nctx.sendUserMessage(buildSuccessorUserMessage(recovery));
+              void dispatch.catch((err: unknown) => {
+                notify(nctx, `context-guard: recovery turn FAILED to start: ${err instanceof Error ? err.message : String(err)}`, "error");
+              });
+            } else {
+              const dispatch = nctx.sendMessage(
+                {
+                  customType: `${CUSTOM_TYPE}-recovery`,
+                  content: recovery,
+                  display: true,
+                  details: {
+                    origin: "context-guard-extension",
+                    generated: true,
+                    purpose: "successor-continuation",
+                    checkpointId,
+                    chainId,
+                    renewalIndex,
+                    parentSessionId: fromSessionId,
+                    operatorTaskPresent: operatorTask !== undefined,
+                  },
+                },
+                { triggerTurn: true },
+              );
+              void dispatch.catch((err: unknown) => {
+                notify(nctx, `context-guard: recovery turn FAILED to start: ${err instanceof Error ? err.message : String(err)}`, "error");
+              });
+            }
+          } catch (err) {
+            // Do not dispatch a fallback turn: the session was replaced, and a retry
+            // here could create a duplicate first inference or duplicate mission.
+            notify(nctx, `context-guard: recovery turn FAILED to start: ${err instanceof Error ? err.message : String(err)}`, "error");
+          }
         },
       });
       if (res.cancelled) {
@@ -1533,14 +1610,39 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           ctx.ui.notify(renewStatusReport(), "info");
           return;
         }
-        const trigger: RenewalTrigger = sub === "go" ? "model" : "operator";
-        const notes = (sub === "go" ? parts.slice(2) : parts.slice(1)).join(" ").trim() || undefined;
-        await runRenewal(trigger, ctx as ExtensionCommandContext, notes);
+        if (sub === "go") {
+          const notes = parts.slice(2).join(" ").trim() || undefined;
+          await runRenewal("model", ctx as ExtensionCommandContext, notes);
+          return;
+        }
+        const rawRenewalArgs = args.trimStart().slice("renew".length).trimStart();
+        const parsed = parseRenewalArgs(rawRenewalArgs);
+        if (!parsed.ok) {
+          ctx.ui.notify(`usage error: ${parsed.error}. Use /handoff renew [notes], --task "...", or --task-file <path inside project>.`, "warning");
+          return;
+        }
+        let operatorTask = parsed.operatorTask;
+        if (parsed.taskFile !== undefined) {
+          const loaded = readOperatorTaskFile(parsed.taskFile);
+          if (loaded.error) {
+            ctx.ui.notify(`context-guard: renewal refused before checkpoint or session changes: ${loaded.error}`, "warning");
+            return;
+          }
+          operatorTask = loaded.task;
+        }
+        if (operatorTask !== undefined) {
+          const sizeError = validateOperatorTask(operatorTask);
+          if (sizeError) {
+            ctx.ui.notify(`context-guard: renewal refused before checkpoint or session changes: ${sizeError}`, "warning");
+            return;
+          }
+        }
+        await runRenewal("operator", ctx as ExtensionCommandContext, parsed.notes, operatorTask);
         return;
       }
       if (parts.length > 0 && parts[0] !== "checkpoint") {
         ctx.ui.notify(
-          "usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew go | renew stop | renew resume | renew status. Slash commands are Pi operator commands, not Bash commands.",
+          'usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew --task "..." | renew --task-file <project-path> | renew go | renew stop | renew resume | renew status. Slash commands are Pi operator commands, not Bash commands.',
           "warning",
         );
         return;

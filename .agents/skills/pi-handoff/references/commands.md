@@ -28,9 +28,21 @@ should call registered tools instead: `handoff_inspect` is read-only,
 | `/handoff ready` | Evaluate + attest readiness (bound to checkpoint id). `/handoff ready check` = evaluate only |
 | `/handoff finalize [notes]` | Independent closing (dev.2 D2): refresh-if-stale + readiness + attest in one synchronous step; works with renewal disabled/capped/stopped; NEVER switches sessions or touches chain state; read-only mode = reported dry run |
 | `/handoff renew [notes]` | Operator renewal: waitForIdle → refresh+attest → gate → persist chain state → new session |
+| `/handoff renew --task "..."` | Operator renewal with a short new mission for the first successor turn |
+| `/handoff renew --task-file <path>` | Read a Markdown mission inside the project (realpath-checked, 64 KiB UTF-8 maximum); content is not copied to checkpoint notes |
 | `/handoff renew go` | Bridge used by the `handoff_renew` tool (model trigger); do not call manually mid-turn |
 | `/handoff renew stop` \| `resume` | Durable operator stop flag in chain state (successors inherit) |
 | `/handoff renew status` | Chain: enabled/autoRenew, renewalsDone/maxRenewals, stopped, pending authorization |
+
+`--task` and `--task-file` are operator-only slash-command options. Quote a complete
+short mission for `--task`; `--task-file` reads the file without executing it and rejects
+paths or symlink targets outside the project. Missions are capped at 64 KiB UTF-8 and
+remain separate from predecessor notes, durable `Next action`, checkpoint blocks, and
+diagnostics. Refusal or canceled replacement does not send a mission to a successor.
+`renewal.successorTurn: "user"` is experimental; its user-role message states that
+Handoff generated it and grants no authority beyond the explicit renewal/task. It sends
+one structured non-triggering origin marker and one triggering user message, with no
+custom `triggerTurn: true` fallback.
 
 Tool: `handoff_renew` (model-initiated renewal; requires `renewal.autoRenew: true`;
 dispatches `/handoff renew go` fire-and-forget — the switch happens when the turn
@@ -73,6 +85,7 @@ it cannot mutate state. The renewal field distinguishes `ready-now`,
 | `renewal.maxRenewals` | `2` | hard cap per renewal chain |
 | `renewal.recoveryPrompt` | (built-in) | replaces the generic recovery body; the mandatory identity header and safety trailer of the successor message are always kept (dev.2 D1) |
 | `renewal.testCommand` | `null` | project-configured build-verify command in the successor prompt; `null` = no build-verify line at all (never assume a generic one) |
+| `renewal.successorTurn` | `"custom"` | `"custom"` preserves the existing custom-message trigger; opt-in `"user"` uses one generated, provenance-labelled `sendUserMessage()` trigger |
 | `recovery.lean` | `false` | dev.2 D4 opt-in: successor recovery instruction uses TIERS — operational (HANDOFF/PROGRESS, read NOW) → methodology (AGENTS/PROTOCOL, on procedure need) → archive (GOAL/LEARNINGS, by reference, on demand). All six files stay authoritative and named; tiering defers reading, never drops authority. An explicit `renewal.recoveryPrompt` still wins |
 | `recovery.budgetTokens` | `12000` | target budget for the operational tier, in chars/4 ESTIMATED tokens (the meter reports estimates, not accounting — A-1) |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable file names |

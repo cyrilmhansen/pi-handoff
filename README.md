@@ -205,7 +205,8 @@ renewal needs this ON), `maxRenewals` (hard cap per chain, default 2), `recovery
 (overrides the generic recovery body; mandatory identity/safety parts of the message are
 always kept) and `testCommand` (project-configured build-verify line; with no explicit
 command the successor prompt carries NONE — the dev.1 hardcoded `node --test test/` was
-removed, LEARNINGS A-26). Chain state persists at
+removed, LEARNINGS A-26), and `successorTurn` (`"custom"` by default; opt-in `"user"`
+uses one provenance-labelled user-role turn). Chain state persists at
 `<stateDir>/renewal-state.json` and survives session replacement and process restarts;
 `/handoff renew stop` writes a DURABLE stop flag that successor sessions inherit.
 Since dev.2 D5c the guard also keeps a bounded structured trail at
@@ -224,12 +225,22 @@ Two triggers, both implemented and live-verified (LEARNINGS A-23):
 - `/handoff renew [notes]` — operator command; safe boundary first (`waitForIdle`), then
   refresh + attest the checkpoint, persist chain state BEFORE the switch, then
   `ctx.newSession({parentSession, withSession})`.
+- `/handoff renew --task "short mission"` or `--task-file path/to/mission.md` attaches a
+  new operator mission to that renewal's first successor turn. Task-file paths must stay
+  inside the project after symlink resolution; files are read only and limited to 64 KiB
+  UTF-8. Mission text is separate from predecessor notes and checkpoint blocks. A refusal
+  or cancelled replacement sends no successor task.
 - `handoff_renew` tool — model-initiated. Its `execute()` gates, refreshes and attests
   synchronously, then fire-and-forgets `/handoff renew go` and returns; the switch happens
   when the turn settles (awaiting idle inside the tool would deadlock on its own result).
 
 The successor starts with a **fresh context**: identity banner + deterministic recovery
-instruction (durable files only), no transcript replay, no compaction. Scope of the live
+instruction (durable files only), no transcript replay, no compaction. In the default
+`successorTurn: "custom"` mode the existing custom recovery message triggers the first
+turn. Experimental `"user"` mode emits a non-triggering structured extension-origin
+marker and then one `sendUserMessage()` containing the recovery plus any operator mission;
+that generated user-role message is explicitly not human-authored and grants no extra
+authority. A failed send is reported without a fallback trigger. Scope of the live
 proof (A-23), stated precisely: the experiment verified **one** model-initiated renewal
 (synthetic pressure → `handoff_renew`) followed by **one** operator-initiated renewal,
 then a cap refusal — not two independently spontaneous renewals, and not real-pressure

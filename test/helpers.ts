@@ -98,6 +98,7 @@ export interface MockCtxOptions {
   /** Successor identity used when invoking the withSession callback. */
   successorSessionId?: string;
   successorSessionFile?: string;
+  successorSendReject?: "custom" | "user";
 }
 
 export interface MockCtx {
@@ -111,6 +112,7 @@ export interface MockCtx {
   ops: string[];
   newSessionOptions: any[];
   recoverySends: Array<{ message: any; options: any }>;
+  recoveryUserSends: Array<{ content: string; options: any }>;
 }
 
 export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
@@ -118,6 +120,7 @@ export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
   const state = { compactCalls: 0, newSessionCalls: 0, switchSessionCalls: 0, waitForIdleCalls: 0 };
   const newSessionOptions: any[] = [];
   const recoverySends: Array<{ message: any; options: any }> = [];
+  const recoveryUserSends: Array<{ content: string; options: any }> = [];
   const ops: string[] = [];
   const usage = options.usage === undefined ? { tokens: 0, contextWindow: 220000 } : options.usage;
   const ctx: any = {
@@ -162,6 +165,11 @@ export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
           },
           sendMessage: async (message: any, sendOptions?: any) => {
             recoverySends.push({ message, options: sendOptions ?? {} });
+            if (options.successorSendReject === "custom") throw new Error("simulated custom dispatch failure");
+          },
+          sendUserMessage: async (content: string, sendOptions?: any) => {
+            recoveryUserSends.push({ content, options: sendOptions ?? {} });
+            if (options.successorSendReject === "user") throw new Error("simulated user dispatch failure");
           },
         };
         await newOptions.withSession(nctx);
@@ -197,6 +205,7 @@ export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
     },
     newSessionOptions,
     recoverySends,
+    recoveryUserSends,
     ops,
   };
 }
@@ -209,20 +218,29 @@ import type { FsOps } from "../.pi/extensions/context-guard/checkpoint.ts";
 
 export interface MemoryFs extends FsOps {
   files: Map<string, string>;
+  realPaths: Map<string, string>;
   failNext: Map<string, number>; // path -> number of failing writes remaining
   writes: string[];
 }
 
 export function createMemoryFs(initial: Record<string, string> = {}): MemoryFs {
   const files = new Map<string, string>(Object.entries(initial));
+  const realPaths = new Map<string, string>();
   const failNext = new Map<string, number>();
   const writes: string[] = [];
   const fs: MemoryFs = {
     files,
+    realPaths,
     failNext,
     writes,
     readFile(p) {
       return files.get(p);
+    },
+    readFileLimited(p, maxBytes) {
+      const content = files.get(p);
+      if (content === undefined) return undefined;
+      if (Buffer.byteLength(content, "utf8") > maxBytes) return { content: "", tooLarge: true };
+      return { content, tooLarge: false };
     },
     writeFile(p, content) {
       const fails = failNext.get(p) ?? 0;
@@ -235,6 +253,11 @@ export function createMemoryFs(initial: Record<string, string> = {}): MemoryFs {
     },
     exists(p) {
       return files.has(p);
+    },
+    realpath(p) {
+      if (realPaths.has(p)) return realPaths.get(p);
+      if (files.has(p) || [...files.keys()].some((k) => k.startsWith(`${p.replace(/\/$/, "")}/`))) return p;
+      return undefined;
     },
     mkdirRecursive() {
       /* memory fs: flat namespace */
