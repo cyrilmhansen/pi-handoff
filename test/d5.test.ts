@@ -22,6 +22,7 @@ import assert from "node:assert/strict";
 
 import contextGuard, { DEFAULT_GUARD_VERSION, guardVersion } from "../.pi/extensions/context-guard/index.ts";
 import { defaultThresholds } from "../.pi/extensions/context-guard/core.ts";
+import { attestHandoff, validateCheckpoint, writeCheckpoint } from "../.pi/extensions/context-guard/checkpoint.ts";
 import {
   DIAGNOSTICS_FILE,
   DIAGNOSTICS_MAX_ENTRIES,
@@ -147,9 +148,10 @@ test("D5a4 (adapter): L4 alert with enforceClosing:true claims blocking AND the 
 const renewCfg = (over: Record<string, unknown> = {}) => cfg({ renewal: { enabled: true, autoRenew: true, maxRenewals: 2, testCommand: "node --test test/" }, ...over });
 
 test("D5b1: hint shows RENEWAL AVAILABLE only when the full preview passes (enabled+autoRenew+current+attested+under cap+not stopped+not pending)", async () => {
-  const h = harness({ config: renewCfg(), env: { CONTEXT_GUARD_SYNTHETIC_REMAINING: "9000" } });
+  const h = harness({ config: renewCfg({ autoCheckpointAtHandoffLevel: false }), env: { CONTEXT_GUARD_SYNTHETIC_REMAINING: "9000" } });
   await h.start();
-  await h.command("handoff", "finalize state is current; awaiting renewal");
+  await h.command("handoff", "checkpoint state is current; awaiting renewal");
+  await h.command("handoff", "ready");
   await h.turnEnd();
   const alert = h.alerts();
   assert.match(alert, /RENEWAL AVAILABLE:/);
@@ -181,8 +183,8 @@ test("D5b3: unattested/missing checkpoint => NOT AVAILABLE (not-authorized) with
   assert.ok(!/RENEWAL AVAILABLE:/.test(alert));
   assert.match(alert, /RENEWAL NOT AVAILABLE \(not-authorized\)/);
   assert.match(alert, /not authorized NOW/i, "preview refusal must be explicitly temporary when preparable");
-  assert.match(alert, /handoff_renew refreshes a missing\/stale checkpoint/);
-  assert.match(alert, /attempts attestation before the real gate/);
+  assert.match(alert, /handoff_renew can refresh a missing\/stale checkpoint/);
+  assert.match(alert, /attest an unattested current one/);
 });
 
 test("D5b4: durable operator stop => NOT AVAILABLE (stopped) with resume + finalize instructions; preview still write-free", async () => {
@@ -362,7 +364,34 @@ test("D5b6 (issue #1): recoverable missing checkpoint must not make terminal fin
   const alert = h.alerts();
   assert.match(alert, /RENEWAL NOT AVAILABLE \(not-authorized\)/);
   assert.match(alert, /not authorized NOW/i);
-  assert.match(alert, /handoff_renew refreshes/i);
+  assert.match(alert, /handoff_renew can refresh/i);
   assert.ok(!/meanwhile.*close with handoff_finalize/i.test(alert), "a preparable renewal should not be steered to terminal close");
   assert.equal(h.mc.newSessionCalls, 0, "no forced transition");
+});
+
+test("D5b7 (issue #1): L3 hint observes the auto-checkpoint generation, not the consumed predecessor", async () => {
+  const h = harness({ config: renewCfg({ renewal: { enabled: true, autoRenew: true, maxRenewals: 12 } }), env: { CONTEXT_GUARD_SYNTHETIC_REMAINING: "9000" } });
+  const initial = writeCheckpoint(h.memFs, {
+    cwd: "/project", files: { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" },
+    level: 0, sessionId: "prior-session", remaining: 50000, goalDrift: false, lastVerifiedState: "verified",
+    unfinishedOperations: [], nextAction: "Continue the active research phase.", recoveryInstructions: [],
+  });
+  assert.ok(initial.ok, initial.errors.join("; "));
+  assert.ok(attestHandoff(h.memFs, "/project", { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" }, { sessionId: "prior-session" }).ok);
+  const oldId = validateCheckpoint(h.memFs, "/project", { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" }).identity!.id;
+  const priorChain = stateSeed({ renewalsDone: 7, renewedFromCheckpointId: oldId, lastSuccessorSessionId: "session-D5" });
+  h.memFs.writeFile(STATE, priorChain);
+  await h.start("session-D5");
+  await h.turnEnd(); // the same evaluation writes generation 2 before building its hint
+
+  const after = validateCheckpoint(h.memFs, "/project", { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" });
+  assert.equal(after.kind, "current");
+  assert.equal(after.identity!.generation, 2);
+  assert.notEqual(after.identity!.id, oldId);
+  const alert = h.alerts();
+  assert.match(alert, /RENEWAL NOT AVAILABLE \(not-authorized\)/);
+  assert.match(alert, /handoff_renew.*attest/i);
+  assert.doesNotMatch(alert, /RENEWAL NOT AVAILABLE \(already-renewed\)/);
+  assert.equal(h.memFs.files.get(STATE), priorChain, "preview does not mutate the renewal chain");
+  assert.equal(h.mc.newSessionCalls, 0, "pressure never forces a transition");
 });

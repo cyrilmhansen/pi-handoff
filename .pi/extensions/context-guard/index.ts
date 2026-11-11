@@ -101,13 +101,13 @@ function renewalSafeInstructions(why: string, done: number, max: number): string
     case "capped":
       return `At the cap (${done}/${max}) the safe closing path is the handoff_finalize tool — one synchronous checkpoint + attestation, never a switch; raising renewal.maxRenewals or resetting the chain state stays an explicit OPERATOR decision. Finish the durable prose, finalize, then stop.`;
     case "already-renewed":
-      return "This checkpoint already seeded a successor: refresh (/handoff) and re-attest (/handoff ready) before renewing again, or close with handoff_finalize.";
+      return "This checkpoint ID cannot seed a second successor. If you are its recorded successor and work remains, handoff_renew can create a fresh generation and recheck the real gate; otherwise do not retry this ID. A consumed checkpoint alone is not a reason to finalize unfinished work.";
     case "not-authorized":
-      return "Renewal is not authorized NOW: preserve the durable prose and write the exact next action. This may be preparable: handoff_renew refreshes a missing/stale checkpoint and attempts attestation before the real gate. If readiness fails, correct the blocking checks or finalize and stop; do not infer permanent refusal from staleness alone.";
+      return "Renewal is not authorized NOW. Preserve the durable prose and exact next action; handoff_renew can refresh a missing/stale checkpoint and attest an unattested current one before rechecking the real gate. Correct any reported blocking checks and retry at a safe boundary. Use handoff_finalize only for intentional non-renewing closure or a terminal refusal; temporary readiness alone does not require stopping unfinished work.";
     case "stopped":
       return "The operator stop is durable on this chain (renewal stays refused until an operator /handoff renew resume); close with handoff_finalize.";
     case "read-only":
-      return "Read-only audit mode never switches sessions; /handoff finalize is a reported dry run here.";
+      return "Read-only audit mode never switches sessions; handoff_finalize is a reported dry run here. Ask the operator to leave audit mode only if a write or renewal is required.";
     case "pending":
       return "A renewal is already pending/running in this process; finish the current turn normally.";
     default:
@@ -132,10 +132,11 @@ interface PendingRenewalMarker {
   renewalIndex: number;
   requestedAt: number;
 }
-const renewalRuntime: { pending: PendingRenewalMarker | null; running: boolean; operatorStop: boolean } = {
+const renewalRuntime: { pending: PendingRenewalMarker | null; running: boolean; operatorStop: boolean; toolScheduled: boolean } = {
   pending: null,
   running: false,
   operatorStop: false,
+  toolScheduled: false,
 };
 
 /**
@@ -338,7 +339,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       const r = g.config.renewal;
       const chain = loadRenewalState(fs, resolvedStateDir(g));
       lines.push(
-        `  renewal: policy enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}; chain ${chain.state.chainId || "(none)"} done=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}; stop in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${renewalRuntime.pending ? `; PENDING (${renewalRuntime.pending.trigger} from ${renewalRuntime.pending.fromSessionId})` : ""}${chain.corrupt ? "; chain state CORRUPT (treated as initial)" : ""}`,
+        `  renewal: policy enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}; chain ${chain.state.chainId || "(none)"} done=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}; stop in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${renewalRuntime.pending || renewalRuntime.running || renewalRuntime.toolScheduled ? `; PENDING (${renewalRuntime.pending?.trigger ?? (renewalRuntime.toolScheduled ? "model request scheduled" : "renewal running")})` : ""}${chain.corrupt ? "; chain state CORRUPT (treated as initial)" : ""}`,
       );
       lines.push(`  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`);
     }
@@ -473,6 +474,25 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return result;
   }
 
+  /** A consumed checkpoint may be renewed again only by its recorded successor. */
+  function prepareSuccessorCheckpoint(
+    ctx: ExtensionContext,
+    fresh: CheckpointFreshness,
+    chain: RenewalState,
+    notes?: string,
+  ): { freshness: CheckpointFreshness; error?: string } {
+    const checkpointId = fresh.kind === "current" ? fresh.identity?.id : undefined;
+    if (!checkpointId || chain.renewedFromCheckpointId !== checkpointId) return { freshness: fresh };
+    if (chain.lastSuccessorSessionId !== g?.sessionId) {
+      return { freshness: fresh, error: `checkpoint ${checkpointId} already seeded its successor; this session is not the recorded successor` };
+    }
+    const written = checkpoint(ctx, "successor continuation renewal", notes, { kind: "manual" });
+    if (!written?.ok) return { freshness: fresh, error: `fresh successor checkpoint failed: ${written?.errors.join("; ") ?? "no result"}` };
+    const refreshed = validateCheckpoint(fs, g!.cwd, g!.config.files, DEFAULT_CONFIG_NAME);
+    if (refreshed.kind !== "current") return { freshness: refreshed, error: `fresh successor checkpoint is ${refreshed.kind}` };
+    return { freshness: refreshed };
+  }
+
   /** Compact measurement summary for audit entries: values + provenance, before/after. */
   function measurementBrief(m: Measurement | null): Record<string, unknown> | null {
     if (!m) return null;
@@ -493,60 +513,6 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if (!g || !g.config.enabled) return undefined;
     const transition = g.machine.evaluate(measure(ctx));
     const alertText = g.machine.formatAlert(transition);
-    // dev.2 D5b: the model hears about renewal ONLY through a WRITE-FREE preview of the
-    // REAL gate (decideRenewal with the LIVE checkpoint identity + renewAuthorization +
-    // durable stop + cap + read-only + pending). A hint must never promise a transition
-    // the gate would refuse; refusals get concrete safe instructions instead
-    // (finalize-at-cap included — P-10: facts, no speculation). validateCheckpoint,
-    // renewAuthorization and loadRenewalState are read-only: the preview performs ZERO writes.
-    let renewalHint = "";
-    if (transition.level >= 3 && g.config.renewal.enabled && g.config.renewal.autoRenew) {
-      const chainNow = loadRenewalState(fs, resolvedStateDir(g));
-      const live = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
-      const preview = decideRenewal({
-        renewal: g.config.renewal,
-        trigger: "model",
-        auth: renewAuthorization(live),
-        checkpointId: live.kind === "current" ? live.identity?.id ?? null : null,
-        state: chainNow.state,
-        operatorStop: renewalRuntime.operatorStop || chainNow.state.stopped === true,
-        pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running,
-        readOnly: g.config.readOnly === true,
-      });
-      const done = chainNow.state.renewalsDone;
-      const max = g.config.renewal.maxRenewals;
-      if (preview.renew) {
-        renewalHint =
-          `\nRENEWAL AVAILABLE: when your durable files (HANDOFF.md/PROGRESS.md/LEARNINGS.md) carry your current state, call the handoff_renew tool — it refreshes+attests the checkpoint and switches to a FRESH session that recovers from those files only (no transcript replay, no compaction; chain renewals used ${done}/${max}).`;
-      } else {
-        renewalHint = `\nRENEWAL NOT AVAILABLE (${preview.why}): ${preview.detail} ${renewalSafeInstructions(preview.why, done, max)}`;
-      }
-    }
-    if (alertText) {
-      // triggerTurn:false while Pi is streaming => Pi defers the append to the
-      // end of the current turn: an in-flight tool call is never interrupted.
-      pi.sendMessage(
-        {
-          customType: CUSTOM_TYPE,
-          content: alertText + renewalHint,
-          display: true,
-          details: { level: transition.level, crossed: transition.crossed.map((t) => t.label), boundary },
-        },
-        { triggerTurn: false },
-      );
-      try {
-        pi.appendEntry(CUSTOM_TYPE, { alertLevels: transition.crossed.map((t) => t.level), remaining: transition.measurement.remaining, boundary });
-      } catch {
-        /* audit entry is best-effort */
-      }
-      notify(ctx, `context-guard: level ${transition.level} (${transition.crossed.map((t) => t.label).join(", ")})`, transition.level >= 4 ? "error" : "warning");
-      recordDiag("alert", {
-        level: transition.level,
-        crossed: transition.crossed.map((t) => t.label),
-        remaining: transition.measurement.remaining ?? undefined,
-        boundary,
-      });
-    }
     if (transition.degraded && transition.crossed.length === 0) {
       notify(ctx, "context-guard: context measurement unavailable for several evaluations; holding last known pressure level.", "warning");
     }
@@ -604,6 +570,59 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       } else {
         notify(ctx, "context-guard: read-only audit mode — automatic checkpoint suppressed (no writes to the project tree).", "info");
       }
+    }
+    // Compute renewal advice against the resulting checkpoint generation. In
+    // particular, an L3 auto-checkpoint must replace an earlier consumed-id refusal.
+    let renewalHint = "";
+    if (transition.level >= 3 && g.config.renewal.enabled && g.config.renewal.autoRenew) {
+      const chainNow = loadRenewalState(fs, resolvedStateDir(g));
+      const live = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+      const preview = decideRenewal({
+        renewal: g.config.renewal,
+        trigger: "model",
+        auth: renewAuthorization(live),
+        checkpointId: live.kind === "current" ? live.identity?.id ?? null : null,
+        state: chainNow.state,
+        operatorStop: renewalRuntime.operatorStop || chainNow.state.stopped === true,
+        pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running || renewalRuntime.toolScheduled,
+        readOnly: g.config.readOnly === true,
+      });
+      const done = chainNow.state.renewalsDone;
+      const max = g.config.renewal.maxRenewals;
+      const successorCanPrepare = !preview.renew && preview.why === "already-renewed" && chainNow.state.lastSuccessorSessionId === g.sessionId;
+      if (preview.renew) {
+        renewalHint =
+          `\nRENEWAL AVAILABLE: when your durable files (HANDOFF.md/PROGRESS.md/LEARNINGS.md) carry your current state, call the handoff_renew tool — it refreshes+attests the checkpoint and switches to a FRESH session that recovers from those files only (no transcript replay, no compaction; chain renewals used ${done}/${max}).`;
+      } else if (successorCanPrepare) {
+        renewalHint = `\nRENEWAL PREPARATION REQUIRED: this recorded successor inherited a checkpoint that already seeded this session. At a safe boundary, call handoff_renew if work remains; it will create and attest a fresh generation (content-delta none if durable prose is unchanged), then recheck stop, cap, read-only, pending and readiness before any switch. Do not finalize unfinished work solely because the inherited checkpoint was consumed.`;
+      } else {
+        renewalHint = `\nRENEWAL NOT AVAILABLE (${preview.why}): ${preview.detail} ${renewalSafeInstructions(preview.why, done, max)}`;
+      }
+    }
+    if (alertText) {
+      // triggerTurn:false while Pi is streaming => Pi defers the append to the end
+      // of the turn. The resulting checkpoint and its gate state are now visible.
+      pi.sendMessage(
+        {
+          customType: CUSTOM_TYPE,
+          content: alertText + renewalHint,
+          display: true,
+          details: { level: transition.level, crossed: transition.crossed.map((t) => t.label), boundary },
+        },
+        { triggerTurn: false },
+      );
+      try {
+        pi.appendEntry(CUSTOM_TYPE, { alertLevels: transition.crossed.map((t) => t.level), remaining: transition.measurement.remaining, boundary });
+      } catch {
+        /* audit entry is best-effort */
+      }
+      notify(ctx, `context-guard: level ${transition.level} (${transition.crossed.map((t) => t.label).join(", ")})`, transition.level >= 4 ? "error" : "warning");
+      recordDiag("alert", {
+        level: transition.level,
+        crossed: transition.crossed.map((t) => t.label),
+        remaining: transition.measurement.remaining ?? undefined,
+        boundary,
+      });
     }
     persistState();
     setStatus(ctx);
@@ -700,6 +719,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     renewalRuntime.operatorStop = chain0.state.stopped === true;
     const pend = renewalRuntime.pending;
     renewalRuntime.pending = null; // any session start consumes a stale marker
+    renewalRuntime.toolScheduled = false; // an undelivered bridge cannot survive a session boundary
     if (pend && event.reason === "new" && event.previousSessionFile) {
       // This session IS the successor the previous session switched into: record the
       // lineage durably (P-4), audit the checkpoint it came from (PROTOCOL §6) and
@@ -796,7 +816,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     // the project's closingAllowlist does not name it. `handoff_renew` stays
     // allowlist-gated because it DOES schedule a switch.
     if (g.machine.currentLevel >= 4 && g.config.enforceClosing) {
-      if (!g.config.closingAllowlist.includes(event.toolName) && event.toolName !== "handoff_finalize") {
+      if (!g.config.closingAllowlist.includes(event.toolName) && event.toolName !== "handoff_finalize" && event.toolName !== "handoff_inspect") {
         recordDiag("tool_block", { tool: event.toolName, kind: "closing" });
         return {
           block: true,
@@ -905,25 +925,68 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
    * The Phase 2 renewal gate is `renewAuthorization()`: current AND identity-consistent
    * AND attested — a merely fresh-but-empty checkpoint never authorizes renewal.
    */
-  function verifyReport(): string {
-    if (!g) return "context-guard: not initialized";
-    g.checkpoint = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
-    const f = g.checkpoint;
-    g.checkpointId = f.kind === "current" || f.kind === "stale" ? f.identity?.id ?? null : null;
-    g.handoffReady = "readiness" in f ? f.readiness : undefined;
+  function inspectReport(): { text: string; details: Record<string, unknown> } {
+    if (!g) return { text: "context-guard: not initialized", details: { initialized: false } };
+    const f = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+    const checkpointId = f.kind === "current" || f.kind === "stale" ? f.identity?.id ?? null : null;
     const readiness = "readiness" in f ? f.readiness : undefined;
     const auth = renewAuthorization(f);
+    const readinessEval = evaluateHandoffReadiness(fs, g.cwd, g.config.files, {
+      configName: DEFAULT_CONFIG_NAME,
+      learningsHashAtSessionStart: g.learningsHash,
+    });
+    const chain = loadRenewalState(fs, resolvedStateDir(g));
+    const decision = decideRenewal({
+      renewal: g.config.renewal,
+      trigger: "model",
+      auth,
+      checkpointId,
+      state: chain.state,
+      operatorStop: renewalRuntime.operatorStop || chain.state.stopped,
+      pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running || renewalRuntime.toolScheduled,
+      readOnly: g.config.readOnly,
+    });
+    const successorCanPrepare = f.kind === "current" && chain.state.renewedFromCheckpointId === checkpointId && chain.state.lastSuccessorSessionId === g.sessionId;
+    const renewalState = decision.renew ? "ready-now" : decision.why === "not-authorized" || (decision.why === "already-renewed" && successorCanPrepare) ? "preparation-required" : "refused";
+    const nextAction = readinessEval.checks.find((c) => c.id === "next-action-recorded");
+    const report = {
+      checkpoint: f.kind,
+      id: checkpointId,
+      generation: "identity" in f ? f.identity?.generation ?? null : null,
+      attestation: readiness?.state ?? "unknown",
+      changedSources: f.kind === "stale" ? f.changed : [],
+      nextAction: { status: nextAction?.status ?? "unknown", detail: nextAction?.detail ?? "not evaluated" },
+      renewal: {
+        state: renewalState,
+        reason: decision.why,
+        detail: decision.detail,
+        chainId: chain.state.chainId || null,
+        renewalsDone: chain.state.renewalsDone,
+        maxRenewals: g.config.renewal.maxRenewals,
+        stopped: chain.state.stopped || renewalRuntime.operatorStop,
+        checkpointAuthorization: auth.authorized,
+        chainCorrupt: chain.corrupt,
+      },
+      science: "Mission/scientific claims have NOT been independently verified by this inspection.",
+    };
     const lines = [
       `context-guard verify: checkpoint ${f.kind}${"detail" in f ? `: ${f.detail}` : ""}` +
         ("checkpointed" in f && f.checkpointed ? ` (written ${f.checkpointed}${f.session ? `, session ${f.session}` : ""})` : ""),
-      `  identity: ${g.checkpointId ?? "none"}${f.kind === "current" ? `; content-delta ${f.contentDelta}` : ""}`,
+      `  identity: ${checkpointId ?? "none"}${f.kind === "current" ? `; content-delta ${f.contentDelta}` : ""}`,
       `  readiness: ${readiness ? `${readiness.state} — ${readiness.detail}` : "unknown (checkpoint is not current)"}`,
+      `  next action: ${report.nextAction.status} — ${report.nextAction.detail}`,
       `  renewal authorization (gate for /handoff renew): ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}`,
+      `  renewal: ${renewalState} (${decision.why}) — ${decision.detail}; chain ${chain.state.chainId || "(none)"} ${chain.state.renewalsDone}/${g.config.renewal.maxRenewals}`,
+      `  changed sources: ${report.changedSources.length ? report.changedSources.join(", ") : "none"}`,
       `  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`,
       "  manual prose in HANDOFF.md/PROGRESS.md always takes precedence over these blocks.",
+      `  science: ${report.science}`,
     ];
-    persistState();
-    return lines.join("\n");
+    return { text: lines.join("\n"), details: report };
+  }
+
+  function verifyReport(): string {
+    return inspectReport().text;
   }
 
   /** `/handoff ready [check]`: evaluate semantic readiness; bare `ready` also attests. */
@@ -963,6 +1026,19 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return { text: lines.join("\n"), ok: att.ok };
   }
 
+  pi.registerTool({
+    name: "handoff_inspect",
+    label: "Inspect handoff",
+    description:
+      "Read-only inspection of the durable checkpoint and renewal preconditions. Returns checkpoint freshness, identity, attestation, changed sources, next-action validation, chain state, and whether renewal is ready, preparable, or refused. Does not write files or state, checkpoint, attest, consume an identity, renew, or change the chain/operator stop. It does not verify scientific results.",
+    promptSnippet: "handoff_inspect — inspect checkpoint and renewal readiness without changing state",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    async execute() {
+      const report = inspectReport();
+      return { content: [{ type: "text", text: report.text }], details: report.details };
+    },
+  } as never);
+
   /* ---------------------------------------------------------------- */
   /* Phase 2 renewal (increment B): the ONLY paths that switch sessions. */
   /* Operator: /handoff renew [notes]; model: handoff_renew tool ->     */
@@ -983,7 +1059,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       `  policy: enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}${r.recoveryPrompt ? " recoveryPrompt=custom" : ""}${r.testCommand ? ` testCommand=${JSON.stringify(r.testCommand)}` : " testCommand=(none — successor prompt carries no build-verify line)"}`,
       `  chain: ${chain.state.chainId || "(none yet)"} renewalsDone=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}${chain.state.lastSuccessorSessionId ? ` lastSuccessor=${chain.state.lastSuccessorSessionId}` : ""}`,
       `  operator stop: in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${chain.corrupt ? "; CHAIN STATE CORRUPT (treated as initial)" : ""}`,
-      `  pending switch: ${renewalRuntime.pending ? `${renewalRuntime.pending.trigger} from ${renewalRuntime.pending.fromSessionId} (checkpoint ${renewalRuntime.pending.checkpointId})` : renewalRuntime.running ? "renewal command running" : "none"}`,
+      `  pending switch: ${renewalRuntime.pending ? `${renewalRuntime.pending.trigger} from ${renewalRuntime.pending.fromSessionId} (checkpoint ${renewalRuntime.pending.checkpointId})` : renewalRuntime.running ? "renewal command running" : renewalRuntime.toolScheduled ? "model renewal request scheduled" : "none"}`,
       `  authorization now: ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}${cpId ? ` (checkpoint ${cpId})` : ""}`,
       `  note: the cap and the idempotence key are DURABLE (renewal-state.json); they survive session replacement and process restart (RN9).`,
     ];
@@ -1104,10 +1180,18 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       notify(ctx, "context-guard: not initialized", "error");
       return;
     }
-    if (renewalRuntime.running || renewalRuntime.pending) {
+    if (renewalRuntime.running || renewalRuntime.pending || (renewalRuntime.toolScheduled && trigger !== "model")) {
       notify(ctx, "context-guard: renewal refused (pending): another renewal is already pending/running in this process", "warning");
       recordDiag("renewal_result", { trigger, ok: false, why: "pending", detail: "another renewal is pending/running in this process" });
       return;
+    }
+    if (trigger === "model") {
+      if (!renewalRuntime.toolScheduled) {
+        notify(ctx, "context-guard: renewal refused (pending): no handoff_renew request is scheduled", "warning");
+        recordDiag("renewal_result", { trigger, ok: false, why: "pending", detail: "no model tool request is scheduled" });
+        return;
+      }
+      renewalRuntime.toolScheduled = false;
     }
     renewalRuntime.running = true;
     recordDiag("renewal_request", { trigger });
@@ -1137,6 +1221,16 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       await ctx.waitForIdle();
       // 2. Durable prerequisite: refresh the checkpoint if it is not current, then attest.
       let fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+      const chainBeforeRefresh = loadRenewalState(fs, resolvedStateDir(g));
+      if (fresh.kind === "current") {
+        const prepared = prepareSuccessorCheckpoint(ctx, fresh, chainBeforeRefresh.state, notes);
+        if (prepared.error) {
+          notify(ctx, `context-guard: renewal NOT performed (already-renewed): ${prepared.error}`, "warning");
+          recordDiag("renewal_result", { trigger, ok: false, why: "already-renewed", detail: prepared.error.slice(0, 300) });
+          return;
+        }
+        fresh = prepared.freshness;
+      }
       if (fresh.kind !== "current") {
         const res = checkpoint(ctx, `renewal refresh (${trigger})`, notes, { kind: "manual" });
         if (!res || !res.ok) {
@@ -1275,7 +1369,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     name: "handoff_renew",
     label: "Handoff renew",
     description:
-      "Request an automatic session renewal (Phase 2). Refreshes and attests the durable checkpoint NOW, then schedules the session switch for the end of this turn: the successor starts with FRESH context and recovers ONLY from the durable files (AGENTS/PROTOCOL/GOAL/HANDOFF/PROGRESS/LEARNINGS) — no transcript replay, no compaction. Call it when your context is nearly exhausted AND your current state is written into the durable files. Returns the gate decision; a refusal names its reason and you should keep working normally afterwards.",
+      "Request a controlled session renewal. Refreshes and attests the durable checkpoint, then schedules the switch for the end of this turn: the successor starts with FRESH context and recovers ONLY from durable files — no transcript replay, no compaction. Call it when work remains and the durable state is current. If this session is the recorded successor of an already-used checkpoint, the tool can create and attest a fresh generation (content-delta none when prose is unchanged) before rechecking the full gate. A refusal names its reason; continue work when the refusal is preparable.",
     promptSnippet: "handoff_renew — renew the session from durable handoff files when context is nearly exhausted",
     parameters: {
       type: "object",
@@ -1297,7 +1391,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           checkpointId: "__pre-gate__",
           state: loadRenewalState(fs, resolvedStateDir(g)).state,
           operatorStop: renewalRuntime.operatorStop,
-          pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running,
+          pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running || renewalRuntime.toolScheduled,
           readOnly: g.config.readOnly,
         });
         if (!pre.renew) {
@@ -1306,6 +1400,14 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       // Synchronous durable prerequisite, then the full gate.
       let fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+      const chainBeforeRefresh = loadRenewalState(fs, resolvedStateDir(g));
+      if (fresh.kind === "current") {
+        const prepared = prepareSuccessorCheckpoint(toolCtx, fresh, chainBeforeRefresh.state, notes);
+        if (prepared.error) {
+          return { content: [{ type: "text", text: `context-guard: renewal NOT scheduled (already-renewed): ${prepared.error}` }], details: { ok: false, why: "already-renewed" } };
+        }
+        fresh = prepared.freshness;
+      }
       if (fresh.kind !== "current") {
         const res = checkpoint(toolCtx, `renewal tool refresh`, notes, { kind: "manual" });
         if (!res || !res.ok) {
@@ -1330,7 +1432,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         checkpointId,
         state: chain.state,
         operatorStop: renewalRuntime.operatorStop,
-        pendingInFlight: false,
+        pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running || renewalRuntime.toolScheduled,
         readOnly: g.config.readOnly,
       });
       if (!decision.renew) {
@@ -1338,7 +1440,13 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       // Fire-and-forget: the command handler runs at dispatch (A-19), awaits
       // waitForIdle itself, and performs the switch once this turn settles.
-      pi.sendUserMessage(`/handoff renew go${notes ? ` ${notes}` : ""}`, { expandPromptTemplates: true });
+      renewalRuntime.toolScheduled = true;
+      try {
+        pi.sendUserMessage(`/handoff renew go${notes ? ` ${notes}` : ""}`, { expandPromptTemplates: true });
+      } catch (err) {
+        renewalRuntime.toolScheduled = false;
+        return { content: [{ type: "text", text: `context-guard: renewal NOT scheduled — dispatch failed: ${err instanceof Error ? err.message : String(err)}` }], details: { ok: false, why: "dispatch-failed" } };
+      }
       return {
         content: [
           {
@@ -1385,13 +1493,17 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   } as never);
 
   pi.registerCommand("handoff", {
-    description: "Durable checkpoint + renewal + finalization. Subcommands: verify, ready [check], finalize [notes], renew [notes] | renew go | renew stop | renew resume | renew status",
+    description: "Read-only status/verify; explicit checkpoint, readiness, finalization and renewal. Use /handoff checkpoint [notes] to write.",
     handler: async (args: string, ctx: ExtensionContext) => {
       if (!g) {
         ctx.ui.notify("context-guard: not initialized", "error");
         return;
       }
       const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts[0] === "status") {
+        ctx.ui.notify(`${verifyReport()}\n${renewStatusReport()}`, "info");
+        return;
+      }
       if (parts[0] === "verify") {
         ctx.ui.notify(verifyReport(), g.checkpoint.kind === "current" ? "info" : "warning");
         return;
@@ -1426,7 +1538,14 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         await runRenewal(trigger, ctx as ExtensionCommandContext, notes);
         return;
       }
-      const notes = args.trim();
+      if (parts.length > 0 && parts[0] !== "checkpoint") {
+        ctx.ui.notify(
+          "usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew go | renew stop | renew resume | renew status. Slash commands are Pi operator commands, not Bash commands.",
+          "warning",
+        );
+        return;
+      }
+      const notes = parts[0] === "checkpoint" ? parts.slice(1).join(" ").trim() : "";
       const dry = !canWriteProjectTree();
       const result = checkpoint(ctx, dry ? `read-only audit (${notes || "manual /handoff"})` : notes || "manual /handoff", notes || undefined, { dryRun: dry });
       if (!result) return;

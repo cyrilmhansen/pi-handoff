@@ -148,7 +148,7 @@ test("A2: read-only audit with an in-tree stateDir performs no repair writes and
     const s = session(root, "audit-2", { env: { CONTEXT_GUARD_READONLY: "1" } });
     await s.start();
     await s.turn(210000);
-    await s.command("handoff", "notes must not be written");
+    await s.command("handoff", "checkpoint notes must not be written");
     await s.shutdown();
     assert.deepEqual(manifest(root), before, "no quarantine/migration/tmp-cleanup may happen inside the tree");
     assert.ok(s.notifications.some((n) => /repair|migrat|quarantin/i.test(n)), "suppressed repairs must be visible: " + s.notifications.join(" | "));
