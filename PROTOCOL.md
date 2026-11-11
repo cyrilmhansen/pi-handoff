@@ -55,8 +55,9 @@ protected at all levels when `protectGoal` is true.
 
 ## 2. Checkpoint semantics
 
-- Checkpoints are written by `/handoff [notes]` or automatically once per escalation to
-  level ≥ 3. They update **managed sections only** (`<!-- guard:begin ... -->` blocks) of
+- Checkpoints are written by `/handoff checkpoint [notes]` (bare `/handoff` remains the
+  no-notes compatibility form) or automatically once per escalation to level ≥ 3. They
+  update **managed sections only** (`<!-- guard:begin ... -->` blocks) of
   `HANDOFF.md` and `PROGRESS.md`; all agent-authored text outside markers is preserved
   byte-for-byte. `LEARNINGS.md` and `GOAL.md` are never written by the guard. Managed
   blocks carry source-state content hashes (§2.1).
@@ -210,12 +211,25 @@ into a general orchestration framework is out of contract.
 
 ## 6. Renewal contract (Phase 2 — IMPLEMENTED and live-proven: increments A+B+C, LEARNINGS A-23)
 
+The model-callable `handoff_inspect` tool and operator `/handoff status`, `/handoff verify`,
+and `/guard verify-checkpoint` share the same read-only inspection path. It reports
+checkpoint freshness, identity, attestation, action validation, changed sources, and the
+model renewal gate as ready-now, preparation-required, or refused. Inspection does not
+write project/state files or mutate checkpoint, attestation, chain, or stop state; it
+does not verify scientific claims. Pi slash commands are operator interface commands,
+not shell commands available to the model.
+
 Renewal policy lives in `renewal.ts` (pure) + `handoff.config.json` `renewal`
 (`enabled` default **false**, `autoRenew` default **false**, `maxRenewals` default 2,
 `recoveryPrompt` override, `recovery` policy block — dev.2 D4 lean tiers, see below). Chain state (`chainId`, `renewalsDone`,
 `renewedFromCheckpointId`, `stopped`) persists at `<stateDir>/renewal-state.json`: it survives
 session replacement and process restart, bounds the chain, makes each checkpoint seed
 at most one successor (idempotence), and carries the durable operator stop.
+The recorded successor (`lastSuccessorSessionId`) may make an explicit later renewal
+request against an unchanged inherited checkpoint: Handoff creates a new generation
+with `content-delta: none`, attests it, and rechecks the same stop/cap/read-only/pending
+gates before dispatch. The consumed checkpoint ID is never reused, and ordinary status
+or inspection never creates this generation.
 `decideRenewal()` refuses with a named reason in precedence order
 (stop > read-only > disabled > auto-disabled > pending > capped > not-authorized >
 already-renewed); the authorization input is `renewAuthorization()` (current ∧

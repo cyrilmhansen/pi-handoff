@@ -240,7 +240,7 @@ test("R8: unresolved discoveries survive an auto checkpoint", async () => {
 test("R9: /handoff writes a checkpoint whose next action and objective survive a simulated fresh restore", async () => {
   const h = harness();
   await startSession(h);
-  await h.command("handoff", "phase 1 demo");
+  await h.command("handoff", "checkpoint phase 1 demo");
   const bundle = readRecoveryBundle(h.memFs, "/project", FILES);
   assert.equal(bundle.objective, "Build a context guard prototype.");
   assert.ok(bundle.nextAction && bundle.nextAction.length > 0);
@@ -254,13 +254,37 @@ test("R9: /handoff writes a checkpoint whose next action and objective survive a
   assert.equal(bundle2.checkpoint.kind, "current");
 });
 
+test("A2: /handoff status and unknown verbs are read-only on an attested checkpoint", async () => {
+  const h = harness({ config: { renewal: { enabled: true, autoRenew: true, maxRenewals: 8 } } });
+  await startSession(h);
+  await h.command("handoff", "checkpoint preserve these notes");
+  await h.command("handoff", "ready");
+  assert.match(h.memFs.files.get("/project/HANDOFF.md") ?? "", /Guard notes\npreserve these notes/);
+  assert.match(h.memFs.files.get("/project/HANDOFF.md") ?? "", /readiness: attested/);
+
+  const before = [...h.memFs.files.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const writesBefore = h.memFs.writes.length;
+  const checkpointId = h.memFs.files.get("/project/HANDOFF.md")?.match(/checkpoint-id: ([^\n]+)/)?.[1];
+  await h.command("handoff", "status");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /context-guard verify: checkpoint current/);
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /renewal status/);
+  assert.deepEqual([...h.memFs.files.entries()].sort(([a], [b]) => a.localeCompare(b)), before);
+  assert.equal(h.memFs.writes.length, writesBefore);
+  assert.equal(h.memFs.files.get("/project/HANDOFF.md")?.match(/checkpoint-id: ([^\n]+)/)?.[1], checkpointId);
+
+  await h.command("handoff", "statuz");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /usage: \/handoff status/);
+  assert.deepEqual([...h.memFs.files.entries()].sort(([a], [b]) => a.localeCompare(b)), before);
+  assert.equal(h.memFs.writes.length, writesBefore);
+});
+
 test("R10: no compaction, no session switching, no settings/install writes, stable system prompt", async () => {
   const h = harness();
   await startSession(h);
   await h.turnEnd(125464);
   await h.command("guard", "simulate 4000");
   await h.toolCall("bash", {});
-  await h.command("handoff", "final");
+  await h.command("handoff", "checkpoint final");
   await h.mockPi.emit({ type: "session_shutdown", reason: "quit" } as never, h.mockCtx.ctx as never);
 
   assert.equal(h.mockCtx.compactCalls, 0);
@@ -310,4 +334,45 @@ test("auto-checkpoint happens once per escalated level, not every turn", async (
   assert.match(handoffAfterSecond ?? "", /status: checkpoint \(guard level 3/);
   await h.command("guard", "simulate 4000"); // escalate to 4 -> checkpoint again
   assert.match(h.memFs.files.get("/project/HANDOFF.md") ?? "", /status: checkpoint \(guard level 4/);
+});
+
+test("A4: handoff_inspect reports current readiness without any file or state writes", async () => {
+  const h = harness({ config: { renewal: { enabled: true, autoRenew: true, maxRenewals: 8 } } });
+  await startSession(h);
+  await h.command("handoff", "checkpoint inspect fixture");
+  await h.command("handoff", "ready");
+  const beforeFiles = new Map(h.memFs.files);
+  const beforeWrites = [...h.memFs.writes];
+  const tool = h.mockPi.tools.get("handoff_inspect");
+  assert.ok(tool, "model-callable inspection tool registered");
+  const report = await tool.execute("inspect-current", {}, undefined, undefined, h.mockCtx.ctx);
+  assert.equal(report.details.checkpoint, "current");
+  assert.ok(report.details.id);
+  assert.equal(report.details.attestation, "attested");
+  assert.equal(report.details.renewal.state, "ready-now");
+  assert.equal(report.details.nextAction.status, "pass");
+  assert.match(report.details.science, /NOT been independently verified/i);
+  assert.deepEqual(h.memFs.files, beforeFiles);
+  assert.deepEqual(h.memFs.writes, beforeWrites);
+  assert.equal(h.mockCtx.newSessionCalls, 0);
+  assert.equal(h.mockPi.userMessages.length, 0);
+});
+
+test("A4: handoff_inspect reports changed sources and is callable during enforced closing", async () => {
+  const h = harness();
+  await startSession(h);
+  await h.command("handoff", "checkpoint inspect fixture");
+  await h.command("handoff", "ready");
+  await h.command("guard", "simulate 4000");
+  const result = await h.toolCall("handoff_inspect");
+  assert.equal(result?.block, undefined, "read-only inspection is allowed during enforced closing");
+  h.memFs.files.set("/project/PROGRESS.md", `${h.memFs.files.get("/project/PROGRESS.md")}\nnew durable fact\n`);
+  const beforeFiles = new Map(h.memFs.files);
+  const beforeWrites = [...h.memFs.writes];
+  const tool = h.mockPi.tools.get("handoff_inspect");
+  const report = await tool.execute("inspect-stale", {}, undefined, undefined, h.mockCtx.ctx);
+  assert.equal(report.details.checkpoint, "stale");
+  assert.ok(report.details.changedSources.includes("progress"));
+  assert.deepEqual(h.memFs.files, beforeFiles);
+  assert.deepEqual(h.memFs.writes, beforeWrites, "inspection itself adds no durable or state writes");
 });

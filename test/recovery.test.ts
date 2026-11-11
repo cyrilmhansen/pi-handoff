@@ -153,7 +153,7 @@ test("RC6: adapter — lean renewal reaches the successor message (exact bytes) 
   const status = mc.notifications.map((n) => n.text).join("\n");
   assert.match(status, /recovery cost: full .* lean operational/);
   // lean renewal: successor message carries the tiered body, header/safety intact
-  await pi.runCommand("handoff", "finalize before renew", mc.ctx);
+  await pi.runCommand("handoff", "checkpoint finalize before renew", mc.ctx);
   await pi.runCommand("handoff", "renew", mc.ctx);
   const sent = mc.recoverySends[0]?.message;
   assert.ok(sent, "recovery message sent to successor");
