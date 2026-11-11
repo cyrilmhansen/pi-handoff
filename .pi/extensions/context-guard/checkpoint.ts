@@ -1013,11 +1013,16 @@ export function writeCheckpoint(fs: FsOps, input: CheckpointInput, opts: { dryRu
   const prevFingerprint = prev ? blockFingerprint(prev.keys) : null;
   const contentDelta: ContentDelta = prevFingerprint == null ? "initial" : prevFingerprint === sources.fingerprint ? "none" : "new";
   const kind: "auto" | "manual" = input.kind === "auto" ? "auto" : "manual";
-  // The manual section is authoritative even when the caller supplies an obsolete
-  // nextAction (e.g. a pre-parser-fix recovery bundle). A missing/ambiguous manual
-  // heading is rejected by the structural/readiness checks, not silently inferred.
-  const manualNextAction = sectionBody(stripManagedSection(existingHandoff), "## Next action");
-  const recordedNextAction = manualNextAction ?? input.nextAction;
+  // A unique manual section overrides a possibly stale caller hint. A missing
+  // heading keeps the historical recovery fallback, but structural validation
+  // prevents attestation; duplicate headings select neither action.
+  const manualProse = stripManagedSection(existingHandoff);
+  const manualHeadings = matchingMarkdownHeadings(manualProse, "## Next action");
+  const manualNextAction = sectionBody(manualProse, "## Next action");
+  // A unique manual section is authoritative. Preserve the historical recovery
+  // fallback only when that section is absent; duplicates stay empty and fail
+  // structural validation rather than selecting or attesting one action.
+  const recordedNextAction = manualHeadings.length === 0 ? input.nextAction : manualNextAction ?? "";
 
   // Information-loss guard: an automatic checkpoint with no notes must not erase a
   // substantive summary recorded by an earlier checkpoint.

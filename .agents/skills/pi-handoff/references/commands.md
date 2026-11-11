@@ -123,6 +123,14 @@ writes / mixed generations / forged ids ⇒ `stale` with `partial: true`.
 `attestHandoff` refuses unless every blocking check passes; a new generation resets
 readiness to unattested.
 
+After upgrading from a parser that searched for `## Next action` as plain text, an
+older schema-v3 checkpoint can be reclassified `stale` even when its source hashes
+match: hashes prove byte freshness, not that its attested action came from the real
+manual heading. Review the manual `## Next action`, refresh with `/handoff [notes]`,
+then attest with `/handoff ready`. Never edit either managed checkpoint block by hand.
+Duplicate or missing real headings must be corrected in manual prose before
+attestation.
+
 `renewAuthorization()` = current ∧ identity-consistent ∧ attested. `decideRenewal()`
 refusals in precedence order: stop > read-only > disabled > auto-disabled > pending >
 capped > not-authorized > already-renewed.

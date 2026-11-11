@@ -126,7 +126,7 @@ test("FZ4: finalize refreshes a STALE checkpoint (manual prose changed), then at
   assert.match(out, /FINALIZE/);
 });
 
-test("FZ5: finalize NEVER bypasses readiness — attestation refuses on a missing next action", async () => {
+test("FZ5: finalize NEVER bypasses validation or readiness when Next action is missing", async () => {
   const noNext = {
     "/project/HANDOFF.md":
       "# HANDOFF\n\n## Recovery instructions\n- read files\n\n## Last verified state\nok\n\n## Unfinished operations\n- [ ] x\n\n## Discoveries not yet incorporated\n- (none)\n",
@@ -135,8 +135,8 @@ test("FZ5: finalize NEVER bypasses readiness — attestation refuses on a missin
   await h.start();
   await h.command("finalize whatever");
   const out = texts(h.mc);
-  assert.match(out, /NOT READY|attestation refused/i);
-  assert.match(out, /next-action-recorded/);
+  assert.match(out, /checkpoint failed/i);
+  assert.match(out, /missing ## Next action/);
   const f = validateCheckpoint(h.memFs, "/project", FILES);
   assert.notEqual(f.readiness.state, "attested", "readiness is NEVER stamped over a failed blocking check");
   assert.equal(h.mc.newSessionCalls, 0);
