@@ -10,6 +10,21 @@ Context-guard monitors remaining context, alerts at thresholds, enforces a closi
 phase, and persists crash-safe checkpoints so a **fresh session can recover from files
 alone** — no transcript replay, no lossy compaction.
 
+## Who can do what
+
+| Actor | Capability |
+|---|---|
+| Operator | Pi `/handoff` and `/guard` slash commands |
+| Agent | Tools actually registered in Pi, including its normal file tools |
+| Agent | `handoff_inspect` — read-only checkpoint and renewal inspection |
+| Agent | `handoff_finalize` — checkpoint and attest without renewing |
+| Agent | `handoff_renew` — request renewal through the controlled gate |
+
+Slash commands are Pi interface commands, **not Bash commands**. The agent must not
+try to run `/handoff verify` in a shell; use `handoff_inspect` for inspection and the
+registered handoff tools for agent actions. Inspection does not verify scientific
+results or mutate project/state files.
+
 ## At session start
 
 1. Read the durable files in the order the project prescribes. Two recovery modes:
@@ -26,8 +41,10 @@ alone** — no transcript replay, no lossy compaction.
    `<!-- guard:begin checkpoint -->` managed block. The successor of a renewal receives
    the matching recovery instruction automatically (tiered only when lean is on).
 2. Heed the guard's `session_start` notice (identity banner, checkpoint freshness:
-   missing/corrupt/stale/current). If stale, refresh with `/handoff` — it rewrites only
-   managed blocks; hand-authored text survives byte-for-byte.
+   missing/corrupt/stale/current). The agent can call `handoff_inspect` to check
+   freshness and renewal preconditions. If a checkpoint needs refreshing, update the
+   durable prose and ask the operator to use `/handoff checkpoint`; it rewrites only
+   managed blocks, and hand-authored text survives byte-for-byte.
 3. Run the project's verification command (named in HANDOFF/AGENTS) before touching code.
 
 ## During work — react to alert levels
@@ -38,8 +55,8 @@ The working window is `min(Pi's physical contextWindow, recovery-independent wor
 
 | Level | Meaning | Do |
 |---|---|---|
-| 1 (~≤30k remaining) | checkpoint | update PROGRESS.md (completed, blockers, exact next action) |
-| 2 (~≤20k) | wrap up | finish the current substantial task; open no new work |
+| 1 (~≤30k remaining) | checkpoint | call `handoff_inspect` to review freshness and gates; update PROGRESS.md (completed, blockers, exact next action) |
+| 2 (~≤20k) | wrap up | call `handoff_inspect`; finish the current substantial task; open no new work |
 | 3 (~≤10k) | handoff | prioritize durable handoff: update HANDOFF.md before anything else; the guard also auto-checkpoints |
 | 4 (~≤5k) | **enforced closing** | only tools in `closingAllowlist` run (default write/edit/read; renewal-enabled projects add `handoff_renew`); preserve the durable state; if the objective continues and renewal is allowed/preparable, request `handoff_renew` at a safe boundary; otherwise finalize and stop. With `enforceClosing:false` the same crossing alerts with ADVISORY wording and blocks nothing — alert text always matches live policy |
 
@@ -48,9 +65,10 @@ A revocation notice means pressure dropped and a previous closing instruction is
 
 ## Checkpoints and readiness
 
-- `/handoff [notes]` — write the managed checkpoint (both HANDOFF.md and PROGRESS.md get
+- Operator `/handoff checkpoint [notes]` — write the managed checkpoint (both HANDOFF.md and PROGRESS.md get
   one transactional identity: generation, id, content-delta, readiness).
-- `/handoff verify` — freshness classification without writing.
+- Operator `/handoff verify` — freshness classification without writing. Agent:
+  `handoff_inspect` returns the same freshness/readiness view plus renewal preconditions.
 - `/handoff ready` — evaluate + attest handoff completeness (blocking:
   checkpoint-current, identity-consistent, next-action-recorded, durable-files-valid;
   warnings: content-delta=none, learnings-updated). Renewal requires attestation.
@@ -58,6 +76,8 @@ A revocation notice means pressure dropped and a previous closing instruction is
   closing: refresh-if-stale + readiness + attest in ONE synchronous step. Works with
   renewal disabled, capped (8/8) or stopped; never switches sessions, touches chain
   state, waits for idle, or bypasses readiness. At the cap this is the safe closing path.
+- Bare `/handoff` remains the operator's compatible no-notes write form. `/handoff status`
+  is read-only. Unknown verbs show usage and never become checkpoint notes.
 - Ritual: **commit first**, then refresh + attest the checkpoint; commit the managed-block
   refresh separately when it dirties the tree.
 - The guard never writes LEARNINGS.md or GOAL.md. Keep discoveries classified there

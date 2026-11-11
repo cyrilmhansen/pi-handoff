@@ -335,3 +335,44 @@ test("auto-checkpoint happens once per escalated level, not every turn", async (
   await h.command("guard", "simulate 4000"); // escalate to 4 -> checkpoint again
   assert.match(h.memFs.files.get("/project/HANDOFF.md") ?? "", /status: checkpoint \(guard level 4/);
 });
+
+test("A4: handoff_inspect reports current readiness without any file or state writes", async () => {
+  const h = harness({ config: { renewal: { enabled: true, autoRenew: true, maxRenewals: 8 } } });
+  await startSession(h);
+  await h.command("handoff", "checkpoint inspect fixture");
+  await h.command("handoff", "ready");
+  const beforeFiles = new Map(h.memFs.files);
+  const beforeWrites = [...h.memFs.writes];
+  const tool = h.mockPi.tools.get("handoff_inspect");
+  assert.ok(tool, "model-callable inspection tool registered");
+  const report = await tool.execute("inspect-current", {}, undefined, undefined, h.mockCtx.ctx);
+  assert.equal(report.details.checkpoint, "current");
+  assert.ok(report.details.id);
+  assert.equal(report.details.attestation, "attested");
+  assert.equal(report.details.renewal.state, "ready-now");
+  assert.equal(report.details.nextAction.status, "pass");
+  assert.match(report.details.science, /NOT been independently verified/i);
+  assert.deepEqual(h.memFs.files, beforeFiles);
+  assert.deepEqual(h.memFs.writes, beforeWrites);
+  assert.equal(h.mockCtx.newSessionCalls, 0);
+  assert.equal(h.mockPi.userMessages.length, 0);
+});
+
+test("A4: handoff_inspect reports changed sources and is callable during enforced closing", async () => {
+  const h = harness();
+  await startSession(h);
+  await h.command("handoff", "checkpoint inspect fixture");
+  await h.command("handoff", "ready");
+  await h.command("guard", "simulate 4000");
+  const result = await h.toolCall("handoff_inspect");
+  assert.equal(result?.block, undefined, "read-only inspection is allowed during enforced closing");
+  h.memFs.files.set("/project/PROGRESS.md", `${h.memFs.files.get("/project/PROGRESS.md")}\nnew durable fact\n`);
+  const beforeFiles = new Map(h.memFs.files);
+  const beforeWrites = [...h.memFs.writes];
+  const tool = h.mockPi.tools.get("handoff_inspect");
+  const report = await tool.execute("inspect-stale", {}, undefined, undefined, h.mockCtx.ctx);
+  assert.equal(report.details.checkpoint, "stale");
+  assert.ok(report.details.changedSources.includes("progress"));
+  assert.deepEqual(h.memFs.files, beforeFiles);
+  assert.deepEqual(h.memFs.writes, beforeWrites, "inspection itself adds no durable or state writes");
+});

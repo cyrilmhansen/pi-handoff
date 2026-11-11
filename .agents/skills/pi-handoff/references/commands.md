@@ -9,6 +9,12 @@ Behavior details live in the project's `PROTOCOL.md`.
 
 ## Commands (extension slash-commands; handled without a model turn)
 
+These slash commands are Pi operator-interface commands, not Bash commands. Agents
+should call registered tools instead: `handoff_inspect` is read-only,
+`handoff_finalize` closes without renewal, and `handoff_renew` requests a gated renewal.
+`handoff_inspect` uses the same checkpoint/readiness report as `/handoff status` and
+`/handoff verify`; it never writes files or state and does not verify scientific results.
+
 | Command | Effect |
 |---|---|
 | `/guard status` | Full budget report: model, window + source, estimated used, raw remaining, reserve + source + fraction, usable remaining, level, next threshold, **escalation crossing points in estimated used tokens** (dev.2 D6: `window − reserve − threshold` per level, reserve provenance, enforced/advisory kind, `!! too tight` flag for crossings ≤ 0, honest "the guard never changes the model window" line), measurement provenance (real/synthetic/unknown), inconsistencies, checkpoint identity/readiness, renewal line, **recovery-cost meter** (dev.2 D4: full-set vs lean-tier chars and chars/4 estimates, A-1 caveat) |
@@ -40,6 +46,11 @@ managed blocks). It is NOT a substitute for renewal of an active, permitted chai
 finish the bounded operation, preserve durable evidence, then call `handoff_renew` at a
 safe boundary if the objective continues. A missing/stale checkpoint may be prepared
 by that tool before the final gate. At the exhausted cap, finalize and stop.
+
+Tool: `handoff_inspect` — read-only structured freshness, attestation, next-action,
+changed-source and renewal-gate report. It is callable during enforced closing because
+it cannot mutate state. The renewal field distinguishes `ready-now`,
+`preparation-required`, and `refused`.
 
 ## Configuration — `handoff.config.json` (project root; read once per `session_start`)
 
