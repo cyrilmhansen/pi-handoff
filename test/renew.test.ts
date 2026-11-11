@@ -247,9 +247,9 @@ test("RB7: cap — the third renewal in a chain of max 2 is refused durably", as
 });
 
 test("RB8: authorization gate — attestation refusal aborts the renewal and blocks the switch", async () => {
-  // HANDOFF without a manual "## Next action" section => next-action-recorded FAILS
-  const noNext = { ...DEFAULT_FILES, "/project/handoff.config.json": renewConfig(), "/project/HANDOFF.md": "# HANDOFF\n\n## Recovery instructions\n- read files\n\n## Last verified state\nok\n\n## Unfinished operations\n- [ ] x\n\n## Discoveries not yet incorporated\n- (none)\n" };
-  const h = harness({ files: noNext });
+  // A real section with a placeholder passes structural validation but fails readiness.
+  const placeholder = { ...DEFAULT_FILES, "/project/handoff.config.json": renewConfig(), "/project/HANDOFF.md": "# HANDOFF\n\n## Recovery instructions\n- read files\n\n## Last verified state\nok\n\n## Unfinished operations\n- [ ] x\n\n## Next action\nTODO\n\n## Discoveries not yet incorporated\n- (none)\n" };
+  const h = harness({ files: placeholder });
   await h.start();
   await h.command("renew");
   assert.match(h.notes(), /renewal ABORTED — attestation refused/);

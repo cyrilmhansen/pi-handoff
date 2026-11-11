@@ -197,7 +197,11 @@ test("R8: checkpoint never touches LEARNINGS.md — unresolved proposals survive
   assert.equal(result.ok, true);
   assert.equal(fs.files.get("/project/LEARNINGS.md"), learnings); // byte-for-byte untouched
   assert.ok(fs.files.get("/project/HANDOFF.md")!.includes("[P-7]") === false); // not duplicated into handoff body
-  assert.ok(fs.files.get("/project/HANDOFF.md")!.includes("Implement Phase 2 renewal"));
+  // The manual heading is the sole authority; caller-supplied recovery hints
+  // cannot replace it during checkpoint generation.
+  assert.ok(fs.files.get("/project/HANDOFF.md")!.includes("### Next action\n- d"));
+  assert.ok(!fs.files.get("/project/HANDOFF.md")!.includes("### Next action\nImplement Phase 2 renewal"));
+  assert.ok(fs.files.get("/project/PROGRESS.md")!.includes("next-action: - d"));
 });
 
 test("R9: recovery bundle prefers fresh manual prose; checkpoint block is used only when current", () => {
