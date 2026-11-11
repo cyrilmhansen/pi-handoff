@@ -217,6 +217,11 @@ Renewal policy lives in `renewal.ts` (pure) + `handoff.config.json` `renewal`
 `renewedFromCheckpointId`, `stopped`) persists at `<stateDir>/renewal-state.json`: it survives
 session replacement and process restart, bounds the chain, makes each checkpoint seed
 at most one successor (idempotence), and carries the durable operator stop.
+The recorded successor (`lastSuccessorSessionId`) may make an explicit later renewal
+request against an unchanged inherited checkpoint: Handoff creates a new generation
+with `content-delta: none`, attests it, and rechecks the same stop/cap/read-only/pending
+gates before dispatch. The consumed checkpoint ID is never reused, and ordinary status
+or inspection never creates this generation.
 `decideRenewal()` refuses with a named reason in precedence order
 (stop > read-only > disabled > auto-disabled > pending > capped > not-authorized >
 already-renewed); the authorization input is `renewAuthorization()` (current ∧
