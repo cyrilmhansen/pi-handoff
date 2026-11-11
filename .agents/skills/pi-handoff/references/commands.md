@@ -9,6 +9,12 @@ Behavior details live in the project's `PROTOCOL.md`.
 
 ## Commands (extension slash-commands; handled without a model turn)
 
+These slash commands are Pi operator-interface commands, not Bash commands. Agents
+should call registered tools instead: `handoff_inspect` is read-only,
+`handoff_finalize` closes without renewal, and `handoff_renew` requests a gated renewal.
+`handoff_inspect` uses the same checkpoint/readiness report as `/handoff status` and
+`/handoff verify`; it never writes files or state and does not verify scientific results.
+
 | Command | Effect |
 |---|---|
 | `/guard status` | Full budget report: model, window + source, estimated used, raw remaining, reserve + source + fraction, usable remaining, level, next threshold, **escalation crossing points in estimated used tokens** (dev.2 D6: `window − reserve − threshold` per level, reserve provenance, enforced/advisory kind, `!! too tight` flag for crossings ≤ 0, honest "the guard never changes the model window" line), measurement provenance (real/synthetic/unknown), inconsistencies, checkpoint identity/readiness, renewal line, **recovery-cost meter** (dev.2 D4: full-set vs lean-tier chars and chars/4 estimates, A-1 caveat) |
@@ -16,8 +22,9 @@ Behavior details live in the project's `PROTOCOL.md`.
 | `/guard reset` | Re-arm alerts, re-baseline GOAL hash, rebuild the machine (testing/re-baselining only) |
 | `/guard verify-checkpoint` | Checkpoint classification + readiness + renewal authorization |
 | `/guard events [n]` | Tail of `<stateDir>/diagnostics.jsonl` (dev.2 D5c): typed, bounded events — session_start/alert/revocation/renewal_request/renewal_result/finalize/tool_block/turn_aborted; never prompts/args/secrets; audit mode with in-tree stateDir reports "not persisted" |
-| `/handoff [notes]` | Write checkpoint (managed blocks of HANDOFF.md + PROGRESS.md only) |
+| `/handoff status` | Read-only checkpoint/readiness/renewal report; writes no files or state |
 | `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources); also prints the recovery-cost meter (dev.2 D4) |
+| `/handoff checkpoint [notes]` | Explicit checkpoint write (managed blocks only); bare `/handoff` remains the no-notes form |
 | `/handoff ready` | Evaluate + attest readiness (bound to checkpoint id). `/handoff ready check` = evaluate only |
 | `/handoff finalize [notes]` | Independent closing (dev.2 D2): refresh-if-stale + readiness + attest in one synchronous step; works with renewal disabled/capped/stopped; NEVER switches sessions or touches chain state; read-only mode = reported dry run |
 | `/handoff renew [notes]` | Operator renewal: waitForIdle → refresh+attest → gate → persist chain state → new session |
@@ -39,6 +46,11 @@ managed blocks). It is NOT a substitute for renewal of an active, permitted chai
 finish the bounded operation, preserve durable evidence, then call `handoff_renew` at a
 safe boundary if the objective continues. A missing/stale checkpoint may be prepared
 by that tool before the final gate. At the exhausted cap, finalize and stop.
+
+Tool: `handoff_inspect` — read-only structured freshness, attestation, next-action,
+changed-source and renewal-gate report. It is callable during enforced closing because
+it cannot mutate state. The renewal field distinguishes `ready-now`,
+`preparation-required`, and `refused`.
 
 ## Configuration — `handoff.config.json` (project root; read once per `session_start`)
 
@@ -126,7 +138,7 @@ readiness to unattested.
 After upgrading from a parser that searched for `## Next action` as plain text, an
 older schema-v3 checkpoint can be reclassified `stale` even when its source hashes
 match: hashes prove byte freshness, not that its attested action came from the real
-manual heading. Review the manual `## Next action`, refresh with `/handoff [notes]`,
+manual heading. Review the manual `## Next action`, refresh with `/handoff checkpoint [notes]`,
 then attest with `/handoff ready`. Never edit either managed checkpoint block by hand.
 Duplicate or missing real headings must be corrected in manual prose before
 attestation.

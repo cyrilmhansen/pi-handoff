@@ -19,7 +19,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import contextGuard, { detectPiHarness } from "../.pi/extensions/context-guard/index.ts";
-import { joinPath, validateCheckpoint, renewAuthorization } from "../.pi/extensions/context-guard/checkpoint.ts";
+import { attestHandoff, joinPath, validateCheckpoint, renewAuthorization, writeCheckpoint } from "../.pi/extensions/context-guard/checkpoint.ts";
 import { buildRecoveryPrompt } from "../.pi/extensions/context-guard/renewal.ts";
 import { createMemoryFs, createMockCtx, createMockPi, DEFAULT_FILES, type MemoryFs, type MockPi } from "./helpers.ts";
 
@@ -125,13 +125,20 @@ test("RB2: operator renewal — idle boundary, refresh+attest, durable state BEF
   assert.ok(rec.message.content.includes("landing state recorded"), "notes carried into the successor prompt");
   assert.match(h.notes(), /session renewed \(1\/2\)/);
 
-  // consume the pending marker via a successor session_start (the real runtime does
-  // this through the re-invoked factory; module scope persists — A-17.4), THEN retry:
+  // Consume the pending marker via successor session_start. The inherited checkpoint
+  // id is used already, but this recorded successor can create a fresh no-delta id.
   await h.pi.emit({ type: "session_start", reason: "new", previousSessionFile: "/sessions/session-A.jsonl" } as never, createMockCtx({ cwd: "/project", sessionId: "session-B" }).ctx as never);
-  const before = h.mc.newSessionCalls;
-  await h.command("renew again");
-  assert.match(h.notes(), /already-renewed/);
-  assert.equal(h.mc.newSessionCalls, before);
+  const ctxB = createMockCtx({ cwd: "/project", sessionId: "session-B" });
+  await h.pi.runCommand("handoff", "renew again", ctxB.ctx);
+  assert.equal(ctxB.newSessionCalls, 1, "the authorized successor can continue without fabricating a prose edit");
+  const next = validateCheckpoint(h.memFs, "/project", FILES);
+  assert.equal(next.kind, "current");
+  assert.equal(next.contentDelta, "none");
+  assert.equal(next.readiness.state, "attested");
+  assert.notEqual(next.identity!.id, cpId, "the consumed id is never reused");
+  const nextChain = JSON.parse(h.memFs.files.get(STATE)!);
+  assert.equal(nextChain.renewalsDone, 2);
+  assert.equal(nextChain.renewedFromCheckpointId, next.identity!.id);
 });
 
 test("RB3: successor session_start records the lineage (pending marker consumed, lastSuccessorSessionId persisted, audit entry)", async () => {
@@ -213,6 +220,48 @@ test("RB5: model bridge — tool fires the dispatch WITHOUT switching inside exe
   assert.match(h.mc.recoverySends[0].message.content, /context nearly gone/);
   const st = JSON.parse(h.memFs.files.get(STATE)!);
   assert.equal(st.renewalsDone, 1);
+});
+
+test("RB16 (#1): recorded successor can renew an unchanged research checkpoint once, with a fresh attested id", async () => {
+  const h = harness({ config: renewConfig({ autoRenew: true, maxRenewals: 8 }) });
+  const initial = writeCheckpoint(h.memFs, {
+    cwd: "/project", files: FILES, level: 0, sessionId: "session-parent", remaining: 50000,
+    goalDrift: false, lastVerifiedState: "verified", unfinishedOperations: [],
+    nextAction: "Continue the active research phase.", recoveryInstructions: [],
+  });
+  assert.ok(initial.ok, initial.errors.join("; "));
+  assert.ok(attestHandoff(h.memFs, "/project", FILES, { sessionId: "session-parent" }).ok);
+  const previousId = validateCheckpoint(h.memFs, "/project", FILES).identity!.id;
+  const oldChain = JSON.stringify({
+    version: 1, chainId: "chain:active", renewalsDone: 1, renewedFromCheckpointId: previousId,
+    lastSuccessorSessionId: "session-successor", stopped: false, updatedAt: 1,
+  }, null, 2) + "\n";
+  h.memFs.writeFile(STATE, oldChain);
+  const successor = await h.start("session-successor");
+  const tool = h.pi.tools.get("handoff_renew");
+  const first = await tool.execute("tc-first", {}, undefined, undefined, successor.ctx);
+  assert.equal(first.details.ok, true);
+  assert.match(first.content[0].text, /renewal SCHEDULED/);
+  const fresh = validateCheckpoint(h.memFs, "/project", FILES);
+  assert.equal(fresh.kind, "current");
+  assert.notEqual(fresh.identity!.id, previousId, "the consumed checkpoint id is never reused");
+  assert.equal(fresh.contentDelta, "none", "read-only research can advance the checkpoint identity without fake content edits");
+  assert.equal(fresh.readiness.state, "attested");
+  assert.equal(h.memFs.files.get(STATE), oldChain, "tool preparation does not consume chain capacity before the switch path");
+  assert.equal(h.pi.userMessages.length, 1);
+
+  const afterFirstWrites = h.memFs.writes.length;
+  const repeated = await tool.execute("tc-second", {}, undefined, undefined, successor.ctx);
+  assert.equal(repeated.details.ok, false);
+  assert.equal(repeated.details.why, "pending");
+  assert.equal(h.pi.userMessages.length, 1, "repeated/concurrent tool requests dispatch only once");
+  assert.equal(h.memFs.writes.length, afterFirstWrites, "the refused duplicate performs no writes");
+
+  await h.pi.runCommand("handoff", "renew go", successor.ctx);
+  assert.equal(successor.newSessionCalls, 1);
+  const chain = JSON.parse(h.memFs.files.get(STATE)!);
+  assert.equal(chain.renewalsDone, 2);
+  assert.equal(chain.renewedFromCheckpointId, fresh.identity!.id);
 });
 
 test("RB6: autoRenew off => the model path refuses (with no tree writes) but the operator path still works", async () => {
