@@ -15,6 +15,8 @@ import { parseRenewalState, serializeRenewalState, type RenewalState } from "./r
 
 export interface FsOps {
   readFile(path: string): string | undefined;
+  /** Optional bounded text read for untrusted/operator-selected inputs. */
+  readFileLimited?(path: string, maxBytes: number): { content: string; tooLarge: boolean } | undefined;
   writeFile(path: string, content: string): void; // must be atomic where durability matters
   exists(path: string): boolean;
   mkdirRecursive(path: string): void;
@@ -35,6 +37,36 @@ export function createLocalFs(): FsOps {
         return fs.readFileSync(p, "utf8");
       } catch {
         return undefined;
+      }
+    },
+    readFileLimited(p, maxBytes) {
+      let fd: number | undefined;
+      try {
+        const initial = fs.statSync(p);
+        if (!initial.isFile()) return undefined;
+        if (initial.size > maxBytes) return { content: "", tooLarge: true };
+        const noFollow = fs.constants.O_NOFOLLOW ?? 0;
+        fd = fs.openSync(p, fs.constants.O_RDONLY | noFollow);
+        if (!fs.fstatSync(fd).isFile()) return undefined;
+        const bytes = Buffer.alloc(maxBytes + 1);
+        let length = 0;
+        while (length < bytes.length) {
+          const count = fs.readSync(fd, bytes, length, bytes.length - length, null);
+          if (count === 0) break;
+          length += count;
+        }
+        if (length > maxBytes) return { content: "", tooLarge: true };
+        return { content: bytes.subarray(0, length).toString("utf8"), tooLarge: false };
+      } catch {
+        return undefined;
+      } finally {
+        if (fd !== undefined) {
+          try {
+            fs.closeSync(fd);
+          } catch {
+            /* ignore close errors */
+          }
+        }
       }
     },
     writeFile(p, content) {

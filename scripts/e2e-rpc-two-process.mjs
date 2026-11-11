@@ -283,7 +283,8 @@ try {
   await awaitReady(audit);
   await audit.command({ id: "au-state", type: "get_state" });
   await audit.command({ id: "au-status", type: "prompt", message: "/guard status" });
-  await audit.command({ id: "au-ho", type: "prompt", message: "/handoff audit notes" });
+  // Checkpoint writes are explicit; an unknown verb is read-only (issue #12).
+  await audit.command({ id: "au-ho", type: "prompt", message: "/handoff checkpoint audit notes" });
   await audit.command({ id: "au-ready", type: "prompt", message: "/handoff ready" });
   await audit.command({ id: "au-sim", type: "prompt", message: "/guard simulate 4000" });
   await new Promise((r) => setTimeout(r, 1200));

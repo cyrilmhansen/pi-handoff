@@ -111,6 +111,16 @@ A revocation notice means pressure dropped and a previous closing instruction is
   banner + deterministic recovery naming only durable files; the recovery body is the
   full six-file read unless `recovery.lean` is enabled (D4 tiers) or a
   `renewal.recoveryPrompt` overrides it.
+- An operator may attach a new mission with `/handoff renew --task "short mission"` or
+  `/handoff renew --task-file path/to/mission.md`. Task files are read only from inside
+  the project after symlink resolution, capped at 64 KiB UTF-8, and never copied to
+  checkpoint blocks. The successor sees a separate operator-task section; predecessor
+  notes and durable `Next action` retain their own provenance. Refusal/cancellation sends
+  no mission to a successor.
+- `renewal.successorTurn` defaults to `"custom"`. Experimental `"user"` emits a
+  structured non-triggering origin marker then exactly one `sendUserMessage()` trigger.
+  Its visible content says Handoff generated it, not a human; the user role grants no
+  extra authority. A failed send is reported without a second trigger.
 - `/handoff renew stop|resume|status` — durable operator stop (inherited by successors),
   resume, chain state view. Hard cap `maxRenewals` per chain; each checkpoint seeds at
   most one successor (idempotence); pending switches are cancellable.

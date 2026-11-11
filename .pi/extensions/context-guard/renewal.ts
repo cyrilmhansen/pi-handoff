@@ -25,6 +25,8 @@ export interface RenewalConfig {
    * build-verify instruction at all — test commands are NEVER assumed generically.
    */
   testCommand: string | null;
+  /** How the successor's one initial turn is triggered. Experimental user-role mode is opt-in. */
+  successorTurn: "custom" | "user";
 }
 
 export const DEFAULT_RENEWAL: RenewalConfig = {
@@ -33,7 +35,79 @@ export const DEFAULT_RENEWAL: RenewalConfig = {
   maxRenewals: 2,
   recoveryPrompt: null,
   testCommand: null,
+  successorTurn: "custom",
 };
+
+export type ParsedRenewalArgs =
+  | { ok: true; notes: string | undefined; operatorTask: string | undefined; taskFile: string | undefined }
+  | { ok: false; error: string };
+
+/** Parse operator renewal flags without shell expansion or flattening quoted task text. */
+export function parseRenewalArgs(raw: string): ParsedRenewalArgs {
+  const tokens: Array<{ value: string; raw: string; quoted: boolean }> = [];
+  let value = "";
+  let rawValue = "";
+  let quote: "'" | '"' | null = null;
+  let quoted = false;
+  let started = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote) {
+      if (ch === "\\" && i + 1 < raw.length && (raw[i + 1] === quote || raw[i + 1] === "\\")) {
+        rawValue += ch + raw[i + 1];
+        value += raw[++i];
+      } else if (ch === quote) {
+        rawValue += ch;
+        quote = null;
+      } else {
+        rawValue += ch;
+        value += ch;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      rawValue += ch;
+      quote = ch;
+      quoted = true;
+      started = true;
+    } else if (/\s/.test(ch)) {
+      if (started) tokens.push({ value, raw: rawValue, quoted });
+      value = "";
+      rawValue = "";
+      quoted = false;
+      started = false;
+    } else {
+      value += ch;
+      rawValue += ch;
+      started = true;
+    }
+  }
+  if (quote) return { ok: false, error: "unterminated quote in /handoff renew arguments" };
+  if (started) tokens.push({ value, raw: rawValue, quoted });
+
+  let operatorTask: string | undefined;
+  let taskFile: string | undefined;
+  const notes: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token.quoted && (token.value === "--task" || token.value === "--task-file")) {
+      const isTask = token.value === "--task";
+      if ((isTask && (operatorTask !== undefined || taskFile !== undefined)) || (!isTask && (taskFile !== undefined || operatorTask !== undefined))) {
+        return { ok: false, error: "specify at most one of --task or --task-file" };
+      }
+      const next = tokens[++i];
+      if (!next || next.value.length === 0) return { ok: false, error: `${token.value} requires a value` };
+      if (isTask && !next.quoted) return { ok: false, error: '--task requires a quoted value, e.g. --task "New mission"' };
+      if (isTask) operatorTask = next.value;
+      else taskFile = next.value;
+    } else if (!token.quoted && token.value.startsWith("--")) {
+      return { ok: false, error: `unknown renewal option: ${token.value}` };
+    } else {
+      notes.push(token.raw);
+    }
+  }
+  return { ok: true, notes: notes.join(" ").trim() || undefined, operatorTask, taskFile };
+}
 
 export function mergeRenewal(base: RenewalConfig, override: unknown): RenewalConfig {
   if (!override || typeof override !== "object" || Array.isArray(override)) return base;
@@ -44,6 +118,7 @@ export function mergeRenewal(base: RenewalConfig, override: unknown): RenewalCon
   if (typeof o.maxRenewals === "number" && Number.isInteger(o.maxRenewals) && o.maxRenewals >= 0) next.maxRenewals = o.maxRenewals;
   if (typeof o.recoveryPrompt === "string" && o.recoveryPrompt.trim().length > 0) next.recoveryPrompt = o.recoveryPrompt.trim();
   if (typeof o.testCommand === "string" && o.testCommand.trim().length > 0) next.testCommand = o.testCommand.trim();
+  if (o.successorTurn === "custom" || o.successorTurn === "user") next.successorTurn = o.successorTurn;
   return next;
 }
 
@@ -169,7 +244,8 @@ export function decideRenewal(input: {
  *   3. build-verify line ONLY when the project explicitly configures `testCommand`
  *      (the hardcoded `node --test test/` fallback is removed);
  *   4. MANDATORY safety trailer (initiative + never-push);
- *   5. predecessor notes trailer (the only variable part).
+ *   5. optional, separately-labelled operator task;
+ *   6. predecessor notes trailer (never promoted to operator authority).
  */
 export function buildRecoveryPrompt(input: {
   files: { goal: string; progress: string; learnings: string; handoff: string };
@@ -183,6 +259,8 @@ export function buildRecoveryPrompt(input: {
   /** dev.2 D4: tiered recovery body (opt-in; a configured recoveryPrompt still wins). */
   lean?: boolean;
   extraNotes?: string;
+  /** Operator-supplied task bound to this explicit renewal, distinct from predecessor notes. */
+  operatorTask?: string;
 }): string {
   const f = input.files;
   const header = [
@@ -207,7 +285,28 @@ export function buildRecoveryPrompt(input: {
     `Continue the project from ${f.handoff} "Next action". You keep full initiative: reason, investigate, challenge earlier assumptions, propose new work — recording evidence and classification (accepted/proposed/falsified) in ${f.learnings}. You are not a task-list executor.`,
     `Keep committing coherent, tested increments locally as you work; never push without human authorization.`,
   ];
-  const lines = [...header, ``, ...body, ...verify, ``, ...safety];
+  const lines = [...header, ``, ...body, ...verify];
+  if (input.operatorTask !== undefined) {
+    lines.push(
+      ``,
+      `[OPERATOR-SUPPLIED TASK — attached explicitly to this renewal; distinct from the durable Next action and predecessor notes]`,
+      `This is the specific task the operator supplied for this successor and may authorize progressing beyond a durable "await operator" next action. It does not rewrite that durable action or authorize changing protected goals, bypassing scientific or project protocols, reclassifying evidence, approving document consolidation, pushing, resetting the renewal chain, or any other operator-only action. If it conflicts with an in-progress durable operation or required scientific approval, preserve that state and explain the conflict before proceeding.`,
+      `--- BEGIN OPERATOR TASK ---`,
+      input.operatorTask,
+      `--- END OPERATOR TASK ---`,
+    );
+  }
+  lines.push(``, ...safety);
   if (input.extraNotes && input.extraNotes.trim()) lines.push(``, `Notes from the predecessor: ${input.extraNotes.trim()}`);
   return lines.join("\n");
+}
+
+/** One visible machine-origin marker for the experimental user-role trigger. */
+export function buildSuccessorUserMessage(recovery: string): string {
+  return [
+    `[PI HANDOFF — AUTOMATED SESSION CONTINUATION]`,
+    `This user-role message was generated by the Handoff extension, not typed by a human. Its role starts the successor turn and grants no authority beyond the already authorized renewal and any explicitly labelled operator task below.`,
+    ``,
+    recovery,
+  ].join("\n");
 }

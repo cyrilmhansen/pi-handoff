@@ -394,6 +394,15 @@ fresh session with explicit justification) accepts them; see PROTOCOL.md §Knowl
 - [O-2] In RPC mode, is the `prompt` response for `/handoff renew` emitted only after the successor's first turn (if we await)? Matters for the e2e script's readback; drive the experiment with notifications + `get_state`, not the command response.
 - [O-3] Synthetic experiments: `/guard simulate 4900` (crossing to level 4) makes the AGENT call `/handoff renew` only when guidance says so; real-inference experiments use actual pressure. Do not spend tokens hunting thresholds (HANDOFF lesson).
 
+- [P-15] **PROPOSED (Lot B, unmeasured model behavior):** the opt-in
+  `renewal.successorTurn: "user"` mode may reduce the empty-start interpretation
+  observed for the custom recovery turn (#9). Zero-inference contract tests prove the
+  single trigger, visible extension provenance and preserved recovery/task content; they
+  do NOT prove improved first-action quality. Value: potentially clearer local-model
+  continuation. Cost: A/B sessions with the same model, checkpoint and task, consuming
+  real inference; not run in Lot B. confidence: low; status: proposed, keep `custom` as
+  the compatibility default until separately authorized evidence supports a change.
+
 ## Falsified or superseded
 
 - [F-1] Hypothesis: "Pi has an official per-turn remaining-context API." Reality: only the estimate above; there is no exact live tokenizer feed. Superseded by A-1. evidence: types.d.ts ContextUsage comment. confidence: high.
