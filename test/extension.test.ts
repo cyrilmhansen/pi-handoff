@@ -351,6 +351,11 @@ test("A4: handoff_inspect reports current readiness without any file or state wr
   assert.equal(report.details.attestation, "attested");
   assert.equal(report.details.renewal.state, "ready-now");
   assert.equal(report.details.nextAction.status, "pass");
+  assert.deepEqual(report.details.documentOwnership.manualProse, ["HANDOFF.md", "PROGRESS.md"]);
+  assert.deepEqual(report.details.documentOwnership.managedCheckpointBlocks, ["HANDOFF.md", "PROGRESS.md"]);
+  assert.equal(report.details.documentOwnership.gitWorkingTree, "not-inspected");
+  assert.match(report.content[0].text, /manual prose and Handoff-managed blocks are distinct/);
+  assert.match(report.content[0].text, /Git working-tree state is not inspected/);
   assert.match(report.details.science, /NOT been independently verified/i);
   assert.deepEqual(h.memFs.files, beforeFiles);
   assert.deepEqual(h.memFs.writes, beforeWrites);

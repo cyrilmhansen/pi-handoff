@@ -357,3 +357,27 @@ The switch (increments B+C, implemented; proven live A→B→C with real inferen
   concurrent run's artifacts or retained forensics). SIGKILL and machine crashes are
   NOT coverable by in-process code and may leave artifacts (stated honestly, never
   "guaranteed").
+
+## 8. Durable document maintenance
+
+`scripts/durable_edit.py` is the optional, agent-callable section editor and read-only
+inventory. Use `audit --root .` to identify the active HANDOFF next action, duplicate or
+historical operational headings, possible HANDOFF/PROGRESS action conflicts, missing
+archive references and document/recovery-cost estimates. It can report `NO CHANGE`; it
+never consolidates or writes during an audit. These findings are heuristics for review,
+not authority to change a plan.
+
+For structured edits, preview with `plan` or `archive-plan`, inspect the diff, then apply
+with the exact source hash (and archive hash for a move). The utility refuses ambiguous
+or stale targets, preserves non-target content and does not write checkpoint-managed
+blocks. A prose edit to HANDOFF/PROGRESS makes checkpoint freshness stale; refresh and
+attest through the guard only after reviewing the result. Historical predictions,
+disconfirming observations and subsequent operator decisions stay separate and traceable.
+
+Keep four reports distinct: manual prose and managed blocks are separate file regions;
+`handoff_inspect` reports verified checkpoint identity/freshness/attestation; `git status`
+and staged/unstaged `git diff` report actual local worktree state. An attested checkpoint
+does not mean software work is committed, validated or published. Audit does not infer
+scientific correctness, authorize consolidation, modify GOAL.md or alter the renewal
+chain. For archival and strategy pivots, the operator-approved process in the skill's
+`references/consolidation.md` still applies.

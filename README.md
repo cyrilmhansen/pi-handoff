@@ -63,6 +63,22 @@ GOAL.md authorization, and refreshed/attested checkpoints. This is a **docs-only
 workflow**, not a new extension command or an automatic pruning feature;
 `recovery.lean` changes the reading order but does not consolidate files.
 
+## Structured durable-document edits
+
+Agents can call the repository utility directly, without writing one-off replacement
+scripts. `python3 scripts/durable_edit.py audit --root .` is a read-only inventory that
+reports the active Next action, duplicate/stale titles, possible action conflicts,
+missing archive references, document sizes and chars/4 recovery estimates. It can say
+`NO CHANGE` and never consolidates.
+
+For exact section edits, use `plan` to inspect the diff and source hash, then `apply`
+with that `--expect-sha256`. For archival, `archive-plan` previews both files and
+`archive-apply` requires the source and archive hashes; the section is preserved in an
+in-repository archive, and an active Next action must be replaced in the same operation.
+See the bundled skill reference `references/durable-edit.md`. Checkpoint blocks stay
+guard-owned; use `handoff_inspect` for verified freshness/attestation and Git commands
+for the actual staged and unstaged worktree state.
+
 ## Install / load
 
 During development (works without project trust):

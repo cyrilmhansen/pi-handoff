@@ -64,6 +64,27 @@ changed-source and renewal-gate report. It is callable during enforced closing b
 it cannot mutate state. The renewal field distinguishes `ready-now`,
 `preparation-required`, and `refused`.
 
+### Durable document editing and audit
+
+`scripts/durable_edit.py` is a repository CLI for agents with Bash access, not a Pi slash
+command. It targets exact Markdown sections and is optional alongside ordinary file
+tools. Use `python3 scripts/durable_edit.py audit --root .` for a read-only inventory;
+it reports the authoritative HANDOFF next action, duplicate/stale operational titles,
+possible HANDOFF/PROGRESS action conflicts, missing archive links, document sizes and
+chars/4 recovery estimates. It can return **NO CHANGE** and never edits or consolidates.
+
+The `plan` command prints a diff and current/proposed hash for `append`, `replace`, or
+`prepend`; `apply` now requires the reviewed `--expect-sha256`. `archive-plan` and
+`archive-apply` show and validate both source and archive diffs/hashes, preserve the
+archived section content, and replace the active section when supplied. See
+`references/durable-edit.md` for exact recipes, conflict behavior and limits. The editor
+refuses ambiguous/stale anchors and never edits checkpoint-managed blocks.
+
+Document prose and machine blocks remain different sources. Use `git diff` to inspect
+actual prose/managed-block changes, `handoff_inspect` for verified checkpoint freshness
+and attestation, and `git status --short` for staged/unstaged worktree state. An attested
+checkpoint does not claim source code is committed, validated or pushed.
+
 ## Configuration — `handoff.config.json` (project root; read once per `session_start`)
 
 | Key | Default | Meaning |

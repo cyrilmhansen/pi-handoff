@@ -970,6 +970,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         checkpointAuthorization: auth.authorized,
         chainCorrupt: chain.corrupt,
       },
+      documentOwnership: {
+        manualProse: [g.config.files.handoff, g.config.files.progress],
+        managedCheckpointBlocks: [g.config.files.handoff, g.config.files.progress],
+        gitWorkingTree: "not-inspected",
+      },
       science: "Mission/scientific claims have NOT been independently verified by this inspection.",
     };
     const lines = [
@@ -981,6 +986,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       `  renewal authorization (gate for /handoff renew): ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}`,
       `  renewal: ${renewalState} (${decision.why}) — ${decision.detail}; chain ${chain.state.chainId || "(none)"} ${chain.state.renewalsDone}/${g.config.renewal.maxRenewals}`,
       `  changed sources: ${report.changedSources.length ? report.changedSources.join(", ") : "none"}`,
+      `  document ownership: manual prose and Handoff-managed blocks are distinct in HANDOFF/PROGRESS; Git working-tree state is not inspected here (use git status/diff).`,
       `  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`,
       "  manual prose in HANDOFF.md/PROGRESS.md always takes precedence over these blocks.",
       `  science: ${report.science}`,

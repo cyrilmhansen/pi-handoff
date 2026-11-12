@@ -102,6 +102,25 @@ A revocation notice means pressure dropped and a previous closing instruction is
   the project gate, commit, refresh via `/handoff`, attest via `/handoff ready`,
   and compare before/after recovery cost. Do not reset the renewal chain.
 
+## Structured document edits and audit
+
+- Use `python3 scripts/durable_edit.py audit --root .` for a read-only inventory; it
+  reports the active Next action, duplicate/stale headings, possible action conflicts,
+  missing archive links, file sizes and chars/4 estimates. It may say **NO CHANGE** and
+  never consolidates or writes.
+- For a scoped edit, use the provided CLI directly: `plan` first, inspect its diff and
+  source hash, then `apply` with that reviewed `--expect-sha256`. It supports exact
+  section append/replace and preview-first archival; see
+  `references/durable-edit.md`. Do not create an ad-hoc replacement script.
+- Keep audit, checkpoint and Git facts separate: audit findings are review suggestions;
+  `handoff_inspect` verifies checkpoint identity/freshness/attestation; `git status` and
+  staged/unstaged `git diff` show actual local work. Attestation says nothing about
+  whether source work is committed, validated or pushed.
+- Preserve checkpoint-managed blocks and historical provenance. Keep a falsified
+  prediction, the observation that disproved it and the later operator decision distinct.
+  Archival/consolidation follows the explicit approval procedure above; the audit never
+  grants that approval. Never change `GOAL.md` or scientific evidence implicitly.
+
 ## Renewal (Phase 2, if configured)
 
 - **Continuation precedence (issue #1):** when the objective remains unfinished, a live, permitted renewal takes precedence over terminal finalization. L3/L4 mean finish current bounded work and preserve evidence, then request `handoff_renew` at a safe boundary if permitted or safely preparable. A stale checkpoint may be refreshed and attested by that tool; a preview refusal means NOT authorized now, not necessarily permanently impossible. Use `handoff_finalize` for intentional non-renewing closure (disabled/stopped/capped/irreparable refusal). No threshold forces a switch.
