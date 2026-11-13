@@ -243,3 +243,18 @@ templates. Full command/config/state reference: `references/commands.md`.
 - State renewal proof scope precisely: one model-initiated hop + one operator-initiated
   hop is what live experiments verified; generalized concurrent renewal safety is not
   proven (only specific two-process invariants are).
+
+## Exclusive mission-instance ownership (Lot G)
+
+Only one Pi process can hold Handoff write ownership for a selected instance. Check
+`/handoff instance status` if checkpoint, attestation, renewal or document-cycle writes
+are refused. The owner lock stays held across successor sessions and releases on normal
+Pi process exit. A crash leaves the lock in place; age alone never makes it safe to take.
+The operator may run `/handoff instance recover <id>` only for a local Linux lock whose
+owner PID is proven absent or reused. If the lock is corrupt, on another host, or otherwise
+uncertain, stop every Pi process that could select that instance, inspect its lock artifacts,
+and use the explicit manual recovery described in Protocol §12. Never remove the lock while
+an owner could still run. The guarantee applies to Handoff writes and intercepted Pi tools,
+not arbitrary external programs or other checkouts. Keep the selected ID stable for the
+whole process; restart Pi to change it. No instance selection means the historical unlocked
+layout and behavior.

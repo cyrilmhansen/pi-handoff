@@ -72,6 +72,15 @@ function makeProject(tag) {
   return dir;
 }
 
+function prepareMissionInstance(dir, id) {
+  const root = path.join(dir, ".pi-handoff", "instances", id);
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, "mission.json"), JSON.stringify({ schema: 1, id, workProfile: null, createdAt: new Date(0).toISOString() }, null, 2) + "\n");
+  fs.writeFileSync(path.join(root, "HANDOFF.md"), "# HANDOFF\n\n## Recovery instructions\n\n## Last verified state\n\n## Unfinished operations\n\n## Next action\n\nContinue the isolated ownership test.\n\n## Discoveries not yet incorporated\n\n");
+  fs.writeFileSync(path.join(root, "PROGRESS.md"), "# PROGRESS\n\n## Current phase\n\n## Completed\n\n## Pending\n\n## Verified evidence\n\n## Blockers\n\n## Next action\n\nContinue the isolated ownership test.\n");
+  fs.writeFileSync(path.join(root, "LEARNINGS.md"), "# LEARNINGS\n\n## Accepted\n\n## Proposed\n\n## Falsified or superseded\n\n");
+}
+
 function manifest(dir) {
   const out = [];
   const walk = (d) => {
@@ -347,6 +356,56 @@ try {
   const rsTexts = cap.uiTexts().slice(rsBefore).join("\n");
   check("CAP: renew status reports the exhausted chain 8/8", /renewalsDone=8\/8/.test(rsTexts), rsTexts.split("\n").find((l) => /renewalsDone=/.test(l))?.slice(0, 180) ?? "(no renewalsDone line)");
   await cap.shutdown();
+
+  // ---- Lot G: real Pi processes contend for one selected mission instance ----
+  if (process.env.D7_FAKE_PI_LOG) {
+    // The cleanup integration tests deliberately replace Pi with a protocol stub. Those
+    // tests verify artifact ownership only; ownership behavior is covered by the real Pi
+    // branch and real child-process lock tests, never inferred from a fake runtime.
+    console.log("SKIP  LOT G Pi ownership branch under the D7 fake-Pi lifecycle harness");
+  } else {
+  const ownerTree = makeProject("instance-owner");
+  prepareMissionInstance(ownerTree, "shared");
+  prepareMissionInstance(ownerTree, "parallel");
+  const ownerPath = path.join(ownerTree, ".pi-handoff", "instances", "shared", ".owner.lock");
+  const sharedDocs = ["HANDOFF.md", "PROGRESS.md", "LEARNINGS.md"].map((name) => path.join(ownerTree, ".pi-handoff", "instances", "shared", name));
+  const docsBefore = sharedDocs.map((p) => fs.readFileSync(p, "utf8"));
+  const owner = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-owner"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "shared" }, label: "INSTANCE-OWNER" });
+  await awaitReady(owner);
+  const ownerRecord = JSON.parse(fs.readFileSync(ownerPath, "utf8"));
+  check("LOT G: first real Pi process owns the explicitly selected instance", ownerRecord.pid === owner.child.pid && ownerRecord.sessionId === (await owner.command({ id: "owner-state", type: "get_state" })).data?.sessionId, JSON.stringify({ pid: ownerRecord.pid, sessionId: ownerRecord.sessionId }));
+  const sharedInstancePath = path.join(ownerTree, ".pi-handoff", "instances", "shared");
+  const sharedStatePath = path.join(ownerTree, ".pi-guard", "instances", "shared");
+  const ownerStateBeforeLoser = fs.existsSync(sharedStatePath) ? manifest(sharedStatePath) : [];
+  const ownerFilesBeforeLoser = manifest(sharedInstancePath);
+
+  const loser = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-loser"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "shared" }, label: "INSTANCE-LOSER" });
+  await awaitReady(loser);
+  const loserStatusStart = loser.uiTexts().length;
+  await loser.command({ id: "loser-checkpoint", type: "prompt", message: "/handoff checkpoint loser must not persist" });
+  await loser.command({ id: "loser-ready", type: "prompt", message: "/handoff ready" });
+  await loser.command({ id: "loser-finalize", type: "prompt", message: "/handoff finalize loser must not persist" });
+  await loser.command({ id: "loser-renew", type: "prompt", message: "/handoff renew loser must not persist" });
+  await loser.command({ id: "loser-cycle", type: "prompt", message: "/handoff cycle plan" });
+  await loser.command({ id: "loser-instance", type: "prompt", message: "/handoff instance status" });
+  await new Promise((r) => setTimeout(r, 500));
+  const loserTexts = loser.uiTexts().slice(loserStatusStart).join("\n");
+  check("LOT G: losing real Pi process is told who owns the instance", /NOT HELD|not owned by this Pi process/.test(loserTexts) && new RegExp(`pid ${ownerRecord.pid}`).test(loserTexts), loserTexts.split("\n").find((line) => /ownership|NOT HELD/.test(line))?.slice(0, 220) ?? loserTexts.slice(0, 220));
+  check("LOT G: losing real Pi process cannot checkpoint, attest, renew or start a document cycle", /not owned by this Pi process/.test(loserTexts) && /refused|read-only/.test(loserTexts));
+  check("LOT G: losing real Pi process leaves every selected-instance file and state byte-identical", JSON.stringify(manifest(sharedInstancePath)) === JSON.stringify(ownerFilesBeforeLoser) && JSON.stringify(fs.existsSync(sharedStatePath) ? manifest(sharedStatePath) : []) === JSON.stringify(ownerStateBeforeLoser) && JSON.stringify(sharedDocs.map((p) => fs.readFileSync(p, "utf8"))) === JSON.stringify(docsBefore));
+
+  const parallel = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-parallel"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "parallel" }, label: "INSTANCE-PARALLEL" });
+  await awaitReady(parallel);
+  const parallelOwnerPath = path.join(ownerTree, ".pi-handoff", "instances", "parallel", ".owner.lock");
+  check("LOT G: a different instance is simultaneously owned by another real Pi process", fs.readFileSync(ownerPath, "utf8").includes(ownerRecord.token) && JSON.parse(fs.readFileSync(parallelOwnerPath, "utf8")).pid === parallel.child.pid);
+  await Promise.all([loser.shutdown(), parallel.shutdown()]);
+  await owner.shutdown();
+  check("LOT G: normal Pi process exit releases only its matching lock", !fs.existsSync(ownerPath) && !fs.existsSync(parallelOwnerPath));
+  const restarted = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-restarted"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "shared" }, label: "INSTANCE-RESTARTED" });
+  await awaitReady(restarted);
+  check("LOT G: restart acquires the instance after normal owner exit", JSON.parse(fs.readFileSync(ownerPath, "utf8")).pid === restarted.child.pid);
+  await restarted.shutdown();
+  }
 
   // ---- optional: ONE minimal real turn (spends inference; off by default) ----
   if (process.env.GUARD_E2E_LLM === "1") {

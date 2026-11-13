@@ -481,3 +481,44 @@ instance ID selected, legacy project-root files and the configured `.pi-guard` p
 unchanged. Creating or changing a mission instance is separate from renewing a session
 or resetting a renewal chain. A checkpoint attests recovery state only; it is not
 scientific validation or knowledge publication.
+
+## 12. Mission-instance process ownership (Lot G)
+
+An explicitly selected mission instance has one Handoff writer per Pi OS process. At
+`session_start`, after validating the instance manifest and path but before session,
+checkpoint, attestation, renewal or document-cycle state can be persisted, the extension
+creates `.pi-handoff/instances/<id>/.owner.lock` with exclusive file creation. The lock
+records a random owner token, PID, host, platform, Pi session ID and process start identity
+when Linux exposes it. A process keeps the same lock across successor sessions. Every
+Handoff-controlled write checks that the lock still contains the process's own token and
+PID. On normal process exit, Handoff removes it only if those values still match. A Pi
+session shutdown alone does not release process ownership.
+
+If another Pi process owns the selected instance, the new process stays read-only for
+Handoff. Checkpoint writes, attestations, renewals and documentation-cycle transitions
+are refused. The owner PID/host/session is shown only when valid lock metadata supplies
+those values. `/handoff instance status` reports whether this process holds ownership.
+Different instance IDs have different locks and may run concurrently. Legacy mode with no
+selected instance has no new lock and retains its historical paths and behavior.
+
+A crash leaves the owner file in place. Handoff never steals a lock based on age. On Linux,
+`/handoff instance recover <id>` may remove it only when the local PID is demonstrably
+absent or the PID's boot ID/process start ticks prove it has been reused. On macOS, a live
+PID cannot be distinguished safely from a reused PID with Node's portable APIs, so a PID
+that still exists is treated as possibly active. Corrupt metadata, a different host,
+permission uncertainty or an interrupted `.owner.lock.recovery` claim also refuse automatic
+recovery. If recovery refuses, stop/quiesce every Pi process that could select that ID,
+confirm the intended host/processes are stopped, inspect the exact instance directory, then
+remove only the abandoned `.owner.lock` and/or interrupted `.owner.lock.recovery` as an
+explicit operator repair and restart Pi. Never remove a lock while its owner could still
+run. Do not edit the lock while any process may be acquiring or recovering it.
+
+The exclusion guarantee depends on the local filesystem honoring atomic `O_EXCL` creation
+(for example, ordinary local APFS and Linux filesystems). Node documents weaker guarantees
+on some network filesystems; Handoff does not claim cross-host/NFS safety. The lock covers
+Handoff-controlled operations and Pi tools that this extension can intercept, including
+its standard `bash`, `write` and `edit` gates for a losing instance process. It cannot
+prevent arbitrary external programs, unrecognized third-party tools, or another checkout
+from directly editing files. Keep the instance selection fixed for the whole Pi process;
+changing it requires a restart. Ownership prevents concurrent Handoff authorization; it
+does not attest external filesystem writers or scientific results.

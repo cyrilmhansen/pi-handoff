@@ -164,10 +164,19 @@ export function instancePathIsSafe(fs: FsOps, cwd: string, id: string): boolean 
   const paths = missionInstancePaths(id);
   const project = fs.realpath?.(cwd) ?? pathDefault.resolve(cwd);
   const root = pathDefault.resolve(cwd, paths.root);
-  const realRoot = fs.realpath?.(root);
-  // Resolve even for a missing final directory; a symlinked ancestor changes this result.
-  const candidate = realRoot ?? fs.realpath?.(pathDefault.dirname(root));
-  if (!candidate) return true;
-  const rel = pathDefault.relative(project, candidate);
+  // Walk up to the nearest existing ancestor. Checking only dirname(root) misses a
+  // symlinked `.pi-handoff` when `instances/<id>` has not been created yet.
+  let candidate = root;
+  for (;;) {
+    const real = fs.realpath?.(candidate);
+    if (real) {
+      const rel = pathDefault.relative(project, real);
+      return rel === "" || (!rel.startsWith("..") && !pathDefault.isAbsolute(rel));
+    }
+    const parent = pathDefault.dirname(candidate);
+    if (parent === candidate) break;
+    candidate = parent;
+  }
+  const rel = pathDefault.relative(project, root);
   return rel === "" || (!rel.startsWith("..") && !pathDefault.isAbsolute(rel));
 }

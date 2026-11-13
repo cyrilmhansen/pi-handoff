@@ -45,6 +45,7 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
   diagnostics.ts dev.2 D5c: bounded structured event trail (no prompts/args/secrets)
   documentation-cycle.ts optional, operator-supervised campaign-boundary workflow
   mission-instance.ts explicit mission identity, safe storage paths, and non-overwriting creation
+  mission-lock.ts exclusive per-process instance ownership and conservative crash recovery
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
 CHANGELOG.md    version history (dev.1–dev.4)
@@ -572,3 +573,17 @@ the durable files into the fresh session — no transcript copy, no LLM summariz
 which also minimizes Sushi prefill churn (fresh session prefills AGENTS.md context file +
 four small markdown files once; no repeated system-prompt regeneration, no compaction
 summary calls).
+
+### Exclusive ownership of mission instances (Lot G)
+
+Each explicitly selected instance has one Handoff writer per Pi process. At startup, Pi
+atomically creates `.pi-handoff/instances/<id>/.owner.lock` before persisting Handoff state;
+the same process retains ownership across renewal successor sessions. A competing Pi process
+can inspect but cannot checkpoint, attest, renew or mutate a documentation cycle. Normal
+process exit releases only a lock with the matching owner token. A crash leaves the lock;
+Handoff never uses age alone to take it. `/handoff instance recover <id>` removes a lock
+only when Linux proves its PID absent or reused. Ambiguous, corrupt or foreign-host cases
+need explicit operator recovery after stopping all Pi processes that could select that ID;
+see Protocol §12. Distinct instance IDs can run concurrently. This relies on local
+filesystems honoring atomic exclusive creation and covers Handoff-controlled writes plus
+intercepted Pi tools, not arbitrary external programs, other checkouts or network filesystems.
