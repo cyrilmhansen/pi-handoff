@@ -1,18 +1,13 @@
 # AGENTS.md — handoff prototype (Pi context-guard)
 
-Pi 1.4.0 context-guard extension + durable handoff files. **All development milestones
-are COMPLETE:** Phases 1, 1b, 1c, 1d, Phase 2 increments A+B+C, the **v0.1.0-dev.2
-reliability/recovery-efficiency mission** (D1-D6 + all dogfood proofs — LEARNINGS
-A-28…A-36, CHANGELOG.md), the **D7 test-artifact lifecycle increment** (LEARNINGS
-A-37) and the **D8 Rune CI integration** (async integration builds on the existing
-Buildbot — LEARNINGS A-38/A-39; runner/test evidence in CHANGELOG §v0.1.0-dev.2 "D8"; the
-CL7e dev-tree-dependency fix `435c294` came out of the first real CI build bs54), and
-the **D9 final skill & release documentation audit** (seven-module recipes, lean-tier
-wording, commands.md D4/D6/env refresh, guide obsolete examples, CHANGELOG D8 folded
-under dev.2; regression test `test/docs.test.ts` DC1–DC5 — LEARNINGS A-41).
-Current next action: **STOP — operator review of the dev.2 + D7 + D8 + D9 candidate**;
-tagging/push, the authorized live-suite spend and `drpli` reuse each require
-separate explicit authorization. No implementation work is pending.
+Pi 1.4.0 context-guard extension + durable handoff files. Lots A–E are integrated on
+`main` at `96750d746003886610ac9fb9544fb52bf0dbffcd`; this branch prepares the
+`v0.1.0-dev.4` documentation/version consolidation. It contains checkpoint and renewal
+reliability (A), operator-task renewal (B), structured document editing/audit (C),
+reduced checkpoint churn (D), and optional supervised document cycles (E).
+Current next action: **STOP — operator review of the dev.4 consolidation candidate**.
+Do not tag, publish or push without separate explicit authorization. No scientific-state
+migration or cleanup is part of this release.
 
 Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
 false; this project sets `enabled: true, autoRenew: false, maxRenewals: 8` with
@@ -26,8 +21,8 @@ Every fresh session:
 1. Read `AGENTS.md`, `PROTOCOL.md`, `GOAL.md`, `HANDOFF.md`, `PROGRESS.md` (in that
    order; manual prose in HANDOFF/PROGRESS wins over `guard:begin checkpoint` managed
    blocks — schema v3; freshness is reported at `session_start` and via `/handoff verify`).
-2. Verify with `node --test test/` (expect **205 pass / 1 gated skip**) before touching
-   code. Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs`
+2. Verify with `node --test test/` (current baseline: **257 pass / 1 gated skip**) before
+   touching code. Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs`
    (**38/38**, incl. the capped-chain finalize proof), `node scripts/check-skill-discovery.mjs`
    (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate
    `b07e29b` — A-36) spends REAL inference — re-run only after renewal-wiring changes in

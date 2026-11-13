@@ -105,7 +105,7 @@ const MAX_OPERATOR_TASK_BYTES = 64 * 1024;
  * dev.2 D5d (P-9): the runtime identity carries a VERSION, never a milestone label.
  * `GUARD_VERSION` overrides it for probes/forensics without touching code.
  */
-export const DEFAULT_GUARD_VERSION = "0.1.0-dev.3";
+export const DEFAULT_GUARD_VERSION = "0.1.0-dev.4";
 export function guardVersion(env: Record<string, string | undefined> = process.env): string {
   const v = env.GUARD_VERSION;
   return typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, 40) : DEFAULT_GUARD_VERSION;

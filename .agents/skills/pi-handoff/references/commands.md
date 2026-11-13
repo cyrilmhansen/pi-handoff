@@ -1,11 +1,10 @@
 # context-guard — command, configuration and state reference
 
-Verified against pi-handoff **v0.1.0-dev.2** (Pi 1.4.0): Phases 1a–1d, Phase 2
-increments A+B+C, dev.2 D1–D6 (recovery-prompt fix, finalization, durable-edit script,
-lean recovery tiers, honest alerts + diagnostics, crossing points). D7 covers only the
-repo's e2e script lifecycle; D8 (Rune CI integration) lives OUTSIDE this extension —
-the CI service files are not part of the guard and nothing here changes with them.
-Behavior details live in the project's `PROTOCOL.md`.
+Version reference: **v0.1.0-dev.4** consolidation (Pi 1.4.0), covering lots A–E.
+Historical D1–D9 details remain in the changelog; Rune CI service files remain external
+to this extension. `renewal.successorTurn: "user"` and the documentation-cycle workflow
+remain explicitly opt-in; real Sushi A/B and real-inference document-cycle validation
+have not been performed. Behavior details live in `PROTOCOL.md`.
 
 ## Commands (extension slash-commands; handled without a model turn)
 
