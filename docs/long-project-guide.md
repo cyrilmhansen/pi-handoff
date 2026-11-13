@@ -32,7 +32,7 @@ HANDOFF.md       resume point: recovery instructions + ## Next action (manual pr
 PROGRESS.md      current state: completed / pending / blockers
 LEARNINGS.md     classified knowledge: accepted / proposed / falsified (guard never writes it)
 handoff.config.json   guard policy
-.pi/extensions/context-guard/   the extension (9 TS modules, zero dependencies)
+.pi/extensions/context-guard/   the extension (10 TS modules, zero dependencies)
 .pi-guard/       ephemeral per-session runtime state + renewal chain state (gitignored)
 ```
 
@@ -47,7 +47,8 @@ Six steps; the skill ships the same procedure in
 `.agents/skills/pi-handoff/references/bootstrap.md`:
 
 1. Copy `.pi/extensions/context-guard/` (index.ts, core.ts, config.ts, checkpoint.ts,
-   renewal.ts, recovery.ts, diagnostics.ts, documentation-cycle.ts, mission-instance.ts) into the target. No build step — Pi loads
+   renewal.ts, recovery.ts, diagnostics.ts, documentation-cycle.ts, mission-instance.ts,
+   mission-lock.ts) into the target. No build step — Pi loads
    TS through jiti; Node ≥ 23. The list is machine-checked: `test/docs.test.ts` DC3
    fails if the guide and the runtime's import closure ever diverge again (A-41 —
    this recipe carried the obsolete five-module list through dev.2 D4/D5c).

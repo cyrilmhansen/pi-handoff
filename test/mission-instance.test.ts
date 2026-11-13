@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import os from "node:os";
 
 import { loadConfig } from "../.pi/extensions/context-guard/config.ts";
 import { configForMissionInstance, createMissionInstance, missionChainId, missionInstancePaths, validMissionInstanceId, workProfilePath } from "../.pi/extensions/context-guard/mission-instance.ts";
 import contextGuard from "../.pi/extensions/context-guard/index.ts";
+import { instanceLockPath, type InstanceLockOwner } from "../.pi/extensions/context-guard/mission-lock.ts";
 import { createMemoryFs, createMockCtx, createMockPi, DEFAULT_FILES } from "./helpers.ts";
 
 test("MI1: ids are path-safe and invalid ids are refused", () => {
@@ -42,6 +44,14 @@ test("MI2b: symlinked instance storage outside the project is refused", () => {
   assert.equal(fs.files.has("/outside/escape/mission.json"), false);
 });
 
+test("MI2c: missing instance beneath a symlinked parent is still refused", () => {
+  const fs = createMemoryFs(DEFAULT_FILES);
+  fs.realPaths.set("/project/.pi-handoff", "/outside/.pi-handoff");
+  const result = createMissionInstance(fs, "/project", "not-created-yet", null);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /outside the project/);
+});
+
 test("MI3: absent selection preserves legacy layout; explicit environment selection is per process", () => {
   const legacy = loadConfig((name) => name === "handoff.config.json" ? "{}" : undefined, {});
   assert.equal(configForMissionInstance(legacy).files.handoff, "HANDOFF.md");
@@ -65,7 +75,7 @@ test("MI4: same project keeps checkpoint, attestation, and renewal stop state is
     }
     const pi = createMockPi();
     const mc = createMockCtx({ cwd: "/project", sessionId: `session-${id}` });
-    contextGuard(pi.pi as never, { fs, env: { CONTEXT_GUARD_MISSION_INSTANCE: id } });
+    contextGuard(pi.pi as never, { fs, env: { CONTEXT_GUARD_MISSION_INSTANCE: id }, processScope: `process-${id}` });
     return { id, paths, pi, mc };
   });
   await Promise.all(harnesses.map((h) => h.pi.emit({ type: "session_start", reason: "startup" } as never, h.mc.ctx as never)));
@@ -96,7 +106,7 @@ test("MI4: same project keeps checkpoint, attestation, and renewal stop state is
 
   const restartPi = createMockPi();
   const restartCtx = createMockCtx({ cwd: "/project", sessionId: "restart-alpha" });
-  contextGuard(restartPi.pi as never, { fs, env: { CONTEXT_GUARD_MISSION_INSTANCE: "alpha" } });
+  contextGuard(restartPi.pi as never, { fs, env: { CONTEXT_GUARD_MISSION_INSTANCE: "alpha" }, processScope: "restart-alpha" });
   await restartPi.emit({ type: "session_start", reason: "startup" } as never, restartCtx.ctx as never);
   const inspection = await restartPi.tools.get("handoff_inspect").execute("inspect", {}, undefined, undefined, restartCtx.ctx);
   assert.match(inspection.content[0].text, /current/);
@@ -107,7 +117,7 @@ test("MI5: invalid selection fails closed instead of falling back to shared file
   const fs = createMemoryFs(DEFAULT_FILES);
   const pi = createMockPi();
   const mc = createMockCtx({ cwd: "/project" });
-  contextGuard(pi.pi as never, { fs, env: { CONTEXT_GUARD_MISSION_INSTANCE: "../shared" } });
+  contextGuard(pi.pi as never, { fs, env: { CONTEXT_GUARD_MISSION_INSTANCE: "../shared" }, processScope: "invalid-selection" });
   await pi.emit({ type: "session_start", reason: "startup" } as never, mc.ctx as never);
   await pi.runCommand("handoff", "checkpoint", mc.ctx);
   assert.match(mc.notifications.map((n) => n.text).join("\n"), /mission instance selection refused/);
@@ -120,7 +130,7 @@ test("MI6: operator create/select commands are explicit and do not switch the ru
   const mc = createMockCtx({ cwd: "/project", sessionId: "legacy-session" });
   const profilePath = "/project/.pi-handoff/work-profiles/research/1.0.json";
   fs.writeFile(profilePath, JSON.stringify({ schema: 1, id: "research", version: "1.0", instructions: ["Record negative results."], knowledgeRefs: ["PROTOCOL.md#4"] }));
-  contextGuard(pi.pi as never, { fs, env: {} });
+  contextGuard(pi.pi as never, { fs, env: {}, processScope: "legacy-create" });
   await pi.emit({ type: "session_start", reason: "startup" } as never, mc.ctx as never);
   await pi.runCommand("handoff", "instance create beta --profile research@1.0", mc.ctx);
   const manifest = JSON.parse(fs.files.get("/project/.pi-handoff/instances/beta/mission.json")!);
@@ -130,4 +140,67 @@ test("MI6: operator create/select commands are explicit and do not switch the ru
   await pi.runCommand("handoff", "instance status", mc.ctx);
   assert.match(mc.notifications.at(-1)!.text, /legacy project mode/);
   assert.equal(fs.files.get("/project/HANDOFF.md"), DEFAULT_FILES["/project/HANDOFF.md"]);
+});
+
+test("MI7: losing instance ownership blocks every Handoff mutation path and managed Pi writes", async () => {
+  const fs = createMemoryFs(DEFAULT_FILES);
+  assert.equal(createMissionInstance(fs, "/project", "contended", null).ok, true);
+  const lockPath = instanceLockPath("/project", "contended");
+  const owner: InstanceLockOwner = {
+    schema: 1,
+    token: "other-process-token",
+    pid: process.pid,
+    hostname: os.hostname(),
+    platform: process.platform,
+    sessionId: "other-session",
+    startedAt: new Date().toISOString(),
+  };
+  fs.writeFile(lockPath, JSON.stringify(owner));
+  fs.writes.length = 0;
+
+  const pi = createMockPi();
+  const mc = createMockCtx({ cwd: "/project", sessionId: "loser-session" });
+  contextGuard(pi.pi as never, { fs, env: { CONTEXT_GUARD_MISSION_INSTANCE: "contended" }, processScope: "contended-loser" });
+  await pi.emit({ type: "session_start", reason: "startup" } as never, mc.ctx as never);
+  const before = JSON.stringify([...fs.files.entries()].sort());
+  for (const command of ["checkpoint", "ready", "finalize", "renew", "renew stop", "renew resume", "cycle plan", "cycle recover x"]) {
+    await pi.runCommand("handoff", command, mc.ctx);
+  }
+  const finalize = await pi.tools.get("handoff_finalize").execute("finalize", {}, undefined, undefined, mc.ctx);
+  const renew = await pi.tools.get("handoff_renew").execute("renew", {}, undefined, undefined, mc.ctx);
+  assert.equal(finalize.details.ok, false);
+  assert.equal(renew.details.why, "instance-ownership");
+  assert.equal((await pi.tools.get("handoff_inspect").execute("inspect", {}, undefined, undefined, mc.ctx)).content.length, 1, "read-only inspection remains available");
+  const toolHandlers = pi.handlers.get("tool_call")!;
+  let blockedWrite: any;
+  for (const handler of toolHandlers) blockedWrite = await handler({ type: "tool_call", toolName: "write", input: { path: "/project/.pi-handoff/instances/contended/HANDOFF.md" } }, mc.ctx);
+  let blockedBash: any;
+  for (const handler of toolHandlers) blockedBash = await handler({ type: "tool_call", toolName: "bash", input: { command: "echo unsafe" } }, mc.ctx);
+  assert.equal(blockedWrite?.block, true);
+  assert.equal(blockedBash?.block, true);
+  assert.equal(JSON.stringify([...fs.files.entries()].sort()), before, "no checkpoint, attestation, renewal, cycle, diagnostics, or session-state write occurred");
+  assert.equal(fs.writes.length, 0);
+});
+
+test("MI8: session shutdown does not release ownership before same-process successor startup", async () => {
+  const fs = createMemoryFs(DEFAULT_FILES);
+  assert.equal(createMissionInstance(fs, "/project", "continuous", null).ok, true);
+  const env = { CONTEXT_GUARD_MISSION_INSTANCE: "continuous" };
+  const firstPi = createMockPi();
+  const firstCtx = createMockCtx({ cwd: "/project", sessionId: "predecessor" });
+  contextGuard(firstPi.pi as never, { fs, env, processScope: "continuous-process" });
+  await firstPi.emit({ type: "session_start", reason: "startup" } as never, firstCtx.ctx as never);
+  const lockPath = instanceLockPath("/project", "continuous");
+  const lockBytes = fs.files.get(lockPath);
+  assert.ok(lockBytes);
+  await firstPi.emit({ type: "session_shutdown", reason: "new" } as never, firstCtx.ctx as never);
+  assert.equal(fs.files.get(lockPath), lockBytes, "session-level shutdown preserves process-level ownership");
+
+  const successorPi = createMockPi();
+  const successorCtx = createMockCtx({ cwd: "/project", sessionId: "successor" });
+  contextGuard(successorPi.pi as never, { fs, env, processScope: "continuous-process" });
+  await successorPi.emit({ type: "session_start", reason: "new" } as never, successorCtx.ctx as never);
+  await successorPi.runCommand("handoff", "checkpoint", successorCtx.ctx);
+  assert.match(successorCtx.notifications.map((n) => n.text).join("\n"), /mission instance: continuous/);
+  assert.equal(fs.files.get(lockPath), lockBytes, "successor process context reuses the exact same process owner token");
 });

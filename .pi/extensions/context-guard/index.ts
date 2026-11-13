@@ -97,7 +97,8 @@ import {
   recentDiagnostics,
   type DiagnosticType,
 } from "./diagnostics.ts";
-import { configForMissionInstance, createMissionInstance, missionChainId, readMissionInstanceProfile, validMissionInstanceId, validWorkProfileRef, workProfilePath } from "./mission-instance.ts";
+import { configForMissionInstance, createMissionInstance, instancePathIsSafe, missionChainId, readMissionInstanceProfile, validMissionInstanceId, validWorkProfileRef, workProfilePath } from "./mission-instance.ts";
+import { acquireInstanceLock, inspectInstanceLock, instanceLockPath, ownsInstanceLock, processSelectionIsStable, recoverAbandonedInstanceLock, releaseInstanceLock } from "./mission-lock.ts";
 
 export const CUSTOM_TYPE = "context-guard";
 const MAX_OPERATOR_TASK_BYTES = 64 * 1024;
@@ -207,6 +208,9 @@ interface GuardInternals {
   /** Repairs suppressed by read-only audit mode (reported, never performed). */
   repairsSuppressed: string[];
   missionInstanceError?: string;
+  missionInstanceLockPath?: string;
+  missionInstanceLockError?: string;
+  readOnlyRequested: boolean;
 }
 
 export interface GuardOverrides {
@@ -215,6 +219,8 @@ export interface GuardOverrides {
   env?: Record<string, string | undefined>;
   /** Deterministic Git-HEAD seam for tests; production reads `git rev-parse HEAD`. */
   gitRevision?: () => string | undefined;
+  /** Deterministic fake-process identity for ownership tests; production uses process.pid. */
+  processScope?: string;
 }
 
 export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides = {}) {
@@ -377,12 +383,24 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
 
   /** Read-only audit mode forbids every write inside the project tree. */
   function canWriteProjectTree(): boolean {
-    return g ? !g.config.readOnly : false;
+    return g ? !g.config.readOnly && hasInstanceOwnership() : false;
+  }
+
+  function hasInstanceOwnership(): boolean {
+    if (!g) return false;
+    const id = g.config.missionInstance.id;
+    return id === null || (!!g.missionInstanceLockPath && ownsInstanceLock(fs, g.missionInstanceLockPath));
+  }
+
+  function ownershipRefusal(): string | undefined {
+    if (!g || g.config.missionInstance.id === null || hasInstanceOwnership()) return undefined;
+    return `mission instance ${g.config.missionInstance.id} is not owned by this Pi process${g.missionInstanceLockError ? ` (${g.missionInstanceLockError})` : " (the owner lock is missing, corrupt, or has changed)"}`;
   }
 
   /** Runtime state may persist in read-only mode ONLY outside the audited tree. */
   function canPersistState(): boolean {
     if (!g) return false;
+    if (!hasInstanceOwnership()) return false;
     if (!g.config.readOnly) return true;
     // containment is realpath-aware AND normalized: `..` tricks and a symlinked
     // state dir inside the tree are still part of the audited tree.
@@ -529,7 +547,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       g?.missionInstanceError
         ? `mission instance: selection refused (${g.missionInstanceError})`
         : g?.config.missionInstance.id
-          ? `mission instance: ${g.config.missionInstance.id}${g.config.missionInstance.workProfile ? `; work profile ${workProfilePath(g.config.missionInstance.workProfile)}` : ""}; read this instance's operational files`
+          ? `mission instance: ${g.config.missionInstance.id}; ownership ${hasInstanceOwnership() ? "held by this Pi process" : "NOT HELD"}${g.config.missionInstance.workProfile ? `; work profile ${workProfilePath(g.config.missionInstance.workProfile)}` : ""}; read this instance's operational files`
           : "mission instance: legacy project mode",
       `session: ${sessionId}`,
       `start: ${event.reason}${event.previousSessionFile ? ` after ${event.previousSessionFile}` : ""}`,
@@ -589,8 +607,24 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return cand === normalizePath(goal) || candReal === goalReal || isLexicallyInside(candReal, goalReal);
   }
 
+  function isSelectedInstanceTarget(target: string): boolean {
+    if (!g || g.config.missionInstance.id === null) return false;
+    const candidate = normalizePath(target.startsWith("/") ? target : joinPath(g.cwd, target));
+    const candidateReal = fs.realpath?.(candidate) ?? candidate;
+    const instanceRoot = normalizePath(joinPath(g.cwd, `.pi-handoff/instances/${g.config.missionInstance.id}`));
+    const instanceReal = fs.realpath?.(instanceRoot) ?? instanceRoot;
+    const stateRoot = normalizePath(resolvedStateDir(g));
+    const stateReal = fs.realpath?.(stateRoot) ?? stateRoot;
+    return isLexicallyInside(candidate, instanceRoot) || isLexicallyInside(candidateReal, instanceReal) ||
+      isLexicallyInside(candidate, stateRoot) || isLexicallyInside(candidateReal, stateReal);
+  }
+
   function checkpoint(ctx: ExtensionContext, reason: string, notes?: string, opts: { dryRun?: boolean; kind?: "auto" | "manual" } = {}): CheckpointResult | undefined {
     if (!g) return undefined;
+    if (!opts.dryRun) {
+      const refused = ownershipRefusal();
+      if (refused) { notify(ctx, `context-guard: checkpoint refused — ${refused}`, "warning"); return undefined; }
+    }
     // Reuse a fully current identity when this request adds no Guard notes.
     // A new identity is needed only after source changes, for substantive new
     // notes, or when the recorded successor is continuing from a consumed id.
@@ -815,10 +849,20 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   pi.on("session_start", (event: SessionStartEvent, ctx: ExtensionContext) => {
     // Rebuild all session-bound state; never reuse values from a previous session.
     const cwd = ctx.cwd;
+    let sessionId = "anon";
+    try {
+      sessionId = ctx.sessionManager.getSessionId();
+    } catch {
+      /* read-only mocks */
+    }
     const rawConfig = readConfig(cwd);
     let config = rawConfig;
     let missionInstanceError: string | undefined;
+    let missionInstanceLockError: string | undefined;
+    let selectedLockPath: string | undefined;
     try {
+      const stable = processSelectionIsStable(cwd, rawConfig.missionInstance.id, overrides.processScope);
+      if (!stable.ok) throw new Error(`instance selection changed during this Pi process (was ${stable.previous ?? "legacy"}, now ${rawConfig.missionInstance.id ?? "legacy"}); restart Pi to select another instance`);
       if (rawConfig.missionInstance.id !== null) {
         const instanceId = rawConfig.missionInstance.id;
         const identity = readMissionInstanceProfile(fs, cwd, instanceId);
@@ -826,6 +870,16 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         if (!validWorkProfileRef(rawConfig.missionInstance.workProfile)) throw new Error("invalid work profile reference");
         if (rawConfig.missionInstance.workProfile && JSON.stringify(rawConfig.missionInstance.workProfile) !== JSON.stringify(identity.profile)) throw new Error("selected work profile does not match the instance manifest");
         config = configForMissionInstance({ ...rawConfig, missionInstance: { ...rawConfig.missionInstance, workProfile: identity.profile } });
+        selectedLockPath = instanceLockPath(cwd, instanceId);
+        if (!rawConfig.readOnly) {
+          const acquired = acquireInstanceLock(fs, selectedLockPath, sessionId);
+          if (!acquired.ok) {
+            missionInstanceLockError = acquired.detail + (acquired.inspection.owner ? `; owner pid ${acquired.inspection.owner.pid} on ${acquired.inspection.owner.hostname}, session ${acquired.inspection.owner.sessionId}` : `; lock state: ${acquired.inspection.state}`);
+            config = { ...config, readOnly: true };
+          }
+        } else {
+          missionInstanceLockError = "read-only audit session does not acquire or release mission ownership";
+        }
       }
     } catch (err) {
       missionInstanceError = err instanceof Error ? err.message : String(err);
@@ -841,12 +895,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           learnings: ".pi-handoff/invalid-instance-selection/LEARNINGS.md",
         },
       };
-    }
-    let sessionId = "anon";
-    try {
-      sessionId = ctx.sessionManager.getSessionId();
-    } catch {
-      /* read-only mocks */
+      selectedLockPath = undefined;
     }
     const machine = buildMachine(config);
     g = {
@@ -865,8 +914,12 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       handoffReady: undefined,
       repairsSuppressed: [],
       missionInstanceError,
+      missionInstanceLockPath: selectedLockPath,
+      missionInstanceLockError,
+      readOnlyRequested: rawConfig.readOnly,
     };
     if (missionInstanceError) notify(ctx, `context-guard: mission instance selection refused (${missionInstanceError}); project-tree writes and renewal are disabled.`, "error");
+    if (missionInstanceLockError) notify(ctx, `context-guard: mission instance has no write ownership (${missionInstanceLockError}); checkpoint, attestation, renewal, document-cycle mutations, and writes to its operational files are refused.`, "warning");
     const goalText = fs.readFile(joinPath(cwd, config.files.goal));
     g.goalHash = goalText === undefined ? undefined : sha256(goalText);
     const learningsText = fs.readFile(joinPath(cwd, config.files.learnings));
@@ -1020,6 +1073,18 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
 
   pi.on("tool_call", (event: ToolCallEvent, _ctx: ExtensionContext) => {
     if (!g || !g.config.enabled) return undefined;
+    if (g.config.missionInstance.id !== null && !hasInstanceOwnership()) {
+      const input = event.input as { path?: string; file_path?: string } | undefined;
+      const target = input?.path ?? input?.file_path;
+      const managedMutation = event.toolName === "bash" || (!!target && isSelectedInstanceTarget(target));
+      if (managedMutation) {
+        recordDiag("tool_block", { tool: event.toolName, kind: "instance-ownership" });
+        return {
+          block: true,
+          reason: ownershipRefusal() ?? "context-guard: this Pi process no longer holds its mission-instance ownership; stop writes and restart after safe ownership recovery.",
+        };
+      }
+    }
     // Enforced closing phase: gate NEW tool calls before execution.
     // This never interrupts an in-flight call (turn boundary already passed).
     // `handoff_finalize` is checkpoint machinery (managed-block writes only, never a
@@ -1053,6 +1118,8 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return undefined;
   });
 
+  // A session can shut down as part of a renewal while the Pi process continues.
+  // Keep the module-scoped owner lock through that boundary; process exit releases it.
   pi.on("session_shutdown", () => {
     persistState();
     g = undefined;
@@ -1592,6 +1659,10 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const args = rawArgs.trim().split(/\s+/).filter(Boolean);
     const command = args[0] ?? "status";
     if (command === "status") { cycleStatusNotify(ctx); return; }
+    if (command !== "recover") {
+      const refused = ownershipRefusal();
+      if (refused) { notify(ctx, `context-guard cycle refused — ${refused}`, "warning"); return; }
+    }
     if (command === "recover") {
       if (!g || g.config.readOnly || !canPersistState()) { notify(ctx, "context-guard cycle: recovery is unavailable in read-only mode", "warning"); return; }
       if (documentationCycleRunning) { notify(ctx, "context-guard cycle: a transition is active in this process; it cannot be recovered concurrently", "warning"); return; }
@@ -1624,6 +1695,10 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   /** `/handoff ready [check]`: evaluate semantic readiness; bare `ready` also attests. */
   function readyReport(attest: boolean, dry: boolean): { text: string; ok: boolean } {
     if (!g) return { text: "context-guard: not initialized", ok: false };
+    if (attest) {
+      const refused = ownershipRefusal();
+      if (refused) return { text: `context-guard handoff attestation refused — ${refused}`, ok: false };
+    }
     const ev = evaluateHandoffReadiness(fs, g.cwd, g.config.files, {
       configName: DEFAULT_CONFIG_NAME,
       learningsHashAtSessionStart: g.learningsHash,
@@ -1701,6 +1776,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   }
 
   /** Persist the durable operator stop (in-memory flag is always set; durable write best-effort). */  function persistRenewalStop(stop: boolean, ctx: ExtensionContext): void {
+    const ownership = ownershipRefusal();
+    if (ownership) {
+      notify(ctx, `context-guard: renewal stop/resume refused — ${ownership}`, "warning");
+      return;
+    }
     renewalRuntime.operatorStop = stop;
     if (!g) return;
     const stateDir = resolvedStateDir(g);
@@ -1730,6 +1810,8 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   /* ---------------------------------------------------------------- */
   function finalizeHandoff(ctx: ExtensionContext, notes?: string): { ok: boolean; text: string; checkpointId: string | null; dry: boolean } {
     if (!g) return { ok: false, text: "context-guard FINALIZE: not initialized", checkpointId: null, dry: false };
+    const ownership = ownershipRefusal();
+    if (ownership) return { ok: false, text: `context-guard FINALIZE refused — ${ownership}`, checkpointId: null, dry: true };
     const dry = !canWriteProjectTree();
     const chain = loadRenewalState(fs, resolvedStateDir(g)); // READ-ONLY: finalize never writes chain state
     const header = (outcome: string, cpId: string | null, readiness: string): string =>
@@ -1843,6 +1925,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   async function runRenewal(trigger: RenewalTrigger, ctx: ExtensionCommandContext, notes?: string, operatorTask?: string): Promise<void> {
     if (!g) {
       notify(ctx, "context-guard: not initialized", "error");
+      return;
+    }
+    const ownership = ownershipRefusal();
+    if (ownership) {
+      notify(ctx, `context-guard: renewal refused — ${ownership}`, "warning");
       return;
     }
     if (renewalRuntime.running || renewalRuntime.pending || (renewalRuntime.toolScheduled && trigger !== "model")) {
@@ -2089,6 +2176,8 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     async execute(_toolCallId: string, params: { notes?: string }, _signal: unknown, _onUpdate: unknown, toolCtx: ExtensionContext) {
       const notes = typeof params?.notes === "string" ? params.notes.trim() : undefined;
       if (!g) return { content: [{ type: "text", text: "context-guard: not initialized" }], details: { ok: false, why: "not-initialized" } };
+      const ownership = ownershipRefusal();
+      if (ownership) return { content: [{ type: "text", text: `context-guard: renewal NOT scheduled — ${ownership}` }], details: { ok: false, why: "instance-ownership" } };
       // NO-WRITE pre-gate (same dummy-id trick as runRenewal): cheap refusals never
       // dirty the tree and never schedule a doomed dispatch.
       {
@@ -2213,8 +2302,26 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         const active = g.config.missionInstance.id;
         if (sub === "status" || !sub) {
           ctx.ui.notify(active
-            ? `mission instance ${active} (work profile ${g.config.missionInstance.workProfile ? `${g.config.missionInstance.workProfile.id}@${g.config.missionInstance.workProfile.version}` : "none"}); operational files: ${g.config.files.handoff}, ${g.config.files.progress}, ${g.config.files.learnings}; state: ${g.config.stateDir}`
+            ? `mission instance ${active} (work profile ${g.config.missionInstance.workProfile ? `${g.config.missionInstance.workProfile.id}@${g.config.missionInstance.workProfile.version}` : "none"}); ownership ${hasInstanceOwnership() ? "HELD by this process" : `NOT HELD (${g.missionInstanceLockError ?? "lock token missing or changed"})`}; operational files: ${g.config.files.handoff}, ${g.config.files.progress}, ${g.config.files.learnings}; state: ${g.config.stateDir}`
             : "legacy project mode: shared project-root operational files and .pi-guard state; no mission instance selected.", "info");
+          return;
+        }
+        if (sub === "recover") {
+          const id = parts[2] ?? active;
+          if (!id || !validMissionInstanceId(id)) {
+            ctx.ui.notify("usage: /handoff instance recover <id>; recovery requires an explicit valid instance id", "warning");
+            return;
+          }
+          if (g.readOnlyRequested) {
+            ctx.ui.notify("mission-instance recovery is unavailable in read-only audit mode; inspect the owner and use a normal operator session", "warning");
+            return;
+          }
+          if (!instancePathIsSafe(fs, g.cwd, id)) {
+            ctx.ui.notify("mission-instance recovery refused: instance storage path resolves outside the project", "error");
+            return;
+          }
+          const result = recoverAbandonedInstanceLock(fs, instanceLockPath(g.cwd, id), g.sessionId);
+          ctx.ui.notify(`mission instance ${id} recovery ${result.ok ? "complete" : "refused"}: ${result.detail}. Owner state: ${result.inspection.state}${result.inspection.owner ? `; pid ${result.inspection.owner.pid} on ${result.inspection.owner.hostname}, session ${result.inspection.owner.sessionId}` : ""}. ${result.ok ? "Restart Pi to acquire ownership; this process remains unowned." : "Do not delete or replace the lock while its owner may still run."}`, result.ok ? "info" : "warning");
           return;
         }
         if (sub === "create") {
@@ -2239,6 +2346,17 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
             ctx.ui.notify("invalid instance id or work profile reference", "warning");
             return;
           }
+          if (!instancePathIsSafe(fs, g.cwd, id)) {
+            ctx.ui.notify("mission instance creation refused: instance storage path resolves outside the project", "error");
+            return;
+          }
+          const lockPath = instanceLockPath(g.cwd, id);
+          const alreadyOwnedByThisSession = active === id && hasInstanceOwnership();
+          const lock = acquireInstanceLock(fs, lockPath, g.sessionId);
+          if (!lock.ok) {
+            ctx.ui.notify(`mission instance creation refused: ${lock.detail}${lock.inspection.owner ? `; owner pid ${lock.inspection.owner.pid} on ${lock.inspection.owner.hostname}, session ${lock.inspection.owner.sessionId}` : `; lock state ${lock.inspection.state}`}`, "warning");
+            return;
+          }
           try {
             const result = createMissionInstance(fs, g.cwd, id, profile);
             ctx.ui.notify(result.ok
@@ -2246,6 +2364,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
               : `mission instance creation refused: ${result.error}`, result.ok ? "info" : "warning");
           } catch (err) {
             ctx.ui.notify(`mission instance creation incomplete; preserve existing files and inspect before retrying: ${err instanceof Error ? err.message : String(err)}`, "error");
+          } finally {
+            if (!alreadyOwnedByThisSession) {
+              const released = releaseInstanceLock(fs, lockPath);
+              if (!released.released) ctx.ui.notify(`mission instance creation finished but its temporary owner lock was not released: ${released.detail}`, "error");
+            }
           }
           return;
         }
@@ -2263,7 +2386,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           ctx.ui.notify(`selection is per Pi process and takes effect only at session start. Restart this project with CONTEXT_GUARD_MISSION_INSTANCE=${id}, or set missionInstance.id to "${id}" in handoff.config.json. Existing sessions are unchanged.`, "info");
           return;
         }
-        ctx.ui.notify("usage: /handoff instance status | create <id> [--profile <id@version>] | select <id>. Selection is explicit per process and takes effect at session start.", "warning");
+        ctx.ui.notify("usage: /handoff instance status | create <id> [--profile <id@version>] | select <id> | recover <id>. Selection is explicit per process and takes effect at session start.", "warning");
         return;
       }
       if (parts[0] === "status") {
@@ -2344,6 +2467,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         return;
       }
       const notes = parts[0] === "checkpoint" ? parts.slice(1).join(" ").trim() : "";
+      const ownership = ownershipRefusal();
+      if (ownership) {
+        ctx.ui.notify(`context-guard: checkpoint refused — ${ownership}`, "warning");
+        return;
+      }
       const dry = !canWriteProjectTree();
       const result = checkpoint(ctx, dry ? `read-only audit (${notes || "manual /handoff"})` : notes || "manual /handoff", notes || undefined, { dryRun: dry });
       if (!result) return;

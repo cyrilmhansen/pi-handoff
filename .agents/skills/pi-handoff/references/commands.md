@@ -209,3 +209,23 @@ attestation.
 `renewAuthorization()` = current ∧ identity-consistent ∧ attested. `decideRenewal()`
 refusals in precedence order: stop > read-only > disabled > auto-disabled > pending >
 capped > not-authorized > already-renewed.
+
+### Instance ownership and crash recovery (Lot G)
+
+`/handoff instance status` reports whether this Pi process owns the selected instance.
+The exclusive lock is `.pi-handoff/instances/<id>/.owner.lock`. A conflicting process
+cannot checkpoint, attest, renew or mutate a documentation cycle; its ordinary `bash`,
+`write` and `edit` calls are also blocked for the selected instance's operational/state
+paths. The lock remains across renewal successor sessions and releases only on normal
+process exit with a matching owner token. Different IDs remain independent. No ID selected
+preserves the legacy layout.
+
+After a crash, run `/handoff instance recover <id>` only when the owner is provably gone.
+Automatic recovery is limited to local Linux evidence (PID absent or boot ID/process start
+ticks changed). macOS live PIDs, corrupt locks, foreign hosts, permissions errors and an
+interrupted recovery marker are refused. For those cases, stop every Pi process that could
+select the ID, confirm they are stopped, inspect the exact instance directory, then remove
+only the abandoned `.owner.lock` and/or `.owner.lock.recovery` and restart Pi. Do not use
+age as proof or remove artifacts while acquisition could still be active. These guarantees
+cover local filesystems honoring exclusive creation and Handoff/intercepted Pi operations;
+they do not lock arbitrary external processes, other checkouts, or network filesystems.
