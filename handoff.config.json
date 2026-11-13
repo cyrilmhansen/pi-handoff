@@ -20,6 +20,10 @@
     "maxRenewals": 8,
     "testCommand": "node --test test/"
   },
+  "documentation": {
+    "enabled": false,
+    "archiveDir": "docs/history"
+  },
   "files": {
     "goal": "GOAL.md",
     "progress": "PROGRESS.md",

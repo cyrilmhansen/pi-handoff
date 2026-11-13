@@ -18,6 +18,8 @@ export interface FsOps {
   /** Optional bounded text read for untrusted/operator-selected inputs. */
   readFileLimited?(path: string, maxBytes: number): { content: string; tooLarge: boolean } | undefined;
   writeFile(path: string, content: string): void; // must be atomic where durability matters
+  /** Optional exclusive create, used as a crash-visible cross-process transition lock. */
+  createExclusive?(path: string, content: string): boolean;
   exists(path: string): boolean;
   mkdirRecursive(path: string): void;
   listFiles(dir: string): string[];
@@ -83,6 +85,18 @@ export function createLocalFs(): FsOps {
         }
         throw err;
       }
+    },
+    createExclusive(p, content) {
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      let fd: number;
+      try { fd = fs.openSync(p, "wx"); }
+      catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+        throw err;
+      }
+      try { fs.writeFileSync(fd, content, "utf8"); }
+      finally { fs.closeSync(fd); }
+      return true;
     },
     exists(p) {
       return fs.existsSync(p);

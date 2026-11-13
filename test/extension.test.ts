@@ -8,7 +8,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import contextGuard from "../.pi/extensions/context-guard/index.ts";
-import { readRecoveryBundle, joinPath } from "../.pi/extensions/context-guard/checkpoint.ts";
+import { readRecoveryBundle, joinPath, sha256 } from "../.pi/extensions/context-guard/checkpoint.ts";
+import { parseDocumentationCycleState } from "../.pi/extensions/context-guard/documentation-cycle.ts";
+import { INITIAL_RENEWAL_STATE, serializeRenewalState, type RenewalState } from "../.pi/extensions/context-guard/renewal.ts";
 import { createMemoryFs, createMockCtx, createMockPi, DEFAULT_FILES } from "./helpers.ts";
 
 const FILES = { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" };
@@ -29,6 +31,8 @@ function harness(options: {
   config?: Record<string, unknown>;
   env?: Record<string, string | undefined>;
   files?: Record<string, string>;
+  gitRevision?: string;
+  cancelNewSession?: boolean;
 } = {}): Harness {
   const memFs = createMemoryFs(options.files ?? DEFAULT_FILES);
   const mockPi = createMockPi();
@@ -37,10 +41,12 @@ function harness(options: {
     usage: options.usage === null ? null : options.usage,
     model: options.model === null ? undefined : options.model,
     sessionId: options.sessionId ?? "session-1",
+    cancelNewSession: options.cancelNewSession,
   });
   contextGuard(mockPi.pi as never, {
     fs: memFs,
     env: options.env ?? {},
+    ...(options.gitRevision ? { gitRevision: () => options.gitRevision } : {}),
     ...(options.config ? { config: options.config as never } : {}),
   });
   return {
@@ -76,6 +82,63 @@ async function startSession(h: Harness) {
 
 function alerts(h: Harness) {
   return h.mockPi.sentMessages.filter((m) => m.message.customType === "context-guard");
+}
+
+const CYCLE_REVISION = "a".repeat(40);
+const RENEWAL_STATE_FILE = "/project/.pi-guard/renewal-state.json";
+const CYCLE_STATE_FILE = "/project/.pi-guard/documentation-cycle/state.json";
+
+async function readyCappedCycleHarness(options: { cancelNewSession?: boolean } = {}) {
+  const h = harness({
+    config: { renewal: { enabled: true, maxRenewals: 2 }, documentation: { enabled: true, archiveDir: "docs/history" } },
+    gitRevision: CYCLE_REVISION,
+    cancelNewSession: options.cancelNewSession,
+  });
+  await startSession(h);
+  await h.command("handoff", "checkpoint campaign work complete");
+  await h.command("handoff", "ready");
+  const chain: RenewalState = { ...INITIAL_RENEWAL_STATE, chainId: "chain:campaign-old", renewalsDone: 2, updatedAt: 123 };
+  h.memFs.writeFile(RENEWAL_STATE_FILE, serializeRenewalState(chain));
+  return h;
+}
+
+function cycleState(h: Harness) {
+  const parsed = parseDocumentationCycleState(h.memFs.files.get(CYCLE_STATE_FILE));
+  assert.equal(parsed.corrupt, false, "cycle state remains parseable");
+  assert.ok(parsed.state, `cycle state exists (notifications: ${JSON.stringify(h.mockCtx.notifications)})`);
+  return parsed.state!;
+}
+
+function cyclePlan(h: Harness, result: "CHANGE" | "NO_CHANGE" = "CHANGE") {
+  const s = cycleState(h);
+  const target = result === "NO_CHANGE" ? "none" : "HANDOFF.md, PROGRESS.md, docs/history/section.md";
+  const body = [
+    `Cycle-ID: ${s.cycleId}`,
+    `Base-Revision: ${s.baseRevision}`,
+    `Base-Fingerprint: ${s.baseFingerprint}`,
+    `Result: ${result}`,
+    `Target-Files: ${target}`,
+    "",
+    result === "NO_CHANGE" ? "NO CHANGE: no justified consolidation." : "Plan: replace one obsolete operational section and archive the exact original excerpt.",
+    "",
+  ].join("\n");
+  h.memFs.files.set(s.planFile, body);
+  return { state: s, body, hash: sha256(body) };
+}
+
+function cycleReview(h: Harness, result: "PASS" | "NEEDS_CORRECTION" = "PASS") {
+  const s = cycleState(h);
+  const body = [
+    `Cycle-ID: ${s.cycleId}`,
+    `Review-Revision: ${s.reviewRevision}`,
+    `Review-Fingerprint: ${s.reviewFingerprint}`,
+    `Review-Result: ${result}`,
+    "",
+    "GOAL.md is unchanged; negative evidence and archive references checked; scientific claims not independently validated.",
+    "",
+  ].join("\n");
+  h.memFs.files.set(s.reviewFile, body);
+  return { state: s, body, hash: sha256(body) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -298,16 +361,17 @@ test("R10: no compaction, no session switching, no settings/install writes, stab
 
   // Static contract (re-specified for Phase 2): compaction, switchSession, fork,
   // navigateTree and system-prompt mutation remain FORBIDDEN. Session replacement is
-  // allowed ONLY through the gated renewal path (LEARNINGS A-17 / PROTOCOL §6):
-  // exactly one ctx.newSession( call site, and it must sit inside runRenewal AFTER
-  // decideRenewal (never in a tool execute or event handler).
+  // allowed only through either the gated renewal path or the explicitly operator-
+  // invoked documentation-cycle path. They remain separate and independently gated.
   const src = readFileSync(new URL("../.pi/extensions/context-guard/index.ts", import.meta.url), "utf8");
   for (const forbidden of [".compact(", "switchSession(", "fork(", "systemPrompt", "context_with_system", "navigateTree("]) {
     assert.ok(!src.includes(forbidden), `extension source must not reference ${forbidden}`);
   }
-  assert.equal((src.match(/\.newSession\(/g) ?? []).length, 1, "exactly ONE newSession call site (the gated renewal transition)");
+  assert.equal((src.match(/\.newSession\(/g) ?? []).length, 2, "only renewal and explicit documentation-cycle transitions may create sessions");
   const renewBody = src.slice(src.indexOf("async function runRenewal"), src.indexOf("Model-initiated renewal"));
   assert.ok(renewBody.includes("decideRenewal(") && renewBody.includes("await ctx.waitForIdle()") && renewBody.includes(".newSession("), "newSession lives in runRenewal, after the idle boundary and the decision gate");
+  const cycleBody = src.slice(src.indexOf("async function dispatchDocumentationStage"), src.indexOf("async function runDocumentationCycle"));
+  assert.ok(cycleBody.includes("operatorInvoked: true") && cycleBody.includes(".newSession("), "documentation-cycle session creation is separately marked and explicitly staged");
   const toolBody = src.slice(src.indexOf("name: \"handoff_renew\""), src.indexOf("registerCommand(\"handoff\""));
   assert.ok(!toolBody.includes(".newSession(") && !toolBody.includes("waitForIdle("), "the model-facing tool NEVER calls waitForIdle or switches sessions itself (P-8 deadlock rule)");
 });
@@ -414,6 +478,184 @@ test("D2: healthy inspect is concise by default and detailed diagnostics remain 
   assert.doesNotMatch(brief.content[0].text, /recovery cost|changed sources|document ownership/i);
   const full = await tool.execute("inspect-full", { details: true }, undefined, undefined, h.mockCtx.ctx);
   assert.match(full.content[0].text, /document ownership: manual prose and Handoff-managed blocks are distinct/);
+});
+
+test("E1: documentation workflow is opt-in, starts a fresh read-only planning mission, and cannot replay it", async () => {
+  const off = harness({ gitRevision: CYCLE_REVISION });
+  await startSession(off);
+  await off.command("handoff", "cycle plan");
+  assert.match(off.mockCtx.notifications.at(-1)?.text ?? "", /documentation.enabled is false/);
+  assert.equal(off.mockCtx.newSessionCalls, 0);
+  assert.equal(off.memFs.files.has(CYCLE_STATE_FILE), false);
+
+  const h = await readyCappedCycleHarness();
+  const beforeRenewal = h.memFs.files.get(RENEWAL_STATE_FILE);
+  await h.command("handoff", "cycle plan");
+  assert.equal(h.mockCtx.newSessionCalls, 1);
+  const firstTurn = h.mockCtx.recoverySends.at(-1);
+  assert.equal(firstTurn?.options.triggerTurn, true);
+  assert.match(firstTurn?.message.content ?? "", /read-only audit/);
+  assert.match(firstTurn?.message.content ?? "", /not a human-authored message/);
+  const state = cycleState(h);
+  assert.equal(state.phase, "planning");
+  assert.equal(h.memFs.files.get(RENEWAL_STATE_FILE), beforeRenewal, "documentation stage does not consume or alter the development chain");
+  const beforeStatus = new Map(h.memFs.files);
+  const writesBeforeStatus = [...h.memFs.writes];
+  await h.command("handoff", "cycle status");
+  assert.deepEqual(h.memFs.files, beforeStatus, "cycle status is read-only across durable and runtime files");
+  assert.deepEqual(h.memFs.writes, writesBeforeStatus);
+  await h.command("handoff", "cycle plan");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /current phase is planning/);
+  assert.equal(h.mockCtx.newSessionCalls, 1, "repeated stage command never creates a second session");
+});
+
+test("E2: stale plan approval is refused when source documents change", async () => {
+  const h = await readyCappedCycleHarness();
+  await h.command("handoff", "cycle plan");
+  const plan = cyclePlan(h);
+  h.memFs.files.set("/project/PROGRESS.md", `${h.memFs.files.get("/project/PROGRESS.md")}\nmanual correction after plan\n`);
+  const renewalBefore = h.memFs.files.get(RENEWAL_STATE_FILE);
+  await h.command("handoff", `cycle approve ${plan.hash}`);
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /reference changed since planning/);
+  assert.equal(cycleState(h).phase, "planning");
+  assert.equal(h.mockCtx.newSessionCalls, 1);
+  assert.equal(h.memFs.files.get(RENEWAL_STATE_FILE), renewalBefore);
+});
+
+test("E3: explicit plan approval, durable_edit application mission and independent review gate a new chain", async () => {
+  const h = await readyCappedCycleHarness();
+  const oldChainRaw = h.memFs.files.get(RENEWAL_STATE_FILE)!;
+  await h.command("handoff", "cycle plan");
+  const plan = cyclePlan(h);
+  await h.command("handoff", `cycle approve ${plan.hash}`);
+  assert.equal(cycleState(h).phase, "approved");
+  assert.equal(h.memFs.files.get(RENEWAL_STATE_FILE), oldChainRaw);
+  await h.command("handoff", "cycle apply");
+  assert.equal(cycleState(h).phase, "applying");
+  assert.equal(h.mockCtx.newSessionCalls, 2);
+  assert.match(h.mockCtx.recoverySends.at(-1)?.message.content ?? "", new RegExp(plan.hash));
+  assert.match(h.mockCtx.recoverySends.at(-1)?.message.content ?? "", /Apply approved plan/);
+
+  h.memFs.files.set("/project/PROGRESS.md", `${h.memFs.files.get("/project/PROGRESS.md")}\n## Historical context\nArchived material is linked.\n`);
+  await h.command("handoff", "cycle review");
+  assert.equal(cycleState(h).phase, "reviewing");
+  assert.equal(h.mockCtx.newSessionCalls, 3, "review uses an independent fresh context");
+  const review = cycleReview(h);
+  await h.command("handoff", `cycle accept-review ${review.hash}`);
+  assert.equal(cycleState(h).phase, "verified");
+  assert.equal(h.memFs.files.get(RENEWAL_STATE_FILE), oldChainRaw, "review acceptance alone does not reset renewal state");
+
+  await h.command("handoff", "finalize");
+  assert.equal(h.mockCtx.newSessionCalls, 3);
+  await h.command("handoff", "cycle continue");
+  assert.equal(cycleState(h).phase, "complete");
+  const newChain = JSON.parse(h.memFs.files.get(RENEWAL_STATE_FILE)!);
+  assert.equal(newChain.chainId, `chain:${plan.state.cycleId}`);
+  assert.equal(newChain.renewalsDone, 0);
+  assert.equal(newChain.renewedFromCheckpointId, null);
+  assert.equal(newChain.stopped, false);
+  const archivePath = `/project/docs/history/renewal-chain-${plan.state.cycleId}.json`;
+  const archive = JSON.parse(h.memFs.files.get(archivePath)!);
+  assert.deepEqual(archive.archivedRenewalState, JSON.parse(oldChainRaw));
+  assert.equal(h.mockCtx.newSessionCalls, 3, "continue initializes state but never silently starts a campaign session");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /Scientific validation remains an independent/);
+});
+
+test("E4: NO CHANGE can skip application/review; interrupted chain reset resumes without losing the old chain", async () => {
+  const h = await readyCappedCycleHarness();
+  const old = h.memFs.files.get(RENEWAL_STATE_FILE)!;
+  await h.command("handoff", "cycle plan");
+  const plan = cyclePlan(h, "NO_CHANGE");
+  await h.command("handoff", `cycle no-change ${plan.hash}`);
+  assert.equal(cycleState(h).phase, "no-change");
+  assert.equal(h.mockCtx.newSessionCalls, 1, "NO CHANGE does not force apply/review sessions");
+  const renewalPath = RENEWAL_STATE_FILE;
+  h.memFs.failNext.set(renewalPath, 1);
+  await h.command("handoff", "cycle continue");
+  assert.equal(cycleState(h).phase, "continuing", "partial transition remains journaled for explicit retry");
+  assert.equal(h.memFs.files.get(renewalPath), old, "failed reset keeps old chain bytes");
+  const s = cycleState(h);
+  assert.ok(s.archivePath && h.memFs.files.has(s.archivePath), "old chain archive survived the interrupted reset");
+  await h.command("handoff", "cycle continue");
+  assert.equal(cycleState(h).phase, "complete");
+  assert.equal(JSON.parse(h.memFs.files.get(renewalPath)!).renewalsDone, 0);
+  assert.equal(h.mockCtx.newSessionCalls, 1);
+});
+
+test("E5: reviewer report cannot be accepted after manual edits; review can be explicitly reopened", async () => {
+  const h = await readyCappedCycleHarness();
+  await h.command("handoff", "cycle plan");
+  const plan = cyclePlan(h);
+  await h.command("handoff", `cycle approve ${plan.hash}`);
+  await h.command("handoff", "cycle apply");
+  await h.command("handoff", "cycle review");
+  const oldReview = cycleReview(h);
+  h.memFs.files.set("/project/HANDOFF.md", `${h.memFs.files.get("/project/HANDOFF.md")}\nmanual correction after review start\n`);
+  await h.command("handoff", `cycle accept-review ${oldReview.hash}`);
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /documents or Git HEAD changed after the independent review/);
+  await h.command("handoff", "cycle review");
+  assert.equal(h.mockCtx.newSessionCalls, 4, "changed documents start a new, explicitly requested review");
+  await h.command("handoff", "cycle review");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /already pending/);
+  assert.equal(h.mockCtx.newSessionCalls, 4);
+});
+
+test("E6: crashed transition lock requires the displayed recovery token and never replays a stage", async () => {
+  const h = await readyCappedCycleHarness();
+  await h.command("handoff", "cycle plan");
+  const lock = "/project/.pi-guard/documentation-cycle/transition.lock";
+  const raw = JSON.stringify({ command: "plan", sessionId: "lost-process", startedAt: 1 });
+  h.memFs.createExclusive(lock, raw);
+  await h.command("handoff", "cycle status");
+  const token = sha256(raw);
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", new RegExp(token));
+  await h.command("handoff", "cycle recover wrong-token");
+  assert.equal(h.memFs.files.has(lock), true);
+  await h.command("handoff", `cycle recover ${token}`);
+  assert.equal(h.memFs.files.has(lock), false);
+  await h.command("handoff", "cycle plan");
+  assert.equal(h.mockCtx.newSessionCalls, 1, "recovery unlock does not replay the persisted planning stage");
+});
+
+test("E7: cancelled stage dispatch sends no mission and needs an explicit new plan request", async () => {
+  const h = await readyCappedCycleHarness({ cancelNewSession: true });
+  const oldChain = h.memFs.files.get(RENEWAL_STATE_FILE);
+  await h.command("handoff", "cycle plan");
+  assert.equal(h.mockCtx.newSessionCalls, 1);
+  assert.equal(h.mockCtx.recoverySends.length, 0);
+  assert.equal(cycleState(h).phase, "abandoned");
+  assert.equal(h.memFs.files.get(RENEWAL_STATE_FILE), oldChain);
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /session was cancelled; no mission turn was sent/);
+});
+
+test("E8: plan approval rejects a protected GOAL target even through a nested path", async () => {
+  const h = await readyCappedCycleHarness();
+  await h.command("handoff", "cycle plan");
+  const s = cycleState(h);
+  const body = [
+    `Cycle-ID: ${s.cycleId}`,
+    `Base-Revision: ${s.baseRevision}`,
+    `Base-Fingerprint: ${s.baseFingerprint}`,
+    "Result: CHANGE",
+    "Target-Files: docs/archive/GOAL.md",
+    "Operation: rewrite historical objective",
+  ].join("\n");
+  h.memFs.files.set(s.planFile, body);
+  await h.command("handoff", `cycle approve ${sha256(body)}`);
+  assert.equal(cycleState(h).phase, "planning");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /plan targets protected GOAL\.md/);
+  assert.equal(h.mockCtx.newSessionCalls, 1);
+});
+
+test("E9: documentation cycle cannot bypass the operator's durable stop flag", async () => {
+  const h = await readyCappedCycleHarness();
+  const stopped = { ...JSON.parse(h.memFs.files.get(RENEWAL_STATE_FILE)!), stopped: true } as RenewalState;
+  h.memFs.writeFile(RENEWAL_STATE_FILE, serializeRenewalState(stopped));
+  const before = h.memFs.files.get(RENEWAL_STATE_FILE);
+  await h.command("handoff", "cycle plan");
+  assert.equal(h.mockCtx.newSessionCalls, 0);
+  assert.equal(h.memFs.files.get(RENEWAL_STATE_FILE), before);
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /durably stopped/);
 });
 
 test("A4: handoff_inspect reports changed sources and is callable during enforced closing", async () => {
