@@ -6,6 +6,10 @@ compatibility: Pi >= 1.4.0; requires the context-guard extension loaded (pi -e <
 
 # Pi Handoff — operating a context-guard project
 
+This skill describes the **v0.1.0-dev.4** feature set. The `"user"` successor turn and
+documentation-cycle orchestration are opt-in; neither has real-model behavior validation
+in this release.
+
 Context-guard monitors remaining context, alerts at thresholds, enforces a closing
 phase, and persists crash-safe checkpoints so a **fresh session can recover from files
 alone** — no transcript replay, no lossy compaction.
@@ -167,7 +171,8 @@ A revocation notice means pressure dropped and a previous closing instruction is
 - `renewal.successorTurn` defaults to `"custom"`. Experimental `"user"` emits a
   structured non-triggering origin marker then exactly one `sendUserMessage()` trigger.
   Its visible content says Handoff generated it, not a human; the user role grants no
-  extra authority. A failed send is reported without a second trigger.
+  extra authority. A failed send is reported without a second trigger. No statistical
+  Sushi A/B comparison against `"custom"` has been conducted.
 - `/handoff renew stop|resume|status` — durable operator stop (inherited by successors),
   resume, chain state view. Hard cap `maxRenewals` per chain; each checkpoint seeds at
   most one successor (idempotence); pending switches are cancellable.

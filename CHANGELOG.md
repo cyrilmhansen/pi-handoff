@@ -3,6 +3,54 @@
 All notable changes. Versions are pre-1.0 development tags; the guard ships as
 project-local files (`.pi/extensions/context-guard/`), no package registry.
 
+## v0.1.0-dev.4 — 2026-11-13 (development consolidation)
+
+Lots A–E are integrated at base `96750d746003886610ac9fb9544fb52bf0dbffcd`.
+This entry consolidates their shipped behavior; it does not create a tag or publish a
+release.
+
+- **Lot A — checkpoint and renewal reliability:** Markdown recovery headings are parsed
+  as real line-anchored sections; semantically inconsistent old attestations are
+  refused. `/handoff status` is read-only and unknown verbs do not become checkpoint
+  notes. Renewal hints reflect the resulting checkpoint state; the agent can call
+  read-only `handoff_inspect` for freshness, attestation and renewal readiness.
+- **Lot B — operator task on renewal:** `/handoff renew --task` and `--task-file` pass an
+  explicitly operator-origin task, separately from predecessor notes and durable
+  `Next action`. File content is bounded and path-checked. The default first-turn mode
+  remains `renewal.successorTurn: "custom"`; opt-in `"user"` is experimental and labels
+  Handoff-generated user-role content as generated, with no added authority.
+- **Lot C — document maintenance:** `scripts/durable_edit.py` provides hash-checked,
+  preview-first section edits and archival plus a read-only audit that can report
+  `NO CHANGE`. It does not validate scientific claims or consolidate automatically.
+- **Lot D — checkpoint transparency:** unchanged checkpoint requests reuse the current
+  identity without rewriting durable blocks; legitimate new identities remain required
+  for transitions. Status distinguishes checkpoint/attestation from Git worktree state.
+- **Lot E — supervised campaign transitions:** optional `/handoff cycle` stages plan,
+  exact-hash approval, apply, independent review, `NO_CHANGE`, and explicit new-chain
+  continuation. `documentation.enabled` defaults to `false`. No stage automatically
+  approves, edits documents, validates science or resets a chain.
+
+**Compatibility and safety.** Correctly formed schema-v3 checkpoints remain compatible;
+there is no checkpoint-schema migration. A schema-v3 checkpoint with a semantically
+wrong saved recovery action is not safe to renew: inspect it, correct the manual source
+if needed, run `/handoff checkpoint`, verify the authoritative action, then run
+`/handoff ready` to create a fresh attestation. Handoff does not migrate, rewrite or clean
+scientific evidence, session history or domain ledgers. Operator actions, agent-callable
+tools and extension-generated messages retain distinct provenance; a generated
+user-role message never grants operator authorization.
+
+**Validation limits.** Deterministic suites and Rune CI passed on the respective lot
+commits. The real Sushi A/B comparison of custom versus user-role successor turns has
+not been run. The full documentation-cycle maintenance path has not been tested with
+real inference. These capabilities remain available behind their explicit options, but
+neither behavior is claimed as experimentally validated. No new inference campaign is
+part of dev.4.
+
+**Issue follow-up.** This release delivers code for the scoped requests in #1, #4, #6,
+#8–#13, and the explicit workflow in #7. Some parent issues also describe unimplemented
+or unvalidated extensions. See the dev.4 consolidation report for issue-by-issue
+close/retain recommendations; no GitHub issue state was changed by this commit.
+
 ## v0.1.0-dev.3 — 2026-10-30
 
 - Fix #1: clarified L3/L4 guidance to prioritize authorized

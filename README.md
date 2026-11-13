@@ -6,18 +6,19 @@ checkpoints, and — since Phase 2 — renew a session in-place into a fresh suc
 recovers from files alone (no transcript replay, no lossy compaction). No third-party
 dependencies, no LLM involvement in the guard itself.
 
-**Current status.** Phases 1, 1b, 1c, 1d and Phase 2 (increments A+B+C) are COMPLETE;
-renewal is proven live with real inference (LEARNINGS A-23); the v0.1.0-dev.2 mission
-(D1–D6) plus the D7 test-artifact lifecycle increment, the D8 Rune CI integration
-(records only — the CI service files live in the separate Rune CI deployment
-`/home/john/services/rune-ci`, NOT in this repository; LEARNINGS A-38/A-39) and the
-D9 final skill & release documentation audit (LEARNINGS A-41) are COMPLETE (pending
-operator review; not tagged/pushed). Verification baselines:
-`node --test test/` → 205 pass / 0 fail / 1 gated skip; `node
-scripts/e2e-rpc-two-process.mjs` → 38/38 (real runtime, zero inference); `node
-scripts/check-skill-discovery.mjs` → 8/8 (real runtime, zero inference); `node
-scripts/e2e-renew.mjs` → 24/24 (spends real inference — last live run on the dev.2
-candidate `b07e29b`, A-36; re-run after renewal-wiring changes). `GOAL.md` still
+**Current status — v0.1.0-dev.4 consolidation.** Lots A–E are integrated on `main`
+(`96750d7`): checkpoint/readiness and renewal reliability (A); operator-supplied task
+on renewal and an experimental user-role successor turn (B); structured section edits,
+archives and read-only document audit (C); checkpoint write reuse and clearer ownership
+(D); optional operator-supervised document cycles (E). Verification on this release
+branch: `node --test test/` → 257 pass / 0 fail / 1 gated skip;
+`node scripts/e2e-rpc-two-process.mjs` → 38/38 (Pi 1.4.0, zero inference);
+`node scripts/check-skill-discovery.mjs` → 8/8 (zero inference). Rune CI passed on the
+respective lot commits. The live Sushi A/B comparison of `successorTurn: "custom"` and
+`"user"` has not been run. The full documentation-cycle workflow has not been exercised
+with real inference. Neither is claimed as experimentally validated. No additional
+inference campaign is part of this development release. No tag or publication has been
+made. `GOAL.md` still
 describes the *original* Phase 1 scope ("no automatic session
 switching"): that is historically correct, the file is protected, and it is deliberately
 left untouched — subsequent phases (1b/1c/1d and Phase 2) extended the original scope
@@ -45,7 +46,7 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
   documentation-cycle.ts optional, operator-supervised campaign-boundary workflow
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
-CHANGELOG.md    version history (dev.1, dev.2: migration + rollback + release readiness)
+CHANGELOG.md    version history (dev.1–dev.4)
 docs/profiles/experimental-95k.json  dev.2 D6 example profile (asserted self-consistent)
 docs/long-project-guide.md  Phase 1d: integration guide for long-running projects (PL/I-80 case study)
 GOAL.md PROGRESS.md LEARNINGS.md HANDOFF.md   durable working memory
@@ -54,15 +55,24 @@ AGENTS.md PROTOCOL.md  stable procedures
 .pi-guard/sessions/<sessionId>.json            per-session runtime state (ephemeral)
 ```
 
-## Document consolidation (manual; no automatic cleanup)
+## Document consolidation and campaign cycles
 
 The skill's [consolidation procedure](.agents/skills/pi-handoff/references/consolidation.md)
 covers closing or abandoning phases and changing direction without growing
 HANDOFF.md and PROGRESS.md indefinitely. It requires an operator-reviewed plan,
 stable archived evidence pointers (including falsified hypotheses), separate
-GOAL.md authorization, and refreshed/attested checkpoints. This is a **docs-only
-workflow**, not a new extension command or an automatic pruning feature;
-`recovery.lean` changes the reading order but does not consolidate files.
+GOAL.md authorization, and refreshed/attested checkpoints. This procedure remains
+operator-controlled; `recovery.lean` changes the reading order but does not consolidate
+files.
+
+The optional Lot E orchestrator provides `/handoff cycle plan`, `approve`, `apply`,
+`review`, `continue`, plus `status`, `no-change`, `accept-review`, `abort` and explicit
+lock recovery. It is disabled by default (`documentation.enabled: false`). Each stage is
+operator initiated; exact plan/report hashes and source revisions gate approval and
+review. Apply missions use `durable_edit.py`; `NO_CHANGE` can bypass application. Only
+explicit `continue` archives the old renewal chain and initializes the next, and it
+starts no session. This workflow does not consume renewal quota or validate scientific
+claims.
 
 ## Structured durable-document edits
 
@@ -99,7 +109,7 @@ sibling modules. Pi loads it through `jiti` (verified).
 ## Run tests
 
 ```bash
-node --test test/          # 206 tests (205 pass + 1 skipped: gated real-Pi e2e), no inference, no installs
+node --test test/          # 258 tests (257 pass + 1 skipped: gated real-Pi e2e), no inference, no installs
 node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (38 checks)
 node scripts/check-skill-discovery.mjs # real pi 1.4.0: project skill discovery + trust-gated extension auto-load, zero inference (8 checks)
 node scripts/e2e-renew.mjs             # REAL inference: A→B→C renewal chain proof (24 checks); re-run after any renewal-wiring change
@@ -140,8 +150,12 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 | `renewal.maxRenewals` | `2` | hard cap per renewal chain (chain state in `<stateDir>/renewal-state.json`) |
 | `renewal.recoveryPrompt` | built-in | replaces the GENERIC body of the successor recovery instruction; the mandatory identity header (renewal index, parent/chain/checkpoint ids, no-replay/no-compaction contract) and the safety trailer (initiative, never-push) are always kept (dev.2 D1) |
 | `renewal.testCommand` | `null` | project-configured build-verify command carried into the successor recovery message. Default `null`: the prompt contains NO build-verify line — generic test commands are never assumed (dev.2 D1, LEARNINGS A-26) |
+| `renewal.successorTurn` | `"custom"` | Existing custom trigger; opt-in `"user"` sends one provenance-labelled Handoff-generated user-role trigger. It adds no authority; no real Sushi A/B comparison has been run |
 | `recovery.lean` | `false` | dev.2 D4 opt-in: successor recovery instruction uses TIERS — operational (HANDOFF/PROGRESS, read NOW) → methodology (AGENTS/PROTOCOL, on procedure need) → archive (GOAL/LEARNINGS, by reference, on demand). All six files stay authoritative and named; only the reading order changes. An explicit `renewal.recoveryPrompt` still wins (dev.2 D4, A-27/A-34) |
 | `recovery.budgetTokens` | `12000` | target budget for the operational tier, in chars/4 ESTIMATED tokens; `/guard status`, `/handoff verify` and finalize report the full-set vs lean cost meter |
+| `documentation.enabled` | `false` | Optional, operator-supervised campaign-cycle orchestration; no automatic planning, approval, editing or chain reset |
+| `documentation.archiveDir` | `docs/history` | In-project destination for the archived prior renewal-chain state on explicit cycle continuation |
+| `documentation.*Prompt` | bundled versioned prompts | Optional in-project prompt overrides; plans and review reports remain hash- and revision-bound |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable-file names used by checkpointing/validation |
 
 ## Generation reserve
@@ -190,7 +204,7 @@ be active at session start. Example profile: `docs/profiles/experimental-95k.jso
 real `mergeConfig` path, D6x1 reproduces the A-11 Sushi figures (124 464 / 134 464 /
 144 464 / 149 464) from the same function.
 
-**Experimental policy (current for this project, dev.2):** Phase 2 adopted
+**Experimental policy (current for this project, dev.4):** Phase 2 adopted
 `"generationReserve": 20000` experimentally for renewal work (LEARNINGS P-7); the
 dev.2 operator decisions moved it to **5 000** (chain-safe per A-32 + RN15) with
 thresholds 30k/20k/10k/5k. With the declared 220 000 window the nominal crossings are
@@ -460,7 +474,7 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
   state machine only and **do not prove real context usage is accurate**. The unit suite
   and all default verification scripts spend zero inference; the ONLY real-inference run
   is the explicit `scripts/e2e-renew.mjs` proof.
-- **Renewal (Phase 2) is implemented and proven live** (A→B→C with real inference,
+- **The default renewal trigger is proven live** (A→B→C with real inference,
   LEARNINGS A-23), but it is **off by default**: `renewal.enabled` and `renewal.autoRenew`
   gate it, and `autoRenew` is deliberately false in this project's config — the
   increment-C experiments enabled it per-process with `CONTEXT_GUARD_AUTO_RENEW=1`.
@@ -480,6 +494,13 @@ Inspected in `dist/core/extensions/types.d.ts`, `dist/core/agent-session.js`,
   unseen checkpoint id). Unattended/recursive agent
   *launching* (spawning new pi processes) is still NOT implemented: renewal replaces the
   session inside the running process only.
+- **Experimental successor role:** `renewal.successorTurn: "user"` is implemented with
+  one provenance-labelled trigger, but no statistical Sushi comparison against the
+  default `"custom"` path has been conducted.
+- **Documentation cycles:** deterministic workflow, stale-approval, cancellation and
+  crash-recovery paths are tested. The complete plan / apply / independent-review flow
+  has not been run with real inference; it remains operator-supervised and disabled by
+  default.
 - Alerts are transcript appends; Pi exposes no "inject without a message" channel, so each
   alert permanently adds one small custom message (bounded: ≤ 4 per session).
 - Enforcement blocks *new* tool calls only after crossing; a running long tool call cannot

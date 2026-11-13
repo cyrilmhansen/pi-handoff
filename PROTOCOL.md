@@ -24,10 +24,10 @@ estimate, so thresholds are advisory budgets, not guarantees.
 
 | Level | Remaining (default) | Class | Meaning |
 |---|---|---|---|
-| 1 | ≤ 30 000 | advisory | checkpoint: update PROGRESS.md (completed, blockers, exact next action) |
+| 1 | ≤ 30 000 | advisory | inspect with `handoff_inspect`; update durable progress if needed. Checkpoint writes/attestation are operator slash commands, not Bash commands |
 | 2 | ≤ 20 000 | advisory | finish the current substantial task; do not open new work |
-| 3 | ≤ 10 000 | advisory | prioritize durable handoff: write HANDOFF.md before anything else |
-| 4 | ≤ 5  000 | **enforced** (advisory when `enforceClosing:false`) | controlled closing: only tools in `closingAllowlist` run (default `write/edit/read`; renewal-enabled projects add `handoff_renew` so the model can still renew during closing); finish checkpoints and stop. With enforcement off the alert says so explicitly and blocks nothing — the alert text always matches live policy (dev.2 D5a) |
+| 3 | ≤ 10 000 | advisory | prioritize durable handoff: preserve evidence and update HANDOFF.md; inspect renewal readiness before choosing how to close |
+| 4 | ≤ 5  000 | **enforced** (advisory when `enforceClosing:false`) | controlled closing: only tools in `closingAllowlist` run (default `write/edit/read`; renewal-enabled projects add `handoff_renew` so the model can still renew during closing). Finish bounded work; when the objective remains active and the tool is permitted/preparable, request `handoff_renew` at a safe boundary. Use `handoff_finalize` and stop only for intentional non-renewing closure or a terminal refusal. With enforcement off the alert says so explicitly and blocks nothing — the alert text always matches live policy (dev.2 D5a) |
 
 Configuration: `handoff.config.json` (`thresholds`, `enforceClosing`, `closingAllowlist`,
 `generationReserve`, `safetyReserve`, `protectGoal`, `maxConsecutiveUnknown`, `stateDir`,
@@ -143,6 +143,14 @@ explicitly via `/handoff`, which rewrites only managed blocks and preserves all
 hand-authored text byte-for-byte. Conflicts between managed blocks and manual prose are
 resolved in favour of the prose, never by overwriting discoveries.
 
+Correctly formed schema-v3 checkpoints remain compatible without migration. Semantic
+validation is also required: a historical v3 block whose saved `Next action` disagrees
+with the unique real manual heading is stale for authorization even when its source hashes
+match. Inspect with `handoff_inspect` (agent) or `/handoff verify` (operator), confirm the
+manual action, refresh with `/handoff`, then attest with `/handoff ready`; confirm the
+reported action before renewal. Never hand-edit managed blocks or treat the old attestation
+as valid merely because its hashes match.
+
 ### 2.2 Runtime state
 
 Guard state is persisted to **per-session files** `<stateDir>/sessions/<sessionId>.json`
@@ -221,7 +229,7 @@ Agents may investigate beyond the immediate objective when justified: time avail
 ends as a `Proposed` entry with evidence/value/cost, or a `Falsified` entry. Scope creep
 into a general orchestration framework is out of contract.
 
-## 6. Renewal contract (Phase 2 — IMPLEMENTED and live-proven: increments A+B+C, LEARNINGS A-23)
+## 6. Renewal contract (default custom-turn path live-proven; `user` turn remains experimental)
 
 The model-callable `handoff_inspect` tool and operator `/handoff status`, `/handoff verify`,
 and `/guard verify-checkpoint` share the same read-only inspection path. It reports
@@ -426,3 +434,19 @@ finishing. Repeated or concurrent stage commands cannot dispatch twice. `/handof
 status` is read-only, and `/handoff cycle recover <token>` clears only the displayed
 stale transition lock; it never replays a stage. Slash commands remain Pi operator
 commands, not Bash commands.
+
+## 10. v0.1.0-dev.4 release boundary
+
+Lots A–E are available together in this development version. `renewal.successorTurn`
+defaults to `"custom"`; `"user"` is an opt-in experiment, not a measured improvement.
+`documentation.enabled` defaults to `false`; documentary stages and the new-chain
+transition require explicit operator commands. Authority is provenance-bound: operator
+commands, agent-callable tools and extension-generated messages are separate. Neither a
+generated custom turn nor a generated user-role turn grants operator approval or extra
+authority. Handoff does not automatically migrate, rewrite, archive or clean scientific
+evidence, claims ledgers, session history or other project state.
+
+The deterministic suites and Rune CI passed for their respective lot commits. The real
+Sushi custom-versus-user A/B and a complete documentation-cycle workflow using real
+inference were not run; their outcomes remain unverified. No inference test is part of
+the dev.4 release validation.

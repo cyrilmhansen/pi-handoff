@@ -354,6 +354,7 @@ test("D5d1: banner carries GUARD_VERSION, NOT the hardcoded milestone label; env
   const b2 = h2.pi.sentMessages.find((m) => m.message.customType === "context-guard-identity");
   assert.ok(typeof b2?.message.content === "string" && b2.message.content.includes("v9.9.9-probe"));
   assert.equal(guardVersion({}), DEFAULT_GUARD_VERSION);
+  assert.equal(DEFAULT_GUARD_VERSION, "0.1.0-dev.4");
   assert.equal(guardVersion({ GUARD_VERSION: " 1.2.3 " }), "1.2.3");
 });
 
