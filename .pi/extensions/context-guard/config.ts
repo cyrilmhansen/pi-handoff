@@ -14,6 +14,17 @@ export interface GuardFiles {
   handoff: string;
 }
 
+export interface DocumentationConfig {
+  /** Optional operator-started campaign-boundary documentation workflow. */
+  enabled: boolean;
+  /** Archive target passed to durable_edit.py missions; resolved inside project root. */
+  archiveDir: string;
+  /** Optional versioned prompt-file overrides, resolved inside project root. */
+  planPrompt: string | null;
+  applyPrompt: string | null;
+  reviewPrompt: string | null;
+}
+
 export interface GuardConfig {
   enabled: boolean;
   thresholds: ThresholdsInput;
@@ -56,6 +67,8 @@ export interface GuardConfig {
    * is the target for the operational tier (chars/4 estimate; A-1 caveat travels).
    */
   recovery: RecoveryConfig;
+  /** Separate, opt-in documentation-cycle state machine; never a renewal quota. */
+  documentation: DocumentationConfig;
 }
 
 export const DEFAULT_CONFIG: GuardConfig = {
@@ -76,6 +89,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
   syntheticRemaining: null,
   renewal: { ...DEFAULT_RENEWAL },
   recovery: { ...DEFAULT_RECOVERY },
+  documentation: { enabled: false, archiveDir: "docs/history", planPrompt: null, applyPrompt: null, reviewPrompt: null },
 };
 
 export interface MiniFs {
@@ -95,7 +109,7 @@ function isNonNegativeInt(v: unknown): v is number {
 
 export function mergeConfig(base: GuardConfig, override: Json | null | undefined): GuardConfig {
   if (!override || typeof override !== "object") return base;
-  const next: GuardConfig = { ...base, files: { ...base.files }, thresholds: { ...base.thresholds }, closingAllowlist: [...base.closingAllowlist], renewal: { ...base.renewal } };
+  const next: GuardConfig = { ...base, files: { ...base.files }, thresholds: { ...base.thresholds }, closingAllowlist: [...base.closingAllowlist], renewal: { ...base.renewal }, documentation: { ...base.documentation } };
   if (typeof override.enabled === "boolean") next.enabled = override.enabled;
   const th = override.thresholds;
   if (th && typeof th === "object") {
@@ -128,6 +142,15 @@ export function mergeConfig(base: GuardConfig, override: Json | null | undefined
   }
   next.renewal = mergeRenewal(next.renewal, override.renewal);
   next.recovery = mergeRecovery(next.recovery, override.recovery);
+  if (override.documentation && typeof override.documentation === "object" && !Array.isArray(override.documentation)) {
+    const d = override.documentation as Json;
+    if (typeof d.enabled === "boolean") next.documentation.enabled = d.enabled;
+    if (typeof d.archiveDir === "string" && d.archiveDir.trim()) next.documentation.archiveDir = d.archiveDir.trim();
+    for (const key of ["planPrompt", "applyPrompt", "reviewPrompt"] as const) {
+      if (d[key] === null) next.documentation[key] = null;
+      else if (typeof d[key] === "string" && (d[key] as string).trim()) next.documentation[key] = (d[key] as string).trim();
+    }
+  }
   return next;
 }
 

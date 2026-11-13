@@ -19,11 +19,31 @@ alone** — no transcript replay, no lossy compaction.
 | Agent | `handoff_inspect` — read-only checkpoint and renewal inspection |
 | Agent | `handoff_finalize` — checkpoint and attest without renewing |
 | Agent | `handoff_renew` — request renewal through the controlled gate |
+| Operator | `/handoff cycle …` — explicitly stage, approve, review and continue a documentation campaign |
 
 Slash commands are Pi interface commands, **not Bash commands**. The agent must not
 try to run `/handoff verify` in a shell; use `handoff_inspect` for inspection and the
 registered handoff tools for agent actions. Inspection does not verify scientific
 results or mutate project/state files.
+
+## Supervised documentation campaign transition (optional)
+
+`documentation.enabled` is **false by default**. When an operator enables it, use
+`/handoff cycle plan` to open a fresh read-only planning context. The plan proposes
+document edits and archives; it does not apply them. The operator approves the exact
+plan SHA-256 with `/handoff cycle approve <sha256>` (or records `NO_CHANGE` with
+`/handoff cycle no-change <sha256>`). Only then can `/handoff cycle apply` open the
+application context, which must use `scripts/durable_edit.py`. A separate
+`/handoff cycle review` context checks the result; `/handoff cycle accept-review
+<sha256>` records a passing report. `/handoff cycle continue` is a separate explicit
+operator action that archives the old renewal-chain state and initializes a new chain;
+it does not start a session. The workflow does not consume renewal quota and never
+validates scientific claims. `GOAL.md` changes, stale hashes/revisions, uncertain stage
+dispatch, or interrupted chain reset block progress and require explicit operator
+review/recovery. `/handoff cycle status` is read-only; `/handoff cycle recover <token>`
+only clears a displayed stale transition lock and never replays a stage. Versioned
+prompts are under `references/documentation-cycle/`; optional config overrides must
+resolve inside the project tree.
 
 ## At session start
 

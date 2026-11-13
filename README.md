@@ -42,6 +42,7 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
                  prompt builder (dev.2 D1: configured prompt/testCommand)
   recovery.ts    dev.2 D4: lean recovery tiers + recovery-cost meter (pure)
   diagnostics.ts dev.2 D5c: bounded structured event trail (no prompts/args/secrets)
+  documentation-cycle.ts optional, operator-supervised campaign-boundary workflow
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
 CHANGELOG.md    version history (dev.1, dev.2: migration + rollback + release readiness)

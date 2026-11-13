@@ -33,6 +33,15 @@ should call registered tools instead: `handoff_inspect` is read-only,
 | `/handoff renew go` | Bridge used by the `handoff_renew` tool (model trigger); do not call manually mid-turn |
 | `/handoff renew stop` \| `resume` | Durable operator stop flag in chain state (successors inherit) |
 | `/handoff renew status` | Chain: enabled/autoRenew, renewalsDone/maxRenewals, stopped, pending authorization |
+| `/handoff cycle status` | Read-only documentary workflow state and any explicit recovery token |
+| `/handoff cycle plan` | Start one fresh read-only planning context at a capped, attested campaign boundary |
+| `/handoff cycle approve <plan-sha256>` | Approve exactly the current plan and source/base fingerprints; edits nothing |
+| `/handoff cycle apply` | Start one application context for the approved plan; it must use `durable_edit.py` |
+| `/handoff cycle no-change <plan-sha256>` | Record an explicitly hashed `NO_CHANGE` plan without apply/review |
+| `/handoff cycle review` | Start an independent fresh review context after application |
+| `/handoff cycle accept-review <report-sha256>` | Accept an exact passing report bound to current docs and Git revision |
+| `/handoff cycle continue` | After review or NO CHANGE, preserve old chain in the configured archive and initialize a new chain; starts no session |
+| `/handoff cycle abort` \| `recover <token>` | Preserve artifacts and explicitly abandon a cycle, or clear a stale lock without replay |
 
 `--task` and `--task-file` are operator-only slash-command options. Quote a complete
 short mission for `--task`; `--task-file` reads the file without executing it and rejects
@@ -108,6 +117,9 @@ checkpoint does not claim source code is committed, validated or pushed.
 | `renewal.testCommand` | `null` | project-configured build-verify command in the successor prompt; `null` = no build-verify line at all (never assume a generic one) |
 | `renewal.successorTurn` | `"custom"` | `"custom"` preserves the existing custom-message trigger; opt-in `"user"` uses one generated, provenance-labelled `sendUserMessage()` trigger |
 | `recovery.lean` | `false` | dev.2 D4 opt-in: successor recovery instruction uses TIERS — operational (HANDOFF/PROGRESS, read NOW) → methodology (AGENTS/PROTOCOL, on procedure need) → archive (GOAL/LEARNINGS, by reference, on demand). All six files stay authoritative and named; tiering defers reading, never drops authority. An explicit `renewal.recoveryPrompt` still wins |
+| `documentation.enabled` | `false` | Optional, operator-supervised documentary campaign workflow. It does not edit/approve/reset automatically and does not consume renewal quota |
+| `documentation.archiveDir` | `docs/history` | In-project destination for the archived old renewal-chain JSON |
+| `documentation.planPrompt` / `applyPrompt` / `reviewPrompt` | bundled v1 prompts | Optional in-project prompt overrides; their contents are included in the source fingerprint |
 | `recovery.budgetTokens` | `12000` | target budget for the operational tier, in chars/4 ESTIMATED tokens (the meter reports estimates, not accounting — A-1) |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable file names |
 
