@@ -81,9 +81,10 @@ The files are the interface; garbage in, garbage recovery out. The rules that ma
 - **GOAL.md is immutable by the agent.** Goal changes go to LEARNINGS (Proposed) +
   HANDOFF for human review. The guard blocks writes/edits targeting it and warns on
   drift (§6).
-- Commit after every increment; then `/handoff` + `/handoff ready` (refresh + attest
-  **after** the commit), and commit the managed-block refresh separately when it
-  dirties the tree.
+- Commit after every increment; when durable source prose changed, run `/handoff` +
+  `/handoff ready` (refresh + attest **after** the commit), and commit the managed-block
+  refresh separately only when it writes. Current, attested state can be reused without
+  a redundant checkpoint/attestation cycle.
 - **Reading tiers (dev.2 D4):** by default every fresh session reads all six files
   eagerly; with `recovery.lean: true` the successor recovery instruction is tiered —
   operational (`HANDOFF`/`PROGRESS`, read NOW) → methodology (`AGENTS`/`PROTOCOL`, on

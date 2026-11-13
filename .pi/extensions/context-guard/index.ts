@@ -41,6 +41,7 @@ import {
 import { DEFAULT_CONFIG, loadConfig, type GuardConfig } from "./config.ts";
 import {
   attestHandoff,
+  CHECKPOINT_SCHEMA,
   createLocalFs,
   evaluateHandoffReadiness,
   isInsideTree,
@@ -436,6 +437,31 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
 
   function checkpoint(ctx: ExtensionContext, reason: string, notes?: string, opts: { dryRun?: boolean; kind?: "auto" | "manual" } = {}): CheckpointResult | undefined {
     if (!g) return undefined;
+    // Reuse a fully current identity when this request adds no Guard notes.
+    // A new identity is needed only after source changes, for substantive new
+    // notes, or when the recorded successor is continuing from a consumed id.
+    // A predecessor cannot mint a replacement id after dispatch.
+    if (!opts.dryRun && !notes?.trim()) {
+      const current = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
+      if (current.kind === "current") {
+        const chain = loadRenewalState(fs, resolvedStateDir(g)).state;
+        const consumed = chain.renewedFromCheckpointId === current.identity?.id;
+        const recordedSuccessor = consumed && chain.lastSuccessorSessionId === g.sessionId;
+        if (!recordedSuccessor && current.identity) {
+          return {
+            ok: true,
+            written: [],
+            errors: [],
+            validations: validateAll(fs, g.cwd, g.config.files),
+            fingerprint: current.fingerprint,
+            dryRun: false,
+            identity: { ...current.identity, schema: CHECKPOINT_SCHEMA },
+            contentDelta: current.contentDelta === "unknown" ? "none" : current.contentDelta,
+            readiness: current.readiness,
+          };
+        }
+      }
+    }
     const m = measure(ctx);
     const bundle = readRecoveryBundle(fs, g.cwd, g.config.files, { configName: DEFAULT_CONFIG_NAME });
     const progress = fs.readFile(joinPath(g.cwd, g.config.files.progress)) ?? "";
@@ -928,7 +954,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
    * The Phase 2 renewal gate is `renewAuthorization()`: current AND identity-consistent
    * AND attested — a merely fresh-but-empty checkpoint never authorizes renewal.
    */
-  function inspectReport(): { text: string; details: Record<string, unknown> } {
+  function inspectReport(includeDetails = false): { text: string; details: Record<string, unknown> } {
     if (!g) return { text: "context-guard: not initialized", details: { initialized: false } };
     const f = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
     const checkpointId = f.kind === "current" || f.kind === "stale" ? f.identity?.id ?? null : null;
@@ -977,7 +1003,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       },
       science: "Mission/scientific claims have NOT been independently verified by this inspection.",
     };
-    const lines = [
+    const detailsText = [
       `context-guard verify: checkpoint ${f.kind}${"detail" in f ? `: ${f.detail}` : ""}` +
         ("checkpointed" in f && f.checkpointed ? ` (written ${f.checkpointed}${f.session ? `, session ${f.session}` : ""})` : ""),
       `  identity: ${checkpointId ?? "none"}${f.kind === "current" ? `; content-delta ${f.contentDelta}` : ""}`,
@@ -991,11 +1017,13 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       "  manual prose in HANDOFF.md/PROGRESS.md always takes precedence over these blocks.",
       `  science: ${report.science}`,
     ];
-    return { text: lines.join("\n"), details: report };
+    const healthy = f.kind === "current" && auth.authorized && renewalState === "ready-now" && nextAction?.status === "pass";
+    const summary = `checkpoint ${f.kind}${checkpointId ? ` ${checkpointId}` : ""}; ${readiness?.state ?? "unattested"}; renewal ${renewalState}${renewalState === "ready-now" ? ` (${chain.state.renewalsDone}/${g.config.renewal.maxRenewals})` : ` (${decision.why})`}. Mission/scientific claims are not independently verified; Git working-tree state was not inspected.`;
+    return { text: includeDetails || !healthy ? detailsText.join("\n") : summary, details: report };
   }
 
   function verifyReport(): string {
-    return inspectReport().text;
+    return inspectReport(true).text;
   }
 
   /** `/handoff ready [check]`: evaluate semantic readiness; bare `ready` also attests. */
@@ -1021,7 +1049,9 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       lines.push(
         att.dryRun
           ? "  read-only audit mode: attestation NOT written (dry run)"
-          : `  attested ${att.checkpointId} (wrote ${att.written.join(", ")})`,
+          : att.written.length === 0
+            ? `  already attested ${att.checkpointId}; no files changed`
+            : `  attested ${att.checkpointId} (wrote ${att.written.join(", ")})`,
       );
     } else {
       for (const e of att.errors) lines.push(`  ATTESTATION REFUSED: ${e}`);
@@ -1031,7 +1061,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if ("readiness" in g.checkpoint) g.handoffReady = att.readiness ?? g.checkpoint.readiness;
     const auth = renewAuthorization(g.checkpoint);
     lines.push(`  renewal authorization (gate for /handoff renew): ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}`);
-    persistState();
+    if (!(att.ok && !att.dryRun && att.written.length === 0)) persistState();
     return { text: lines.join("\n"), ok: att.ok };
   }
 
@@ -1041,9 +1071,9 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     description:
       "Read-only inspection of the durable checkpoint and renewal preconditions. Returns checkpoint freshness, identity, attestation, changed sources, next-action validation, chain state, and whether renewal is ready, preparable, or refused. Does not write files or state, checkpoint, attest, consume an identity, renew, or change the chain/operator stop. It does not verify scientific results.",
     promptSnippet: "handoff_inspect — inspect checkpoint and renewal readiness without changing state",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-    async execute() {
-      const report = inspectReport();
+    parameters: { type: "object", properties: { details: { type: "boolean", description: "Include full diagnostic details even when checkpoint and renewal are healthy." } }, additionalProperties: false },
+    async execute(_toolCallId: string, args: { details?: boolean }) {
+      const report = inspectReport(args?.details === true);
       return { content: [{ type: "text", text: report.text }], details: report.details };
     },
   } as never);
@@ -1584,7 +1614,10 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       const parts = args.trim().split(/\s+/).filter(Boolean);
       if (parts[0] === "status") {
-        ctx.ui.notify(`${verifyReport()}\n${renewStatusReport()}`, "info");
+        const inspection = inspectReport();
+        const renewal = inspection.details.renewal as { state?: string; chainCorrupt?: boolean };
+        const healthy = inspection.details.checkpoint === "current" && inspection.details.attestation === "attested" && renewal.state === "ready-now" && renewal.chainCorrupt !== true;
+        ctx.ui.notify(healthy ? inspection.text : `${inspectReport(true).text}\n${renewStatusReport()}`, "info");
         return;
       }
       if (parts[0] === "verify") {
@@ -1662,7 +1695,9 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       const text =
         (result.dryRun
           ? `read-only audit mode: NOT written (dry run; would update [${(result.planned ?? []).join(", ")}])`
-          : `checkpoint ${result.ok ? "OK" : "FAILED"} ${result.identity.id} (generation ${result.identity.generation}, content-delta ${result.contentDelta}); wrote [${result.written.join(", ")}]`) +
+          : result.ok && result.written.length === 0
+            ? `checkpoint unchanged ${result.identity.id} (generation ${result.identity.generation}, content-delta ${result.contentDelta}); no files written`
+            : `checkpoint ${result.ok ? "OK" : "FAILED"} ${result.identity.id} (generation ${result.identity.generation}, content-delta ${result.contentDelta}); wrote [${result.written.join(", ")}]`) +
         `; freshness ${bundle.checkpoint.kind}` +
         (bundle.checkpoint.kind === "current" && bundle.checkpoint.readiness.state === "unattested"
           ? "; readiness unattested (run /handoff ready once the handoff is complete)"

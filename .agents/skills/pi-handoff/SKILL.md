@@ -42,9 +42,11 @@ results or mutate project/state files.
    the matching recovery instruction automatically (tiered only when lean is on).
 2. Heed the guard's `session_start` notice (identity banner, checkpoint freshness:
    missing/corrupt/stale/current). The agent can call `handoff_inspect` to check
-   freshness and renewal preconditions. If a checkpoint needs refreshing, update the
-   durable prose and ask the operator to use `/handoff checkpoint`; it rewrites only
-   managed blocks, and hand-authored text survives byte-for-byte.
+   freshness and renewal preconditions. If a checkpoint is stale, update the durable
+   prose and ask the operator to use `/handoff checkpoint`; it refreshes only managed
+   blocks, and hand-authored text survives byte-for-byte. If it is current, do not ask
+   for a redundant checkpoint/attestation ritual; a consumed identity can be refreshed
+   only by its recorded successor when continuing the chain.
 3. Run the project's verification command (named in HANDOFF/AGENTS) before touching code.
 
 ## During work — react to alert levels
@@ -65,21 +67,27 @@ A revocation notice means pressure dropped and a previous closing instruction is
 
 ## Checkpoints and readiness
 
-- Operator `/handoff checkpoint [notes]` — write the managed checkpoint (both HANDOFF.md and PROGRESS.md get
-  one transactional identity: generation, id, content-delta, readiness).
+- Operator `/handoff checkpoint [notes]` — refresh the managed checkpoint when state is
+  stale or notes are supplied (both HANDOFF.md and PROGRESS.md share one transactional
+  identity: generation, id, content-delta, readiness). With unchanged current state and
+  no notes, it reuses the existing identity without writing.
 - Operator `/handoff verify` — freshness classification without writing. Agent:
   `handoff_inspect` returns the same freshness/readiness view plus renewal preconditions.
 - `/handoff ready` — evaluate + attest handoff completeness (blocking:
   checkpoint-current, identity-consistent, next-action-recorded, durable-files-valid;
-  warnings: content-delta=none, learnings-updated). Renewal requires attestation.
+  warnings: content-delta=none, learnings-updated). Renewal requires attestation; repeating
+  it on an already-attested current checkpoint does not change files or runtime state.
 - `/handoff finalize [notes]` or the `handoff_finalize` tool (dev.2 D2) — independent
   closing: refresh-if-stale + readiness + attest in ONE synchronous step. Works with
   renewal disabled, capped (8/8) or stopped; never switches sessions, touches chain
   state, waits for idle, or bypasses readiness. At the cap this is the safe closing path.
-- Bare `/handoff` remains the operator's compatible no-notes write form. `/handoff status`
-  is read-only. Unknown verbs show usage and never become checkpoint notes.
-- Ritual: **commit first**, then refresh + attest the checkpoint; commit the managed-block
-  refresh separately when it dirties the tree.
+- Bare `/handoff` remains the operator's compatible no-notes checkpoint request; when its
+  identity is already current it reports reuse without writing. `/handoff status` is
+  read-only and concise on the healthy path. Unknown verbs show usage and never become
+  checkpoint notes.
+- When source prose changes, **commit first**, then refresh + attest the checkpoint;
+  commit the managed-block refresh separately only when the refresh writes. A current,
+  attested checkpoint needs no repeat ritual before renewal.
 - The guard never writes LEARNINGS.md or GOAL.md. Keep discoveries classified there
   (accepted / proposed / falsified). Never rewrite GOAL.md silently — propose in
   LEARNINGS.md instead.
