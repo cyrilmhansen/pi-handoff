@@ -14,6 +14,33 @@ export function validWorkProfileRef(profile: WorkProfileRef | null): boolean {
   return profile === null || (/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(profile.id) && /^[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$/.test(profile.version));
 }
 
+export function workProfilePath(profile: WorkProfileRef): string {
+  if (!validWorkProfileRef(profile)) throw new Error("invalid work profile reference");
+  return pathDefault.posix.join(".pi-handoff/work-profiles", profile.id, `${profile.version}.json`);
+}
+
+export function validateWorkProfile(fs: FsOps, cwd: string, profile: WorkProfileRef): { path: string; error?: string } {
+  const relative = workProfilePath(profile);
+  const absolute = pathDefault.resolve(cwd, relative);
+  const project = fs.realpath?.(cwd) ?? pathDefault.resolve(cwd);
+  const real = fs.realpath?.(absolute);
+  if (real) {
+    const rel = pathDefault.relative(project, real);
+    if (rel.startsWith("..") || pathDefault.isAbsolute(rel)) return { path: relative, error: "work profile path resolves outside the project" };
+  }
+  const raw = fs.readFile(absolute);
+  if (raw === undefined) return { path: relative, error: `versioned work profile is missing: ${relative}` };
+  try {
+    const value = JSON.parse(raw) as { schema?: number; id?: string; version?: string; instructions?: unknown; knowledgeRefs?: unknown };
+    if (value.schema !== 1 || value.id !== profile.id || value.version !== profile.version || !Array.isArray(value.instructions) || !value.instructions.every((x) => typeof x === "string") || !Array.isArray(value.knowledgeRefs) || !value.knowledgeRefs.every((x) => typeof x === "string")) {
+      return { path: relative, error: "work profile must match its id/version and contain string arrays `instructions` and `knowledgeRefs`" };
+    }
+    return { path: relative };
+  } catch {
+    return { path: relative, error: "versioned work profile JSON is unreadable" };
+  }
+}
+
 export function missionInstancePaths(id: string): { root: string; stateDir: string; files: GuardFiles } {
   if (!validMissionInstanceId(id)) throw new Error("mission instance id must use 1–64 letters, digits, dots, underscores or hyphens and cannot be . or ..");
   const root = pathDefault.posix.join(MISSION_INSTANCE_ROOT, id);
@@ -66,6 +93,10 @@ export function readMissionInstanceProfile(fs: FsOps, cwd: string, id: string): 
       ? null
       : manifest.workProfile as WorkProfileRef;
     if (!validWorkProfileRef(profile)) return { profile: null, error: "instance manifest has an invalid work profile reference" };
+    if (profile) {
+      const checked = validateWorkProfile(fs, cwd, profile);
+      if (checked.error) return { profile: null, error: checked.error };
+    }
     return { profile };
   } catch {
     return { profile: null, error: "instance identity manifest is unreadable; preserve it and inspect manually" };
@@ -86,6 +117,10 @@ export function createMissionInstance(
   if (!validMissionInstanceId(id)) return { ok: false, error: "invalid mission instance id" };
   if (!validWorkProfileRef(profile)) return { ok: false, error: "invalid work profile reference" };
   if (!instancePathIsSafe(fs, cwd, id)) return { ok: false, error: "instance storage path resolves outside the project" };
+  if (profile) {
+    const checked = validateWorkProfile(fs, cwd, profile);
+    if (checked.error) return { ok: false, error: checked.error };
+  }
   const paths = missionInstancePaths(id);
   const absoluteRoot = pathDefault.resolve(cwd, paths.root);
   const manifestPath = pathDefault.join(absoluteRoot, "mission.json");

@@ -171,6 +171,10 @@ runtime, checkpoint generation history, renewal chain and documentation-cycle st
 generation. Each Pi process reads its selection only at session start; no shared active
 pointer or live context switch exists. Missing/corrupt manifests and paths resolving
 outside the project fail closed. With no ID selected, all pre-Lot-F paths remain intact.
+An optional `missionInstance.workProfile` must match the instance manifest and a valid
+`.pi-handoff/work-profiles/<id>/<version>.json` containing `schema: 1`, `id`, `version`,
+`instructions` and `knowledgeRefs`. The identity banner names this file for the agent to
+read; it is guidance, not an operator authorization channel.
 
 - `<stateDir>/sessions/<sessionId>.json` — per-session runtime state (schema v2, atomic
   writes; `checkpointId`, `handoffReady`, `learningsHash` audit fields; corrupt files

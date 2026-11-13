@@ -247,8 +247,11 @@ Each instance uses its own checkpointed operational documents and
 `AGENTS.md`, `PROTOCOL.md`, source code and scientific evidence remain shared project
 knowledge; Handoff does not grant the instance a separate writable copy or publish
 instance findings. Reviewed knowledge publication remains a separate operator action.
-Work profiles are currently versioned references only, not an automatic prompt or
-knowledge distribution system. A selected ID must have a matching in-project manifest;
+An optional work profile is a reusable JSON config at
+`.pi-handoff/work-profiles/<id>/<version>.json` with `{ "schema": 1, "id": "…",
+"version": "…", "instructions": [], "knowledgeRefs": [] }`. The identity banner names
+the selected profile so the agent can read its methods and references. The extension
+does not inject profile text or grant it operator authority. A selected ID must have a matching in-project manifest;
 invalid IDs, mismatched manifests and storage paths that resolve outside the project
 fail closed. Existing projects with no selected ID retain their historical paths and
 behavior. No automatic migration or scientific-document cleanup occurs.
