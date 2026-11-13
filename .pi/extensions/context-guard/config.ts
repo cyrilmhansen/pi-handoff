@@ -25,6 +25,17 @@ export interface DocumentationConfig {
   reviewPrompt: string | null;
 }
 
+export interface WorkProfileRef {
+  id: string;
+  version: string;
+}
+
+/** Explicit selection for one Pi process. `null` preserves the legacy project layout. */
+export interface MissionInstanceConfig {
+  id: string | null;
+  workProfile: WorkProfileRef | null;
+}
+
 export interface GuardConfig {
   enabled: boolean;
   thresholds: ThresholdsInput;
@@ -52,6 +63,7 @@ export interface GuardConfig {
    */
   maxSessionStates: number;
   files: GuardFiles;
+  missionInstance: MissionInstanceConfig;
   /** Fixed remaining-token figure used by synthetic test mode. */
   syntheticRemaining: number | null;
   /**
@@ -86,6 +98,7 @@ export const DEFAULT_CONFIG: GuardConfig = {
   readOnly: false,
   maxSessionStates: 0,
   files: { goal: "GOAL.md", progress: "PROGRESS.md", learnings: "LEARNINGS.md", handoff: "HANDOFF.md" },
+  missionInstance: { id: null, workProfile: null },
   syntheticRemaining: null,
   renewal: { ...DEFAULT_RENEWAL },
   recovery: { ...DEFAULT_RECOVERY },
@@ -109,7 +122,7 @@ function isNonNegativeInt(v: unknown): v is number {
 
 export function mergeConfig(base: GuardConfig, override: Json | null | undefined): GuardConfig {
   if (!override || typeof override !== "object") return base;
-  const next: GuardConfig = { ...base, files: { ...base.files }, thresholds: { ...base.thresholds }, closingAllowlist: [...base.closingAllowlist], renewal: { ...base.renewal }, documentation: { ...base.documentation } };
+  const next: GuardConfig = { ...base, files: { ...base.files }, thresholds: { ...base.thresholds }, closingAllowlist: [...base.closingAllowlist], renewal: { ...base.renewal }, documentation: { ...base.documentation }, missionInstance: { ...base.missionInstance } };
   if (typeof override.enabled === "boolean") next.enabled = override.enabled;
   const th = override.thresholds;
   if (th && typeof th === "object") {
@@ -138,6 +151,16 @@ export function mergeConfig(base: GuardConfig, override: Json | null | undefined
     const f = files as Json;
     for (const key of ["goal", "progress", "learnings", "handoff"] as const) {
       if (typeof f[key] === "string" && (f[key] as string).length > 0) next.files[key] = f[key] as string;
+    }
+  }
+  const instance = override.missionInstance;
+  if (instance && typeof instance === "object" && !Array.isArray(instance)) {
+    const m = instance as Json;
+    if (m.id === null || typeof m.id === "string") next.missionInstance.id = m.id as string | null;
+    if (m.workProfile === null) next.missionInstance.workProfile = null;
+    else if (m.workProfile && typeof m.workProfile === "object" && !Array.isArray(m.workProfile)) {
+      const p = m.workProfile as Json;
+      if (typeof p.id === "string" && typeof p.version === "string") next.missionInstance.workProfile = { id: p.id, version: p.version };
     }
   }
   next.renewal = mergeRenewal(next.renewal, override.renewal);
@@ -178,6 +201,9 @@ export function loadConfig(
   if (env.CONTEXT_GUARD_READONLY === "1") merged = { ...merged, readOnly: true };
   if (typeof env.CONTEXT_GUARD_STATE_DIR === "string" && env.CONTEXT_GUARD_STATE_DIR.length > 0) {
     merged = { ...merged, stateDir: env.CONTEXT_GUARD_STATE_DIR };
+  }
+  if (typeof env.CONTEXT_GUARD_MISSION_INSTANCE === "string" && env.CONTEXT_GUARD_MISSION_INSTANCE.length > 0) {
+    merged = { ...merged, missionInstance: { id: env.CONTEXT_GUARD_MISSION_INSTANCE, workProfile: null } };
   }
   const sim = env.CONTEXT_GUARD_SYNTHETIC_REMAINING;
   if (sim != null) {

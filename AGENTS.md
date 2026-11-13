@@ -1,13 +1,12 @@
 # AGENTS.md — handoff prototype (Pi context-guard)
 
 Pi 1.4.0 context-guard extension + durable handoff files. Lots A–E are integrated on
-`main` at `96750d746003886610ac9fb9544fb52bf0dbffcd`; this branch prepares the
-`v0.1.0-dev.4` documentation/version consolidation. It contains checkpoint and renewal
-reliability (A), operator-task renewal (B), structured document editing/audit (C),
-reduced checkpoint churn (D), and optional supervised document cycles (E).
-Current next action: **STOP — operator review of the dev.4 consolidation candidate**.
-Do not tag, publish or push without separate explicit authorization. No scientific-state
-migration or cleanup is part of this release.
+`main` at `96750d746003886610ac9fb9544fb52bf0dbffcd`; lots A–E cover checkpoint and
+renewal reliability, operator-task renewal, structured document editing/audit, reduced
+checkpoint churn, and optional supervised document cycles. Lot F adds explicitly
+selected mission instances on `feat/lot-f-mission-instances`; it does not change the
+version or publish anything. Do not tag, publish or push without separate explicit
+authorization. No scientific-state migration or cleanup is part of this work.
 
 Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
 false; this project sets `enabled: true, autoRenew: false, maxRenewals: 8` with
@@ -18,10 +17,13 @@ phases extended it under explicit authorization — the file stays untouched.
 
 Every fresh session:
 
-1. Read `AGENTS.md`, `PROTOCOL.md`, `GOAL.md`, `HANDOFF.md`, `PROGRESS.md` (in that
-   order; manual prose in HANDOFF/PROGRESS wins over `guard:begin checkpoint` managed
-   blocks — schema v3; freshness is reported at `session_start` and via `/handoff verify`).
-2. Verify with `node --test test/` (current baseline: **257 pass / 1 gated skip**) before
+1. Read `AGENTS.md`, `PROTOCOL.md`, `GOAL.md`, and the operational documents selected by
+   the current Pi process (legacy mode: project-root `HANDOFF.md`, `PROGRESS.md`,
+   `LEARNINGS.md`; mission-instance mode: `.pi-handoff/instances/<id>/` versions).
+   Manual prose in HANDOFF/PROGRESS wins over managed checkpoint blocks (schema v3);
+   freshness is reported at `session_start` and via `/handoff verify`. Never infer or
+   change the active instance from document contents.
+2. Verify with `node --test test/` (current baseline: **265 pass / 1 gated skip**) before
    touching code. Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs`
    (**38/38**, incl. the capped-chain finalize proof), `node scripts/check-skill-discovery.mjs`
    (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate

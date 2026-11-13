@@ -97,6 +97,7 @@ import {
   recentDiagnostics,
   type DiagnosticType,
 } from "./diagnostics.ts";
+import { configForMissionInstance, createMissionInstance, missionChainId, readMissionInstanceProfile, validMissionInstanceId, validWorkProfileRef } from "./mission-instance.ts";
 
 export const CUSTOM_TYPE = "context-guard";
 const MAX_OPERATOR_TASK_BYTES = 64 * 1024;
@@ -205,6 +206,7 @@ interface GuardInternals {
   handoffReady: ReadinessInfo | undefined;
   /** Repairs suppressed by read-only audit mode (reported, never performed). */
   repairsSuppressed: string[];
+  missionInstanceError?: string;
 }
 
 export interface GuardOverrides {
@@ -226,6 +228,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     merged.thresholds = { ...base.thresholds, ...(overrides.config?.thresholds ?? {}) };
     merged.files = { ...base.files, ...(overrides.config?.files ?? {}) };
     merged.documentation = { ...base.documentation, ...(overrides.config?.documentation ?? {}) };
+    merged.missionInstance = { ...base.missionInstance, ...(overrides.config?.missionInstance ?? {}) };
     const flag = safeGetFlag("guard-synthetic");
     if (flag != null) {
       const n = Number(flag);
@@ -622,7 +625,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         cwd: g.cwd,
         files: g.config.files,
         level: g.machine.currentLevel,
-        sessionId: g.sessionId,
+        sessionId: g.config.missionInstance.id ? `mission:${g.config.missionInstance.id}:${g.sessionId}` : g.sessionId,
         remaining: m.remaining,
         goalHash: g.goalHash,
         goalDrift: g.goalDrift,
@@ -807,7 +810,33 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   pi.on("session_start", (event: SessionStartEvent, ctx: ExtensionContext) => {
     // Rebuild all session-bound state; never reuse values from a previous session.
     const cwd = ctx.cwd;
-    const config = readConfig(cwd);
+    const rawConfig = readConfig(cwd);
+    let config = rawConfig;
+    let missionInstanceError: string | undefined;
+    try {
+      if (rawConfig.missionInstance.id !== null) {
+        const instanceId = rawConfig.missionInstance.id;
+        const identity = readMissionInstanceProfile(fs, cwd, instanceId);
+        if (identity.error) throw new Error(identity.error);
+        if (!validWorkProfileRef(rawConfig.missionInstance.workProfile)) throw new Error("invalid work profile reference");
+        if (rawConfig.missionInstance.workProfile && JSON.stringify(rawConfig.missionInstance.workProfile) !== JSON.stringify(identity.profile)) throw new Error("selected work profile does not match the instance manifest");
+        config = configForMissionInstance({ ...rawConfig, missionInstance: { ...rawConfig.missionInstance, workProfile: identity.profile } });
+      }
+    } catch (err) {
+      missionInstanceError = err instanceof Error ? err.message : String(err);
+      // Invalid identity must never silently fall back to shared legacy documents.
+      config = {
+        ...rawConfig,
+        readOnly: true,
+        stateDir: ".pi-guard/invalid-instance-selection",
+        files: {
+          ...rawConfig.files,
+          handoff: ".pi-handoff/invalid-instance-selection/HANDOFF.md",
+          progress: ".pi-handoff/invalid-instance-selection/PROGRESS.md",
+          learnings: ".pi-handoff/invalid-instance-selection/LEARNINGS.md",
+        },
+      };
+    }
     let sessionId = "anon";
     try {
       sessionId = ctx.sessionManager.getSessionId();
@@ -830,7 +859,9 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       checkpointId: null,
       handoffReady: undefined,
       repairsSuppressed: [],
+      missionInstanceError,
     };
+    if (missionInstanceError) notify(ctx, `context-guard: mission instance selection refused (${missionInstanceError}); project-tree writes and renewal are disabled.`, "error");
     const goalText = fs.readFile(joinPath(cwd, config.files.goal));
     g.goalHash = goalText === undefined ? undefined : sha256(goalText);
     const learningsText = fs.readFile(joinPath(cwd, config.files.learnings));
@@ -1478,10 +1509,10 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         }
         const oldRaw = fs.readFile(renewPath);
         if (oldRaw === undefined) { notify(ctx, "context-guard cycle: renewal state could not be read for archival", "error"); return; }
-        const archiveRelative = `${g!.config.documentation.archiveDir.replace(/\/$/, "")}/renewal-chain-${current.cycleId}.json`;
+        const archiveRelative = `${g!.config.documentation.archiveDir.replace(/\/$/, "")}/${g!.config.missionInstance.id ? `instances/${g!.config.missionInstance.id}/` : ""}renewal-chain-${current.cycleId}.json`;
         const archivePath = safeProjectPath(archiveRelative);
         if (!archivePath) { notify(ctx, "context-guard cycle: configured archiveDir must resolve inside the project; no chain reset occurred", "error"); return; }
-        const nextChainId = `chain:${current.cycleId}`;
+        const nextChainId = missionChainId(g!.config.missionInstance.id, current.cycleId);
         const nextRenewalState: RenewalState = { ...INITIAL_RENEWAL_STATE, chainId: nextChainId, updatedAt: now };
         const archiveContent = JSON.stringify({ version: 1, cycleId: current.cycleId, baseRevision: current.baseRevision, sourceFingerprint: expectedFingerprint, archivedRenewalState: JSON.parse(oldRaw) }, null, 2) + "\n";
         const next: DocumentationCycleState = {
@@ -1903,7 +1934,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       // 4. Persist chain state BEFORE the switch: cap + idempotence key must already
       //    be visible when the successor (or a restart) reads them.
-      const chainId = chain.state.chainId || `chain:${g.sessionId}`;
+      const chainId = chain.state.chainId || missionChainId(g.config.missionInstance.id, g.sessionId);
       const renewalIndex = chain.state.renewalsDone + 1;
       const stateDir = resolvedStateDir(g);
       const updated: RenewalState = {
@@ -2172,6 +2203,64 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         return;
       }
       const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts[0] === "instance") {
+        const sub = parts[1];
+        const active = g.config.missionInstance.id;
+        if (sub === "status" || !sub) {
+          ctx.ui.notify(active
+            ? `mission instance ${active} (work profile ${g.config.missionInstance.workProfile ? `${g.config.missionInstance.workProfile.id}@${g.config.missionInstance.workProfile.version}` : "none"}); operational files: ${g.config.files.handoff}, ${g.config.files.progress}, ${g.config.files.learnings}; state: ${g.config.stateDir}`
+            : "legacy project mode: shared project-root operational files and .pi-guard state; no mission instance selected.", "info");
+          return;
+        }
+        if (sub === "create") {
+          const id = parts[2];
+          if (!id) {
+            ctx.ui.notify("usage: /handoff instance create <id> [--profile <id@version>]", "warning");
+            return;
+          }
+          let profile = g.config.missionInstance.workProfile;
+          if (parts[3] === "--profile" && parts[4]) {
+            const match = /^([A-Za-z0-9][A-Za-z0-9._-]{0,63})@([A-Za-z0-9][A-Za-z0-9._+-]{0,31})$/.exec(parts[4]);
+            if (!match) {
+              ctx.ui.notify("invalid profile reference; use <id>@<version>", "warning");
+              return;
+            }
+            profile = { id: match[1], version: match[2] };
+          } else if (parts.length > 3) {
+            ctx.ui.notify("usage: /handoff instance create <id> [--profile <id@version>]", "warning");
+            return;
+          }
+          if (!validMissionInstanceId(id) || !validWorkProfileRef(profile)) {
+            ctx.ui.notify("invalid instance id or work profile reference", "warning");
+            return;
+          }
+          try {
+            const result = createMissionInstance(fs, g.cwd, id, profile);
+            ctx.ui.notify(result.ok
+              ? `mission instance ${id} ${result.resumed ? "creation resumed" : "created"}; initialized missing empty operational documents [${result.created.join(", ")}]. No project documents were copied. Select explicitly at the next session start with CONTEXT_GUARD_MISSION_INSTANCE=${id} or missionInstance.id in handoff.config.json.`
+              : `mission instance creation refused: ${result.error}`, result.ok ? "info" : "warning");
+          } catch (err) {
+            ctx.ui.notify(`mission instance creation incomplete; preserve existing files and inspect before retrying: ${err instanceof Error ? err.message : String(err)}`, "error");
+          }
+          return;
+        }
+        if (sub === "select" && parts[2]) {
+          const id = parts[2];
+          if (!validMissionInstanceId(id)) {
+            ctx.ui.notify("invalid mission instance id", "warning");
+            return;
+          }
+          const manifest = joinPath(g.cwd, `.pi-handoff/instances/${id}/mission.json`);
+          if (!fs.exists(manifest)) {
+            ctx.ui.notify(`mission instance ${id} has no identity manifest; create it first with /handoff instance create ${id}`, "warning");
+            return;
+          }
+          ctx.ui.notify(`selection is per Pi process and takes effect only at session start. Restart this project with CONTEXT_GUARD_MISSION_INSTANCE=${id}, or set missionInstance.id to "${id}" in handoff.config.json. Existing sessions are unchanged.`, "info");
+          return;
+        }
+        ctx.ui.notify("usage: /handoff instance status | create <id> [--profile <id@version>] | select <id>. Selection is explicit per process and takes effect at session start.", "warning");
+        return;
+      }
       if (parts[0] === "status") {
         const inspection = inspectReport();
         const renewal = inspection.details.renewal as { state?: string; chainCorrupt?: boolean };
@@ -2244,7 +2333,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       if (parts.length > 0 && parts[0] !== "checkpoint") {
         ctx.ui.notify(
-          'usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew --task "..." | renew --task-file <project-path> | renew go | renew stop | renew resume | renew status | cycle status|plan|approve|apply|no-change|review|accept-review|continue|abort|recover. Slash commands are Pi operator commands, not Bash commands.',
+          'usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew --task "..." | renew --task-file <project-path> | renew go | renew stop | renew resume | renew status | instance status|create <id>|select <id> | cycle status|plan|approve|apply|no-change|review|accept-review|continue|abort|recover. Slash commands are Pi operator commands, not Bash commands.',
           "warning",
         );
         return;

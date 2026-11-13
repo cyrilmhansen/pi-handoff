@@ -1,6 +1,6 @@
 # context-guard — command, configuration and state reference
 
-Version reference: **v0.1.0-dev.4** consolidation (Pi 1.4.0), covering lots A–E.
+Version reference: **v0.1.0-dev.4** plus Lot F mission-instance support (Pi 1.4.0).
 Historical D1–D9 details remain in the changelog; Rune CI service files remain external
 to this extension. `renewal.successorTurn: "user"` and the documentation-cycle workflow
 remain explicitly opt-in; real Sushi A/B and real-inference document-cycle validation
@@ -22,6 +22,9 @@ should call registered tools instead: `handoff_inspect` is read-only,
 | `/guard verify-checkpoint` | Checkpoint classification + readiness + renewal authorization |
 | `/guard events [n]` | Tail of `<stateDir>/diagnostics.jsonl` (dev.2 D5c): typed, bounded events — session_start/alert/revocation/renewal_request/renewal_result/finalize/tool_block/turn_aborted; never prompts/args/secrets; audit mode with in-tree stateDir reports "not persisted" |
 | `/handoff status` | Read-only checkpoint/readiness/renewal report; writes no files or state |
+| `/handoff instance status` | Show selected instance and resolved operational/state paths |
+| `/handoff instance create <id> [--profile <id@version>]` | Create an identity manifest and empty operational docs; no project docs are copied |
+| `/handoff instance select <id>` | Print explicit next-session selection instructions; current session does not switch |
 | `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources); also prints the recovery-cost meter (dev.2 D4) |
 | `/handoff checkpoint [notes]` | Explicit checkpoint write (managed blocks only); bare `/handoff` remains the no-notes form |
 | `/handoff ready` | Evaluate + attest readiness (bound to checkpoint id). `/handoff ready check` = evaluate only |
@@ -121,6 +124,8 @@ checkpoint does not claim source code is committed, validated or pushed.
 | `documentation.planPrompt` / `applyPrompt` / `reviewPrompt` | bundled v1 prompts | Optional in-project prompt overrides; their contents are included in the source fingerprint |
 | `recovery.budgetTokens` | `12000` | target budget for the operational tier, in chars/4 ESTIMATED tokens (the meter reports estimates, not accounting — A-1) |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable file names |
+| `missionInstance.id` | `null` | Explicit selected instance; `null` keeps legacy root docs and state path |
+| `missionInstance.workProfile` | `null` | Optional versioned `{id, version}` reference, checked against the instance manifest |
 
 Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_SYNTHETIC_REMAINING=<n>`, `CONTEXT_GUARD_READONLY=1`,
@@ -157,6 +162,15 @@ usable remaining = min(Pi physical contextWindow, workingContextWindow ?? Pi phy
   thresholds 20k/12k/8k/5k → crossings 70k/78k/82k/85k used).
 
 ## State locations
+
+When `missionInstance.id` is set (or `CONTEXT_GUARD_MISSION_INSTANCE` selects an ID for
+this process), `HANDOFF.md`, `PROGRESS.md`, and `LEARNINGS.md` resolve under
+`.pi-handoff/instances/<id>/`; the project `GOAL.md` remains shared and protected. Guard
+runtime, checkpoint generation history, renewal chain and documentation-cycle state use
+`.pi-guard/instances/<id>/`. The instance ID is included in checkpoint and chain identity
+generation. Each Pi process reads its selection only at session start; no shared active
+pointer or live context switch exists. Missing/corrupt manifests and paths resolving
+outside the project fail closed. With no ID selected, all pre-Lot-F paths remain intact.
 
 - `<stateDir>/sessions/<sessionId>.json` — per-session runtime state (schema v2, atomic
   writes; `checkpointId`, `handoffReady`, `learningsHash` audit fields; corrupt files

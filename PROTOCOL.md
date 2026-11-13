@@ -450,3 +450,31 @@ The deterministic suites and Rune CI passed for their respective lot commits. Th
 Sushi custom-versus-user A/B and a complete documentation-cycle workflow using real
 inference were not run; their outcomes remain unverified. No inference test is part of
 the dev.4 release validation.
+
+## 11. Mission instances (Lot F)
+
+Project state is shared; mutable mission progress belongs to one explicitly selected
+mission instance. Create one with `/handoff instance create <id> [--profile <id@version>]`.
+The command creates an identity manifest and empty operational documents under
+`.pi-handoff/instances/<id>/`; it copies no root documents and does not migrate existing
+state. Select a created instance for a Pi process with
+`CONTEXT_GUARD_MISSION_INSTANCE=<id>` or `missionInstance.id` in the project config.
+Selection is read at session start; an existing context never switches instances in
+place. The per-process environment selector permits two Pi processes in one checkout to
+use different instances without changing a shared active pointer.
+
+Instance-owned documents are `HANDOFF.md`, `PROGRESS.md` and `LEARNINGS.md`; its
+checkpoint identity is namespaced by instance, and guard sessions, renewal chain and
+documentation-cycle state use `.pi-guard/instances/<id>/`. `GOAL.md`, `AGENTS.md`,
+`PROTOCOL.md`, code and canonical scientific evidence remain project-shared. Instance
+findings are not automatically published to those shared sources. Work profiles are
+currently versioned references stored in the instance manifest; no profile import,
+publication or knowledge merge is performed.
+
+The instance ID is restricted to safe path characters. Startup verifies the manifest
+and that the storage path resolves within the project; invalid selection disables
+project-tree writes and renewal rather than falling back to shared files. With no
+instance ID selected, legacy project-root files and the configured `.pi-guard` path are
+unchanged. Creating or changing a mission instance is separate from renewing a session
+or resetting a renewal chain. A checkpoint attests recovery state only; it is not
+scientific validation or knowledge publication.
