@@ -75,7 +75,7 @@ protected at all levels when `protectGoal` is true.
 
 ### 2.1 Checkpoint contents and freshness validation
 
-A checkpoint rewrites the **managed blocks** of HANDOFF.md and PROGRESS.md (schema v3).
+A checkpoint generation writes the **managed blocks** of HANDOFF.md and PROGRESS.md (schema v3).
 Each block embeds `checkpoint-schema: 3`, a **transactional identity**
 (`checkpoint-generation`, monotonic `max(existing)+1`, no clock/no randomness; and
 `checkpoint-id`, derived from generation + source fingerprint + session), `checkpoint-kind`
@@ -86,6 +86,16 @@ as *manual prose only* (their managed blocks stripped before hashing); GOAL/LEAR
 hashed whole; missing files and files containing nothing but managed blocks hash to
 `"absent"`. This makes the fingerprint non-circular: no block ever hashes its own content,
 so re-writing a checkpoint over unchanged prose preserves all source hashes.
+
+The runtime reuses an already-current identity when a checkpoint request adds no
+`Guard notes`; automatic threshold crossings also reuse it while source fingerprints and
+twin blocks remain current. This avoids two managed-file writes and a new unattested
+generation for identical state. Stale/missing/corrupt checkpoints or substantive new
+notes still create a fresh generation. If the current identity was consumed, only its
+recorded successor may create a fresh generation (including `content-delta: none`) to
+continue; a no-note request from the predecessor or another session reuses the existing
+identity without writes. A repeated valid attestation is also a no-op and preserves its
+original attestation bytes.
 
 Both blocks must prove they came from **one** operation: an interrupted two-file write, an
 obsolete generation, a forged id, a missing twin or disagreeing readiness lines make the
@@ -124,6 +134,8 @@ only the readiness lines of both blocks in one operation, bound to the current
 `checkpoint-id`; it refuses (zero writes) unless every blocking check passes, and is a
 reported dry run in audit mode. `renewAuthorization()` is the Phase 2 gate: current ∧
 identity-consistent ∧ attested. A new generation resets readiness to unattested.
+Repeating `/handoff ready` on a current, already-attested checkpoint leaves both the
+managed blocks and runtime state untouched.
 
 Validation is read-only and never "fixes" anything: a stale checkpoint is reported
 (session_start warning + `/guard status` + `/handoff verify`) and must be refreshed
@@ -218,6 +230,11 @@ model renewal gate as ready-now, preparation-required, or refused. Inspection do
 write project/state files or mutate checkpoint, attestation, chain, or stop state; it
 does not verify scientific claims. Pi slash commands are operator interface commands,
 not shell commands available to the model.
+On a healthy, attested checkpoint, `handoff_inspect` returns a concise summary by default;
+pass `{ "details": true }` for the full report. Anomalies always include the detailed
+reason. `git status` and `git diff` remain the source of truth for worktree state; an
+attested checkpoint says nothing about whether software work was committed, validated,
+or published.
 
 Renewal policy lives in `renewal.ts` (pure) + `handoff.config.json` `renewal`
 (`enabled` default **false**, `autoRenew` default **false**, `maxRenewals` default 2,

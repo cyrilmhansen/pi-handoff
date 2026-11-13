@@ -1303,6 +1303,21 @@ export function attestHandoff(
     };
   }
   const id = evaluation.identity!;
+  // Repeating /handoff ready must not rewrite the same valid attestation (and
+  // advance its timestamp) merely because the operator asked for status again.
+  // evaluateHandoffReadiness has already verified both blocks, source hashes,
+  // action semantics and the attestation target against this identity.
+  if (!options.dryRun && evaluation.freshness.kind === "current" && evaluation.freshness.readiness.state === "attested") {
+    return {
+      ok: true,
+      written: [],
+      errors: [],
+      checks: evaluation.checks,
+      dryRun: false,
+      checkpointId: id.id,
+      readiness: evaluation.freshness.readiness,
+    };
+  }
   const updates: Record<string, string> = {
     [READINESS_KEY]: "attested",
     [READINESS_BY_KEY]: by,

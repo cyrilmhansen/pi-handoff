@@ -91,6 +91,26 @@ test("I2: interrupted write between the two files is detected (never classified 
   assert.ok(/generation/i.test(f.detail), f.detail);
 });
 
+test("I2b: retry after a partial checkpoint advances identity and restores a coherent pair before attestation", () => {
+  const fs = createMemoryFs(DEFAULT_FILES);
+  const first = writeCheckpoint(fs, input());
+  assert.ok(first.ok);
+  fs.failNext.set("/project/PROGRESS.md", 1);
+  const partial = writeCheckpoint(fs, input({ sessionId: "sess-2", level: 3, lastVerifiedState: "retry attempt" }));
+  assert.equal(partial.ok, false);
+  assert.equal(validateCheckpoint(fs, "/project", FILES).kind, "stale");
+
+  const recovered = writeCheckpoint(fs, input({ sessionId: "sess-2", level: 3, lastVerifiedState: "recovered pair" }));
+  assert.ok(recovered.ok, recovered.errors.join("; "));
+  assert.ok(recovered.identity.generation > partial.identity.generation, "the failed identity is never reused");
+  const fresh = validateCheckpoint(fs, "/project", FILES);
+  assert.equal(fresh.kind, "current");
+  assert.equal(renewAuthorization(fresh).authorized, false, "recovery itself does not grant readiness");
+  const attested = attestHandoff(fs, "/project", FILES, { sessionId: "sess-2" });
+  assert.ok(attested.ok, attested.errors.join("; "));
+  assert.equal(renewAuthorization(validateCheckpoint(fs, "/project", FILES)).authorized, true);
+});
+
 test("I3: obsolete generations are detected even when every source hash matches", () => {
   const fs = createMemoryFs(DEFAULT_FILES);
   writeCheckpoint(fs, input());
