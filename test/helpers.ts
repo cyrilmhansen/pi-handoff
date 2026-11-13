@@ -251,6 +251,17 @@ export function createMemoryFs(initial: Record<string, string> = {}): MemoryFs {
       files.set(p, content);
       writes.push(p);
     },
+    createExclusive(p, content) {
+      if (files.has(p)) return false;
+      const fails = failNext.get(p) ?? 0;
+      if (fails > 0) {
+        failNext.set(p, fails - 1);
+        throw new Error(`simulated exclusive-create failure for ${p}`);
+      }
+      files.set(p, content);
+      writes.push(p);
+      return true;
+    },
     exists(p) {
       return files.has(p);
     },
@@ -289,4 +300,12 @@ export const DEFAULT_FILES: Record<string, string> = {
     "# LEARNINGS\n\n## Accepted\n(none)\n\n## Proposed\n- [P-1] Use followUp delivery. evidence: docs. value: no interruption. cost: low. confidence: high. status: proposed\n\n## Falsified or superseded\n(none)\n",
   "/project/HANDOFF.md":
     "# HANDOFF\n\n## Recovery instructions\n- Read AGENTS.md, then PROGRESS.md.\n- Do not read raw transcripts.\n\n## Last verified state\nClean checkout.\n\n## Unfinished operations\n- [ ] pass tests\n\n## Next action\nRun the test suite.\n\n## Discoveries not yet incorporated\n- followUp deferral semantics.\n",
+  "/project/AGENTS.md": "# AGENTS\n\nProtect GOAL.md and preserve scientific evidence.\n",
+  "/project/PROTOCOL.md": "# PROTOCOL\n\nFresh durable recovery; no transcript replay.\n",
+  "/project/scripts/durable_edit.py": "#!/usr/bin/env python3\n# use hash-bound plan/apply operations\n",
+  "/project/.agents/skills/pi-handoff/SKILL.md": "# pi-handoff skill\n\nOperator approves document changes.\n",
+  "/project/.agents/skills/pi-handoff/references/consolidation.md": "# Consolidation\n\nRequire operator approval; preserve history.\n",
+  "/project/.agents/skills/pi-handoff/references/documentation-cycle/plan-v1.md": "Cycle-ID: {{CYCLE_ID}}\nBase-Revision: {{BASE_REVISION}}\nBase-Fingerprint: {{BASE_FINGERPRINT}}\nGOAL-Fingerprint: {{GOAL_FINGERPRINT}}\nPlan: read-only audit to {{PLAN_FILE}} in {{ARCHIVE_DIR}}.\n",
+  "/project/.agents/skills/pi-handoff/references/documentation-cycle/apply-v1.md": "Apply approved plan {{PLAN_SHA256}} for {{CYCLE_ID}} from {{PLAN_FILE}} only.\n",
+  "/project/.agents/skills/pi-handoff/references/documentation-cycle/review-v1.md": "Review {{CYCLE_ID}} against {{BASE_REVISION}}; report to {{REVIEW_FILE}} using {{REVIEW_REVISION}} and {{REVIEW_FINGERPRINT}}.\n",
 };

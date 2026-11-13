@@ -24,6 +24,7 @@ import type {
   TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
+import { execFileSync } from "node:child_process";
 import pathDefault from "node:path";
 
 import {
@@ -69,11 +70,22 @@ import {
 } from "./checkpoint.ts";
 import { recoveryCost, recoveryCostLine } from "./recovery.ts";
 import {
+  cycleMetadata,
+  documentationCycleId,
+  documentationSourceFingerprint,
+  DOCUMENTATION_CYCLE_STATE_FILE,
+  parseDocumentationCycleState,
+  serializeDocumentationCycleState,
+  type DocumentationCyclePhase,
+  type DocumentationCycleState,
+} from "./documentation-cycle.ts";
+import {
   buildSuccessorUserMessage,
   buildRecoveryPrompt,
   decideRenewal,
   INITIAL_RENEWAL_STATE,
   parseRenewalArgs,
+  serializeRenewalState,
   type RenewalState,
   type RenewalTrigger,
 } from "./renewal.ts";
@@ -199,6 +211,8 @@ export interface GuardOverrides {
   config?: Partial<GuardConfig>;
   fs?: FsOps;
   env?: Record<string, string | undefined>;
+  /** Deterministic Git-HEAD seam for tests; production reads `git rev-parse HEAD`. */
+  gitRevision?: () => string | undefined;
 }
 
 export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides = {}) {
@@ -211,6 +225,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const merged: GuardConfig = { ...base, ...(overrides.config ?? {}) };
     merged.thresholds = { ...base.thresholds, ...(overrides.config?.thresholds ?? {}) };
     merged.files = { ...base.files, ...(overrides.config?.files ?? {}) };
+    merged.documentation = { ...base.documentation, ...(overrides.config?.documentation ?? {}) };
     const flag = safeGetFlag("guard-synthetic");
     if (flag != null) {
       const n = Number(flag);
@@ -224,6 +239,137 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   /** Resolve the state directory (config/env may point it outside the project). */
   function resolvedStateDir(internals: GuardInternals): string {
     return joinPath(internals.cwd, internals.config.stateDir);
+  }
+
+  function cycleStatePath(): string {
+    return g ? joinPath(resolvedStateDir(g), DOCUMENTATION_CYCLE_STATE_FILE) : DOCUMENTATION_CYCLE_STATE_FILE;
+  }
+
+  function loadCycleState(): { state?: DocumentationCycleState; corrupt: boolean } {
+    return parseDocumentationCycleState(fs.readFile(cycleStatePath()));
+  }
+
+  function saveCycleState(state: DocumentationCycleState): { ok: boolean; error?: string } {
+    if (!g || !canPersistState()) return { ok: false, error: "documentation-cycle state cannot be persisted in the current read-only mode" };
+    try {
+      fs.mkdirRecursive(pathDefault.dirname(cycleStatePath()));
+      fs.writeFile(cycleStatePath(), serializeDocumentationCycleState(state));
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  function gitHeadRevision(): string | undefined {
+    if (overrides.gitRevision) {
+      try { return overrides.gitRevision(); } catch { return undefined; }
+    }
+    if (!g) return undefined;
+    try {
+      const out = execFileSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: g.cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3000 });
+      const rev = out.trim();
+      return /^[0-9a-f]{40,64}$/i.test(rev) ? rev.toLowerCase() : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function cycleSourceSnapshot(): { sources: Record<string, string>; fingerprint: string; goalFingerprint: string } | { error: string } {
+    if (!g) return { error: "context-guard is not initialized" };
+    const paths: Record<string, string> = {
+      "AGENTS.md": "AGENTS.md",
+      "PROTOCOL.md": "PROTOCOL.md",
+      [g.config.files.goal]: g.config.files.goal,
+      [g.config.files.handoff]: g.config.files.handoff,
+      [g.config.files.progress]: g.config.files.progress,
+      [g.config.files.learnings]: g.config.files.learnings,
+      [DEFAULT_CONFIG_NAME]: DEFAULT_CONFIG_NAME,
+      "scripts/durable_edit.py": "scripts/durable_edit.py",
+      ".agents/skills/pi-handoff/SKILL.md": ".agents/skills/pi-handoff/SKILL.md",
+      ".agents/skills/pi-handoff/references/consolidation.md": ".agents/skills/pi-handoff/references/consolidation.md",
+      ".agents/skills/pi-handoff/references/documentation-cycle/plan-v1.md": ".agents/skills/pi-handoff/references/documentation-cycle/plan-v1.md",
+      ".agents/skills/pi-handoff/references/documentation-cycle/apply-v1.md": ".agents/skills/pi-handoff/references/documentation-cycle/apply-v1.md",
+      ".agents/skills/pi-handoff/references/documentation-cycle/review-v1.md": ".agents/skills/pi-handoff/references/documentation-cycle/review-v1.md",
+    };
+    for (const key of ["planPrompt", "applyPrompt", "reviewPrompt"] as const) {
+      const overridePath = g.config.documentation[key];
+      if (overridePath) paths[`configured:${key}`] = overridePath;
+    }
+    const sources: Record<string, string> = {};
+    for (const [name, relative] of Object.entries(paths)) {
+      const sourcePath = safeProjectPath(relative);
+      if (!sourcePath) return { error: `reference path must remain inside project root: ${relative}` };
+      const content = fs.readFile(sourcePath);
+      if (content === undefined) return { error: `required reference file is unreadable: ${relative}` };
+      // Checkpoint stamps are machine metadata, not durable source prose. Ignore them
+      // so a readiness refresh cannot stale an otherwise reviewed documentation plan.
+      sources[name] = relative === g.config.files.handoff || relative === g.config.files.progress ? stripManagedSection(content) : content;
+    }
+    const goal = fs.readFile(joinPath(g.cwd, g.config.files.goal));
+    if (goal === undefined) return { error: `required reference file is unreadable: ${g.config.files.goal}` };
+    return { sources, fingerprint: documentationSourceFingerprint(sources, sha256), goalFingerprint: sha256(goal) };
+  }
+
+  function safeProjectPath(input: string): string | undefined {
+    if (!g || !input.trim()) return undefined;
+    const candidate = pathDefault.resolve(g.cwd, input);
+    const root = normalizePath(g.cwd);
+    if (!isLexicallyInside(candidate, root) || normalizePath(candidate) === root) return undefined;
+    const realRoot = fs.realpath?.(g.cwd) ?? root;
+    const realCandidate = fs.realpath?.(candidate) ?? normalizePath(candidate);
+    if (!isLexicallyInside(realCandidate, realRoot) || normalizePath(realCandidate) === normalizePath(realRoot)) return undefined;
+    return candidate;
+  }
+
+  function safeCycleStatePath(input: string): string | undefined {
+    if (!g) return undefined;
+    const candidate = normalizePath(input);
+    const root = normalizePath(resolvedStateDir(g));
+    if (!isLexicallyInside(candidate, root) || candidate === root) return undefined;
+    const realRoot = fs.realpath?.(root) ?? root;
+    const realCandidate = fs.realpath?.(candidate) ?? candidate;
+    if (!isLexicallyInside(realCandidate, realRoot) || normalizePath(realCandidate) === normalizePath(realRoot)) return undefined;
+    return candidate;
+  }
+
+  function cycleArtifactPath(cycleId: string, name: string): string {
+    return joinPath(joinPath(resolvedStateDir(g!), `documentation-cycle/${cycleId}`), name);
+  }
+
+  function cycleStatusText(): string {
+    if (!g) return "context-guard cycle: not initialized";
+    if (!g.config.documentation.enabled) return "context-guard cycle: disabled (set documentation.enabled=true to use the operator-started workflow)";
+    const loaded = loadCycleState();
+    const lockPath = joinPath(resolvedStateDir(g), "documentation-cycle/transition.lock");
+    const lockRaw = fs.readFile(lockPath);
+    if (lockRaw !== undefined) {
+      let command = "unknown";
+      try { command = String((JSON.parse(lockRaw) as Record<string, unknown>).command ?? "unknown"); } catch { /* preserve corrupt lock for explicit repair */ }
+      const token = sha256(lockRaw);
+      return `context-guard cycle: a prior transition lock remains (${command}, recovery token ${token}). This usually means a process stopped mid-operation. No stage will be replayed; inspect sessions/artifacts, then run /handoff cycle recover ${token} explicitly.`;
+    }
+    if (loaded.corrupt) return "context-guard cycle: state CORRUPT; no automatic repair or session dispatch was performed. Preserve the file and repair it explicitly.";
+    const state = loaded.state;
+    if (!state) return "context-guard cycle: idle; the development renewal chain and durable documents are unchanged.";
+    const revision = gitHeadRevision();
+    const snapshot = cycleSourceSnapshot();
+    const refsCurrent = revision === state.baseRevision && !("error" in snapshot) && snapshot.fingerprint === state.baseFingerprint;
+    const planArtifact = readCycleArtifact(state.planFile, "plan");
+    const planHash = planArtifact.hash;
+    const reportArtifact = readCycleArtifact(state.reviewFile, "review");
+    const reportHash = reportArtifact.hash;
+    const details = [
+      `context-guard cycle ${state.cycleId}: ${state.phase}${state.noChange ? " (NO CHANGE)" : ""}`,
+      `  base revision ${state.baseRevision}; source references ${refsCurrent ? "current" : "CHANGED / unavailable"}`,
+      `  plan ${planHash ? `${state.planFile} sha256=${planHash}` : `${state.planFile} (${planArtifact.error ?? "not written yet"})`}${state.planHash ? `; approved sha256=${state.planHash}` : ""}`,
+      `  review ${reportHash ? `${state.reviewFile} sha256=${reportHash}` : `${state.reviewFile} (${reportArtifact.error ?? "not written yet"})`}${state.reviewHash ? `; accepted sha256=${state.reviewHash}` : ""}`,
+      state.phase === "planning" || state.phase === "applying" || state.phase === "reviewing"
+        ? "  stage outcome may be pending after a crash; it will not be dispatched again automatically. Inspect the session/artifact, then continue the stage or explicitly abort."
+        : "  documentation state is separate from renewal counters; no chain transition has occurred.",
+      "  scientific claims are not independently validated by this status.",
+    ];
+    if ("error" in snapshot) details.splice(1, 0, `  source inspection error: ${snapshot.error}`);
+    return details.join("\n");
   }
 
   /** Read-only audit mode forbids every write inside the project tree. */
@@ -1026,6 +1172,419 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return inspectReport(true).text;
   }
 
+  let documentationCycleRunning = false;
+
+  function cycleGateError(): string | undefined {
+    if (!g) return "context-guard is not initialized";
+    if (!g.config.documentation.enabled) return "documentation.enabled is false; set it to true to enable this optional workflow";
+    if (g.config.readOnly || !canWriteProjectTree()) return "read-only audit mode refuses documentation-cycle transitions";
+    if (!canPersistState()) return "documentation-cycle state cannot be persisted safely";
+    return undefined;
+  }
+
+  function cycleCurrentReference(): { revision: string; fingerprint: string; goalFingerprint: string } | { error: string } {
+    const revision = gitHeadRevision();
+    if (!revision) return { error: "cannot determine Git HEAD; documentation cycle requires a readable base revision" };
+    const snapshot = cycleSourceSnapshot();
+    if ("error" in snapshot) return snapshot;
+    return { revision, fingerprint: snapshot.fingerprint, goalFingerprint: snapshot.goalFingerprint };
+  }
+
+  function cyclePrompt(stage: "plan" | "apply" | "review", state: DocumentationCycleState, extra: Record<string, string> = {}): { prompt?: string; error?: string } {
+    if (!g) return { error: "context-guard is not initialized" };
+    const configured = g.config.documentation[`${stage}Prompt` as "planPrompt" | "applyPrompt" | "reviewPrompt"];
+    const defaults = {
+      plan: ".agents/skills/pi-handoff/references/documentation-cycle/plan-v1.md",
+      apply: ".agents/skills/pi-handoff/references/documentation-cycle/apply-v1.md",
+      review: ".agents/skills/pi-handoff/references/documentation-cycle/review-v1.md",
+    };
+    const relative = configured ?? defaults[stage];
+    const path = safeProjectPath(relative);
+    if (!path) return { error: `documentation ${stage} prompt path must remain inside the project: ${relative}` };
+    const raw = fs.readFile(path);
+    if (raw === undefined) return { error: `documentation ${stage} prompt is unreadable: ${relative}` };
+    if (Buffer.byteLength(raw, "utf8") > 32 * 1024) return { error: `documentation ${stage} prompt exceeds the 32 KiB limit` };
+    const vars: Record<string, string> = {
+      CYCLE_ID: state.cycleId,
+      BASE_REVISION: state.baseRevision,
+      BASE_FINGERPRINT: state.baseFingerprint,
+      GOAL_FINGERPRINT: state.goalFingerprint,
+      PLAN_FILE: state.planFile,
+      REVIEW_FILE: state.reviewFile,
+      ARCHIVE_DIR: g.config.documentation.archiveDir,
+      PLAN_SHA256: state.planHash ?? "(not approved)",
+      REVIEW_REVISION: state.reviewRevision ?? "(not captured)",
+      REVIEW_FINGERPRINT: state.reviewFingerprint ?? "(not captured)",
+      ...extra,
+    };
+    let prompt = raw;
+    for (const [key, value] of Object.entries(vars)) prompt = prompt.replaceAll(`{{${key}}}`, value);
+    const wrapper = [
+      `Handoff documentation cycle ${state.cycleId}; stage ${stage}.`,
+      "This continuation was generated by the Handoff extension after an explicit operator command; it is not a human-authored message and grants no authority beyond the stage described below.",
+      "Use the durable project files as authority. Do not replay or summarize the prior transcript, compact context, edit GOAL.md, publish, push, or alter renewal-chain state.",
+      "",
+      prompt,
+    ].join("\n");
+    if (Buffer.byteLength(wrapper, "utf8") > MAX_OPERATOR_TASK_BYTES) return { error: "documentation mission prompt exceeds the 64 KiB dispatch limit" };
+    return { prompt: wrapper };
+  }
+
+  async function dispatchDocumentationStage(
+    ctx: ExtensionCommandContext,
+    previous: DocumentationCycleState | undefined,
+    next: DocumentationCycleState,
+    prompt: string,
+    stage: "plan" | "apply" | "review",
+  ): Promise<void> {
+    if (documentationCycleRunning) {
+      notify(ctx, "context-guard cycle: another documentation transition is already running", "warning");
+      return;
+    }
+    documentationCycleRunning = true;
+    const saved = saveCycleState(next);
+    if (!saved.ok) {
+      documentationCycleRunning = false;
+      notify(ctx, `context-guard cycle: could not persist the ${stage} stage before session dispatch: ${saved.error}`, "error");
+      return;
+    }
+    try {
+      const result = await ctx.newSession({
+        parentSession: ctx.sessionManager.getSessionFile(),
+        withSession: async (nctx: ReplacedSessionContext) => {
+          notify(nctx, `context-guard cycle: ${stage} mission started for ${next.cycleId}; it does not consume renewal quota`, "info");
+          try {
+            await nctx.sendMessage(
+              {
+                customType: `${CUSTOM_TYPE}-documentation-cycle`,
+                content: prompt,
+                display: true,
+                details: { origin: "context-guard-extension", generated: true, operatorInvoked: true, purpose: "documentation-cycle", cycleId: next.cycleId, stage },
+              },
+              { triggerTurn: true },
+            );
+          } catch (err) {
+            notify(nctx, `context-guard cycle: ${stage} mission turn failed to start; it will not be dispatched a second time automatically (${err instanceof Error ? err.message : String(err)})`, "error");
+          }
+        },
+      });
+      if (result.cancelled) {
+        const cancelled: DocumentationCycleState = previous
+          ? { ...previous, updatedAt: Date.now() }
+          : { ...next, phase: "abandoned", updatedAt: Date.now() };
+        const rollback = saveCycleState(cancelled);
+        notify(ctx, rollback.ok
+          ? `context-guard cycle: ${stage} session was cancelled; no mission turn was sent and the prior phase was restored.`
+          : `context-guard cycle: session was cancelled, but state rollback failed (${rollback.error}); inspect cycle status before retrying.`, "warning");
+      }
+      // On success, the persisted stage blocks replay after a crash or repeated command.
+    } catch (err) {
+      // A throw may happen after Pi created the replacement session. Keep the durable
+      // stage marker and require explicit operator recovery; never risk a duplicate.
+      notify(ctx, `context-guard cycle: ${stage} dispatch outcome is uncertain; the stage is held and will not be retried automatically (${err instanceof Error ? err.message : String(err)}). Inspect the artifact/session, then explicitly abort or continue.`, "error");
+    } finally {
+      documentationCycleRunning = false;
+    }
+  }
+
+  function readCycleArtifact(file: string, label: string): { content?: string; hash?: string; error?: string } {
+    const safe = safeCycleStatePath(file);
+    if (!safe) return { error: `${label} artifact escapes the configured state directory` };
+    const content = fs.readFile(safe);
+    if (content === undefined) return { error: `${label} artifact is missing or unreadable: ${file}` };
+    if (Buffer.byteLength(content, "utf8") > 128 * 1024) return { error: `${label} artifact exceeds the 128 KiB limit` };
+    return { content, hash: sha256(content) };
+  }
+
+  function cycleStatusNotify(ctx: ExtensionContext): void {
+    notify(ctx, cycleStatusText(), "info");
+  }
+
+  async function runDocumentationCycle(rawArgs: string, ctx: ExtensionCommandContext): Promise<void> {
+    const args = rawArgs.trim().split(/\s+/).filter(Boolean);
+    const command = args[0] ?? "status";
+    if (command === "status") { cycleStatusNotify(ctx); return; }
+    const gate = cycleGateError();
+    if (gate) { notify(ctx, `context-guard cycle: refused (${gate})`, "warning"); return; }
+    const loaded = loadCycleState();
+    if (loaded.corrupt) { notify(ctx, "context-guard cycle: state is corrupt; preserve it and repair it explicitly before any session or chain transition", "error"); return; }
+    const current = loaded.state;
+    const now = Date.now();
+    const phaseError = (expected: string) => notify(ctx, `context-guard cycle: command ${command} requires ${expected}; current phase is ${current?.phase ?? "idle"}`, "warning");
+
+    if (command === "plan") {
+      if (current && !["complete", "no-change", "abandoned"].includes(current.phase)) { phaseError("an idle or completed workflow"); return; }
+      const cp = validateCheckpoint(fs, g!.cwd, g!.config.files, DEFAULT_CONFIG_NAME);
+      const auth = renewAuthorization(cp);
+      if (!auth.authorized) { notify(ctx, `context-guard cycle: planning requires a current, attested checkpoint (${auth.reason})`, "warning"); return; }
+      const chain = loadRenewalState(fs, resolvedStateDir(g!));
+      if (chain.corrupt) { notify(ctx, "context-guard cycle: renewal state is corrupt; no documentation session was started", "error"); return; }
+      if (chain.state.stopped) { notify(ctx, "context-guard cycle: the development chain is durably stopped; operator must resume it explicitly before planning a new campaign", "warning"); return; }
+      if (chain.state.renewalsDone < g!.config.renewal.maxRenewals) {
+        notify(ctx, `context-guard cycle: campaign chain is not at its configured boundary (${chain.state.renewalsDone}/${g!.config.renewal.maxRenewals}); no documentation mission was started`, "warning");
+        return;
+      }
+      const ref = cycleCurrentReference();
+      if ("error" in ref) { notify(ctx, `context-guard cycle: planning refused: ${ref.error}`, "error"); return; }
+      if (current) {
+        const historyPath = joinPath(resolvedStateDir(g!), `documentation-cycle/history/${current.cycleId}.json`);
+        const history = serializeDocumentationCycleState(current);
+        const existingHistory = fs.readFile(historyPath);
+        if (existingHistory !== undefined && existingHistory !== history) { notify(ctx, `context-guard cycle: previous cycle history conflicts at ${historyPath}; preserve it and repair explicitly`, "error"); return; }
+        if (existingHistory === undefined) {
+          try { fs.writeFile(historyPath, history); }
+          catch (err) { notify(ctx, `context-guard cycle: previous cycle state could not be preserved before a new plan (${err instanceof Error ? err.message : String(err)})`, "error"); return; }
+        }
+      }
+      const cycleId = documentationCycleId(ref.revision, ref.fingerprint, g!.sessionId, now, sha256);
+      const dir = joinPath(resolvedStateDir(g!), `documentation-cycle/${cycleId}`);
+      const state: DocumentationCycleState = {
+        version: 1, cycleId, phase: "planning", baseRevision: ref.revision, baseFingerprint: ref.fingerprint,
+        goalFingerprint: ref.goalFingerprint,
+        planFile: joinPath(dir, "plan.md"), reviewFile: joinPath(dir, "review.md"),
+        createdAt: now, updatedAt: now, stageStartedBy: g!.sessionId,
+      };
+      const mission = cyclePrompt("plan", state);
+      if (mission.error) { notify(ctx, `context-guard cycle: ${mission.error}`, "error"); return; }
+      await dispatchDocumentationStage(ctx, current, state, mission.prompt!, "plan");
+      return;
+    }
+
+    if (!current) { phaseError("a started documentation cycle"); return; }
+    const ref = cycleCurrentReference();
+    const staleBase = (phase = current.phase) => {
+      if ("error" in ref) return ref.error;
+      if (ref.revision !== current.baseRevision || ref.fingerprint !== current.baseFingerprint) return `reference changed since planning (base ${current.baseRevision}, current ${ref.revision}); abandon and plan again`;
+      return undefined;
+    };
+
+    if (command === "approve" || command === "no-change") {
+      if (current.phase !== "planning") { phaseError("planning with an unapproved plan"); return; }
+      const stale = staleBase();
+      if (stale) { notify(ctx, `context-guard cycle: approval refused: ${stale}`, "warning"); return; }
+      const artifact = readCycleArtifact(current.planFile, "plan");
+      if (artifact.error) { notify(ctx, `context-guard cycle: ${artifact.error}`, "warning"); return; }
+      const suppliedHash = args[1]?.toLowerCase();
+      if (!suppliedHash || !/^[0-9a-f]{64}$/.test(suppliedHash) || suppliedHash !== artifact.hash) {
+        notify(ctx, `context-guard cycle: approval requires the current plan SHA-256 shown by status (${artifact.hash}); plan content is not approved`, "warning"); return;
+      }
+      const meta = cycleMetadata(artifact.content!);
+      if (meta["Cycle-ID"] !== current.cycleId || meta["Base-Revision"] !== current.baseRevision || meta["Base-Fingerprint"] !== current.baseFingerprint) {
+        notify(ctx, "context-guard cycle: plan metadata does not match this cycle's base identity/fingerprints", "error"); return;
+      }
+      if (/\bGOAL\.md\b/i.test(meta["Target-Files"] ?? "")) {
+        notify(ctx, "context-guard cycle: plan targets protected GOAL.md; approval is refused", "error"); return;
+      }
+      if (command === "no-change") {
+        if (meta.Result !== "NO_CHANGE" || meta["Target-Files"]?.toLowerCase() !== "none") { notify(ctx, "context-guard cycle: no-change requires `Result: NO_CHANGE` and `Target-Files: none`", "warning"); return; }
+        const next = { ...current, phase: "no-change" as const, noChange: true, planHash: artifact.hash!, updatedAt: now };
+        const saved = saveCycleState(next);
+        notify(ctx, saved.ok ? `context-guard cycle ${current.cycleId}: NO CHANGE recorded from plan ${artifact.hash}; no edits, review mission, or renewal reset occurred.` : `context-guard cycle: state write failed: ${saved.error}`, saved.ok ? "info" : "error");
+        return;
+      }
+      if (meta.Result !== "CHANGE" || !meta["Target-Files"] || meta["Target-Files"].toLowerCase() === "none") { notify(ctx, "context-guard cycle: approval requires `Result: CHANGE` and a non-empty Target-Files list; use `no-change` for an audited NO_CHANGE plan", "warning"); return; }
+      const next = { ...current, phase: "approved" as const, planHash: artifact.hash!, updatedAt: now };
+      const saved = saveCycleState(next);
+      notify(ctx, saved.ok ? `context-guard cycle ${current.cycleId}: exact plan approved (sha256 ${artifact.hash}); no files were edited. Run /handoff cycle apply explicitly.` : `context-guard cycle: approval state write failed: ${saved.error}`, saved.ok ? "info" : "error");
+      return;
+    }
+
+    if (command === "apply") {
+      if (current.phase !== "approved") { phaseError("operator-approved"); return; }
+      const stale = staleBase();
+      if (stale) { notify(ctx, `context-guard cycle: apply refused: ${stale}`, "warning"); return; }
+      const plan = readCycleArtifact(current.planFile, "approved plan");
+      if (plan.error || plan.hash !== current.planHash) { notify(ctx, `context-guard cycle: approved plan changed; re-approval required (${plan.error ?? `current sha256 ${plan.hash}`})`, "warning"); return; }
+      const mission = cyclePrompt("apply", current);
+      if (mission.error) { notify(ctx, `context-guard cycle: ${mission.error}`, "error"); return; }
+      const next = { ...current, phase: "applying" as const, updatedAt: now, stageStartedBy: g!.sessionId };
+      await dispatchDocumentationStage(ctx, current, next, mission.prompt!, "apply");
+      return;
+    }
+
+    if (command === "review") {
+      if (!["applying", "needs-correction", "verified", "reviewing"].includes(current.phase)) { phaseError("an applied document set or a review that needs correction"); return; }
+      if ("error" in ref) { notify(ctx, `context-guard cycle: review refused: ${ref.error}`, "error"); return; }
+      if (ref.goalFingerprint !== current.goalFingerprint) { notify(ctx, "context-guard cycle: GOAL.md changed; review and continuation are blocked. Handle goal pivots as a separate operator-authorized procedure.", "error"); return; }
+      const plan = readCycleArtifact(current.planFile, "approved plan");
+      if (plan.error || plan.hash !== current.planHash) { notify(ctx, `context-guard cycle: approved plan changed; review refused (${plan.error ?? "hash mismatch"})`, "error"); return; }
+      if (current.phase === "reviewing" && ref.fingerprint === current.reviewFingerprint && ref.revision === current.reviewRevision) {
+        notify(ctx, `context-guard cycle: review stage for ${current.cycleId} is already pending; it will not start a duplicate session. Inspect status/artifact or explicitly abort.`, "warning"); return;
+      }
+      const previous = current.phase === "reviewing" ? { ...current, phase: "needs-correction" as const } : current;
+      const next: DocumentationCycleState = {
+        ...current, phase: "reviewing", reviewRevision: ref.revision, reviewFingerprint: ref.fingerprint,
+        reviewHash: undefined, updatedAt: now, stageStartedBy: g!.sessionId,
+      };
+      const mission = cyclePrompt("review", next);
+      if (mission.error) { notify(ctx, `context-guard cycle: ${mission.error}`, "error"); return; }
+      await dispatchDocumentationStage(ctx, previous, next, mission.prompt!, "review");
+      return;
+    }
+
+    if (command === "accept-review") {
+      if (current.phase !== "reviewing") { phaseError("reviewing"); return; }
+      if ("error" in ref || ref.revision !== current.reviewRevision || ref.fingerprint !== current.reviewFingerprint) {
+        notify(ctx, `context-guard cycle: review acceptance refused; documents or Git HEAD changed after the independent review started. Run review again.`, "warning"); return;
+      }
+      if (ref.goalFingerprint !== current.goalFingerprint) { notify(ctx, "context-guard cycle: GOAL.md changed; acceptance refused; handle goal pivots separately", "error"); return; }
+      const artifact = readCycleArtifact(current.reviewFile, "review");
+      if (artifact.error) { notify(ctx, `context-guard cycle: ${artifact.error}`, "warning"); return; }
+      const suppliedHash = args[1]?.toLowerCase();
+      if (!suppliedHash || suppliedHash !== artifact.hash || !/^[0-9a-f]{64}$/.test(suppliedHash)) {
+        notify(ctx, `context-guard cycle: review acceptance requires its exact SHA-256 (${artifact.hash})`, "warning"); return;
+      }
+      const meta = cycleMetadata(artifact.content!);
+      if (meta["Cycle-ID"] !== current.cycleId || meta["Review-Revision"] !== current.reviewRevision || meta["Review-Fingerprint"] !== current.reviewFingerprint) {
+        notify(ctx, "context-guard cycle: review metadata does not match its independent review snapshot", "error"); return;
+      }
+      if (meta["Review-Result"] === "NEEDS_CORRECTION") {
+        const next = { ...current, phase: "needs-correction" as const, reviewHash: artifact.hash!, updatedAt: now };
+        const saved = saveCycleState(next);
+        notify(ctx, saved.ok ? `context-guard cycle ${current.cycleId}: review requests corrections; no next campaign is authorized. Correct manually, then run review again.` : `context-guard cycle: state write failed: ${saved.error}`, saved.ok ? "warning" : "error");
+        return;
+      }
+      if (meta["Review-Result"] !== "PASS") { notify(ctx, "context-guard cycle: review report must say `Review-Result: PASS` or `NEEDS_CORRECTION`", "warning"); return; }
+      const next: DocumentationCycleState = { ...current, phase: "verified", verifiedRevision: ref.revision, verifiedFingerprint: ref.fingerprint, reviewHash: artifact.hash!, updatedAt: now };
+      const saved = saveCycleState(next);
+      notify(ctx, saved.ok ? `context-guard cycle ${current.cycleId}: independent review accepted (sha256 ${artifact.hash}); scientific claims remain unverified. Run /handoff finalize, then /handoff cycle continue when ready.` : `context-guard cycle: review state write failed: ${saved.error}`, saved.ok ? "info" : "error");
+      return;
+    }
+
+    if (command === "continue") {
+      if (!["verified", "no-change", "continuing"].includes(current.phase)) { phaseError("verified or NO CHANGE"); return; }
+      if ("error" in ref) { notify(ctx, `context-guard cycle: continuation refused: ${ref.error}`, "error"); return; }
+      if (ref.goalFingerprint !== current.goalFingerprint) { notify(ctx, "context-guard cycle: GOAL.md changed; continuation refused; use the separate goal-pivot procedure", "error"); return; }
+      const expectedFingerprint = current.noChange ? current.baseFingerprint : current.verifiedFingerprint;
+      const expectedRevision = current.noChange ? current.baseRevision : current.verifiedRevision;
+      if (ref.fingerprint !== expectedFingerprint || ref.revision !== expectedRevision) {
+        notify(ctx, "context-guard cycle: documents or Git HEAD changed after review; repeat the independent review before continuing", "warning"); return;
+      }
+      const acceptedArtifact = readCycleArtifact(current.noChange ? current.planFile : current.reviewFile, current.noChange ? "NO CHANGE plan" : "accepted review");
+      if (acceptedArtifact.error || acceptedArtifact.hash !== (current.noChange ? current.planHash : current.reviewHash)) {
+        notify(ctx, `context-guard cycle: accepted ${current.noChange ? "plan" : "review"} changed since approval; continuation refused (${acceptedArtifact.error ?? `current sha256 ${acceptedArtifact.hash}`})`, "warning"); return;
+      }
+      const cp = validateCheckpoint(fs, g!.cwd, g!.config.files, DEFAULT_CONFIG_NAME);
+      const auth = renewAuthorization(cp);
+      if (!auth.authorized) { notify(ctx, `context-guard cycle: current, attested checkpoint required before new campaign (${auth.reason}); finalize explicitly first`, "warning"); return; }
+      if (current.phase !== "continuing") {
+        const chain = loadRenewalState(fs, resolvedStateDir(g!));
+        if (chain.corrupt) { notify(ctx, "context-guard cycle: renewal state is corrupt; it was preserved and no reset occurred", "error"); return; }
+        if (chain.state.stopped) { notify(ctx, "context-guard cycle: the development chain is durably stopped; resume it explicitly before approving a new campaign chain", "warning"); return; }
+        const renewPath = joinPath(resolvedStateDir(g!), "renewal-state.json");
+        if (fs.readFile(renewPath) === undefined) {
+          const initialized = saveRenewalState(fs, resolvedStateDir(g!), chain.state);
+          if (!initialized.ok) { notify(ctx, `context-guard cycle: could not materialize the old chain before archiving: ${initialized.error}`, "error"); return; }
+        }
+        const oldRaw = fs.readFile(renewPath);
+        if (oldRaw === undefined) { notify(ctx, "context-guard cycle: renewal state could not be read for archival", "error"); return; }
+        const archiveRelative = `${g!.config.documentation.archiveDir.replace(/\/$/, "")}/renewal-chain-${current.cycleId}.json`;
+        const archivePath = safeProjectPath(archiveRelative);
+        if (!archivePath) { notify(ctx, "context-guard cycle: configured archiveDir must resolve inside the project; no chain reset occurred", "error"); return; }
+        const nextChainId = `chain:${current.cycleId}`;
+        const nextRenewalState: RenewalState = { ...INITIAL_RENEWAL_STATE, chainId: nextChainId, updatedAt: now };
+        const archiveContent = JSON.stringify({ version: 1, cycleId: current.cycleId, baseRevision: current.baseRevision, sourceFingerprint: expectedFingerprint, archivedRenewalState: JSON.parse(oldRaw) }, null, 2) + "\n";
+        const next: DocumentationCycleState = {
+          ...current, phase: "continuing", archivePath, archivedRenewalState: oldRaw, nextChainId,
+          nextChainUpdatedAt: now, nextRenewalState: serializeRenewalState(nextRenewalState), updatedAt: now,
+        };
+        const saved = saveCycleState(next);
+        if (!saved.ok) { notify(ctx, `context-guard cycle: could not record the transition journal: ${saved.error}; renewal chain is unchanged`, "error"); return; }
+        const existingArchive = fs.readFile(archivePath);
+        if (existingArchive !== undefined && existingArchive !== archiveContent) {
+          notify(ctx, `context-guard cycle: archive path already contains different data (${archivePath}); it was preserved and renewal state was not reset`, "error"); return;
+        }
+        if (existingArchive === undefined) {
+          try { fs.writeFile(archivePath, archiveContent); }
+          catch (err) { notify(ctx, `context-guard cycle: old chain archive write failed; journal is retained for retry and renewal chain is unchanged (${err instanceof Error ? err.message : String(err)})`, "error"); return; }
+        }
+      }
+      const journal = loadCycleState().state;
+      if (!journal || journal.cycleId !== current.cycleId || journal.phase !== "continuing" || !journal.nextRenewalState || !journal.archivePath) {
+        notify(ctx, "context-guard cycle: continuation journal is missing or corrupt; no automatic repair was attempted", "error"); return;
+      }
+      const safeArchivePath = safeProjectPath(journal.archivePath);
+      if (!safeArchivePath) { notify(ctx, "context-guard cycle: journal archive path is outside the project or symlink-escaped; no chain reset occurred", "error"); return; }
+      if (journal.archivedRenewalState === undefined) { notify(ctx, "context-guard cycle: archived renewal source is missing; no reset occurred", "error"); return; }
+      const expectedArchive = JSON.stringify({
+        version: 1, cycleId: journal.cycleId, baseRevision: journal.baseRevision,
+        sourceFingerprint: journal.noChange ? journal.baseFingerprint : journal.verifiedFingerprint,
+        archivedRenewalState: JSON.parse(journal.archivedRenewalState),
+      }, null, 2) + "\n";
+      let archive = fs.readFile(safeArchivePath);
+      if (archive === undefined) {
+        try { fs.writeFile(safeArchivePath, expectedArchive); archive = expectedArchive; }
+        catch (err) { notify(ctx, `context-guard cycle: archive retry failed; journal is preserved and no reset occurred (${err instanceof Error ? err.message : String(err)})`, "error"); return; }
+      }
+      if (archive !== expectedArchive) { notify(ctx, "context-guard cycle: archive does not match the transition journal; preserve both and repair explicitly", "error"); return; }
+      const newChain = JSON.parse(journal.nextRenewalState) as RenewalState;
+      const currentRenewalRaw = fs.readFile(joinPath(resolvedStateDir(g!), "renewal-state.json"));
+      if (currentRenewalRaw !== journal.nextRenewalState) {
+        if (currentRenewalRaw !== journal.archivedRenewalState) {
+          notify(ctx, "context-guard cycle: renewal state matches neither the archived old state nor the prepared new chain; preserve both and repair explicitly", "error"); return;
+        }
+        const finalRef = cycleCurrentReference();
+        const finalFingerprint = journal.noChange ? journal.baseFingerprint : journal.verifiedFingerprint;
+        const finalRevision = journal.noChange ? journal.baseRevision : journal.verifiedRevision;
+        const finalCheckpoint = validateCheckpoint(fs, g!.cwd, g!.config.files, DEFAULT_CONFIG_NAME);
+        if ("error" in finalRef || finalRef.fingerprint !== finalFingerprint || finalRef.revision !== finalRevision || finalRef.goalFingerprint !== journal.goalFingerprint || !renewAuthorization(finalCheckpoint).authorized) {
+          notify(ctx, "context-guard cycle: documents, Git HEAD, protected GOAL.md or checkpoint changed during archival; old chain is preserved. Re-review/finalize explicitly before retrying.", "error"); return;
+        }
+        const reset = saveRenewalState(fs, resolvedStateDir(g!), newChain);
+        if (!reset.ok) { notify(ctx, `context-guard cycle: old chain is archived but new-chain write failed; rerun continue to resume safely (${reset.error})`, "error"); return; }
+      }
+      const completed: DocumentationCycleState = { ...journal, phase: "complete", updatedAt: Date.now() };
+      const saved = saveCycleState(completed);
+      notify(ctx, saved.ok
+        ? `context-guard cycle ${current.cycleId}: new development chain ${journal.nextChainId} initialized; old chain preserved at ${journal.archivePath}. No session was started. Scientific validation remains an independent project responsibility.`
+        : `context-guard cycle: new chain ${journal.nextChainId} is durable, but cycle completion state could not be saved (${saved.error}); repeat status/continue to reconcile.`, saved.ok ? "info" : "error");
+      return;
+    }
+
+    if (command === "abort") {
+      if (["continuing", "complete"].includes(current.phase)) { notify(ctx, "context-guard cycle: cannot abort an archived/reset transition; preserve the journal and repair explicitly", "error"); return; }
+      const saved = saveCycleState({ ...current, phase: "abandoned", updatedAt: now });
+      notify(ctx, saved.ok ? `context-guard cycle ${current.cycleId} abandoned; plans, reports and documents were not deleted or rolled back.` : `context-guard cycle: abort state write failed: ${saved.error}`, saved.ok ? "warning" : "error");
+      return;
+    }
+
+    if (command === "apply" || command === "review") return;
+    notify(ctx, "usage: /handoff cycle status | plan | approve <plan-sha256> | apply | no-change <plan-sha256> | review | accept-review <report-sha256> | continue | abort", "warning");
+  }
+
+  async function handleDocumentationCycle(rawArgs: string, ctx: ExtensionCommandContext): Promise<void> {
+    const args = rawArgs.trim().split(/\s+/).filter(Boolean);
+    const command = args[0] ?? "status";
+    if (command === "status") { cycleStatusNotify(ctx); return; }
+    if (command === "recover") {
+      if (!g || g.config.readOnly || !canPersistState()) { notify(ctx, "context-guard cycle: recovery is unavailable in read-only mode", "warning"); return; }
+      if (documentationCycleRunning) { notify(ctx, "context-guard cycle: a transition is active in this process; it cannot be recovered concurrently", "warning"); return; }
+      const lockPath = joinPath(resolvedStateDir(g), "documentation-cycle/transition.lock");
+      const raw = fs.readFile(lockPath);
+      const token = args[1];
+      if (raw === undefined) { notify(ctx, "context-guard cycle: no recovery lock exists", "info"); return; }
+      if (!token || token !== sha256(raw)) { notify(ctx, `context-guard cycle: recovery requires the exact status token ${sha256(raw)}; no state was changed`, "warning"); return; }
+      try { fs.remove(lockPath); notify(ctx, "context-guard cycle: transition lock explicitly cleared. State and artifacts were preserved; inspect status before issuing another stage command.", "warning"); }
+      catch (err) { notify(ctx, `context-guard cycle: could not clear recovery lock: ${err instanceof Error ? err.message : String(err)}`, "error"); }
+      return;
+    }
+    const valid = new Set(["plan", "approve", "apply", "no-change", "review", "accept-review", "continue", "abort"]);
+    if (!valid.has(command)) { notify(ctx, "usage: /handoff cycle status | plan | approve <plan-sha256> | apply | no-change <plan-sha256> | review | accept-review <report-sha256> | continue | abort | recover <status-token>", "warning"); return; }
+    if (documentationCycleRunning) { notify(ctx, "context-guard cycle: another documentation transition is already running", "warning"); return; }
+    if (!fs.createExclusive) { notify(ctx, "context-guard cycle: this filesystem cannot create an exclusive transition lock; refusing to risk a duplicate session", "error"); return; }
+    const lockPath = joinPath(resolvedStateDir(g!), "documentation-cycle/transition.lock");
+    const lockRaw = JSON.stringify({ command, sessionId: g!.sessionId, startedAt: Date.now() });
+    let acquired = false;
+    try { acquired = fs.createExclusive(lockPath, lockRaw); }
+    catch (err) { notify(ctx, `context-guard cycle: transition lock failed: ${err instanceof Error ? err.message : String(err)}`, "error"); return; }
+    if (!acquired) { notify(ctx, "context-guard cycle: another or interrupted transition holds the lock; inspect /handoff cycle status, no session was started", "warning"); return; }
+    try { await runDocumentationCycle(args.join(" "), ctx); }
+    finally {
+      try { fs.remove(lockPath); }
+      catch (err) { notify(ctx, `context-guard cycle: transition finished but its lock could not be removed (${err instanceof Error ? err.message : String(err)}); recover explicitly from status`, "error"); }
+    }
+  }
+
   /** `/handoff ready [check]`: evaluate semantic readiness; bare `ready` also attests. */
   function readyReport(attest: boolean, dry: boolean): { text: string; ok: boolean } {
     if (!g) return { text: "context-guard: not initialized", ok: false };
@@ -1679,9 +2238,13 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         await runRenewal("operator", ctx as ExtensionCommandContext, parsed.notes, operatorTask);
         return;
       }
+      if (parts[0] === "cycle") {
+        await handleDocumentationCycle(parts.slice(1).join(" "), ctx as ExtensionCommandContext);
+        return;
+      }
       if (parts.length > 0 && parts[0] !== "checkpoint") {
         ctx.ui.notify(
-          'usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew --task "..." | renew --task-file <project-path> | renew go | renew stop | renew resume | renew status. Slash commands are Pi operator commands, not Bash commands.',
+          'usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew --task "..." | renew --task-file <project-path> | renew go | renew stop | renew resume | renew status | cycle status|plan|approve|apply|no-change|review|accept-review|continue|abort|recover. Slash commands are Pi operator commands, not Bash commands.',
           "warning",
         );
         return;
