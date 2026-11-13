@@ -467,9 +467,12 @@ Instance-owned documents are `HANDOFF.md`, `PROGRESS.md` and `LEARNINGS.md`; its
 checkpoint identity is namespaced by instance, and guard sessions, renewal chain and
 documentation-cycle state use `.pi-guard/instances/<id>/`. `GOAL.md`, `AGENTS.md`,
 `PROTOCOL.md`, code and canonical scientific evidence remain project-shared. Instance
-findings are not automatically published to those shared sources. Work profiles are
-currently versioned references stored in the instance manifest; no profile import,
-publication or knowledge merge is performed.
+findings are not automatically published to those shared sources. An optional work
+profile is a versioned JSON config at
+`.pi-handoff/work-profiles/<id>/<version>.json`, containing its matching schema/id/version
+plus `instructions` and `knowledgeRefs` string arrays. The identity banner names the
+profile for the agent to read; Handoff does not inject its text or grant it operator
+authority. No profile publication or knowledge merge is performed.
 
 The instance ID is restricted to safe path characters. Startup verifies the manifest
 and that the storage path resolves within the project; invalid selection disables

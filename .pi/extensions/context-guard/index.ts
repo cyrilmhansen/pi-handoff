@@ -97,7 +97,7 @@ import {
   recentDiagnostics,
   type DiagnosticType,
 } from "./diagnostics.ts";
-import { configForMissionInstance, createMissionInstance, missionChainId, readMissionInstanceProfile, validMissionInstanceId, validWorkProfileRef } from "./mission-instance.ts";
+import { configForMissionInstance, createMissionInstance, missionChainId, readMissionInstanceProfile, validMissionInstanceId, validWorkProfileRef, workProfilePath } from "./mission-instance.ts";
 
 export const CUSTOM_TYPE = "context-guard";
 const MAX_OPERATOR_TASK_BYTES = 64 * 1024;
@@ -526,6 +526,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         ? `model: ${model.provider ?? "?"}/${model.id}${model.api ? ` api=${model.api}` : ""}${model.contextWindow ? ` window=${model.contextWindow}` : ""}${model.maxTokens ? ` maxOutput=${model.maxTokens}` : ""}`
         : "model: none selected",
       `project: ${pathDefault.basename(ctx.cwd)} (${ctx.cwd})`,
+      g?.missionInstanceError
+        ? `mission instance: selection refused (${g.missionInstanceError})`
+        : g?.config.missionInstance.id
+          ? `mission instance: ${g.config.missionInstance.id}${g.config.missionInstance.workProfile ? `; work profile ${workProfilePath(g.config.missionInstance.workProfile)}` : ""}; read this instance's operational files`
+          : "mission instance: legacy project mode",
       `session: ${sessionId}`,
       `start: ${event.reason}${event.previousSessionFile ? ` after ${event.previousSessionFile}` : ""}`,
     ];

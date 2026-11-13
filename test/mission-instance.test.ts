@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { loadConfig } from "../.pi/extensions/context-guard/config.ts";
-import { configForMissionInstance, createMissionInstance, missionChainId, missionInstancePaths, validMissionInstanceId } from "../.pi/extensions/context-guard/mission-instance.ts";
+import { configForMissionInstance, createMissionInstance, missionChainId, missionInstancePaths, validMissionInstanceId, workProfilePath } from "../.pi/extensions/context-guard/mission-instance.ts";
 import contextGuard from "../.pi/extensions/context-guard/index.ts";
 import { createMemoryFs, createMockCtx, createMockPi, DEFAULT_FILES } from "./helpers.ts";
 
@@ -18,14 +18,16 @@ test("MI1b: chain identities are namespaced by instance and retain the legacy fo
 
 test("MI2: explicit creation makes empty operational documents, never copies project knowledge, and retries without overwriting", () => {
   const fs = createMemoryFs(DEFAULT_FILES);
-  const first = createMissionInstance(fs, "/project", "alpha", { id: "compiler", version: "2.1" }, "2026-01-01T00:00:00.000Z");
+  const profile = { id: "compiler", version: "2.1" };
+  fs.writeFile(`/project/${workProfilePath(profile)}`, JSON.stringify({ schema: 1, ...profile, instructions: ["Keep exact compiler evidence."], knowledgeRefs: ["docs/evidence.md"] }));
+  const first = createMissionInstance(fs, "/project", "alpha", profile, "2026-01-01T00:00:00.000Z");
   assert.equal(first.ok, true);
   assert.deepEqual(first.ok && first.created, ["HANDOFF.md", "PROGRESS.md", "LEARNINGS.md"]);
   const paths = missionInstancePaths("alpha");
   assert.equal(fs.files.has(`/project/${paths.root}/GOAL.md`), false, "GOAL remains project-shared and is not copied");
   assert.equal(fs.files.get(`/project/${paths.files.handoff}`)?.includes("Run the test suite"), false);
   fs.writeFile(`/project/${paths.files.handoff}`, "operator prose\n");
-  const again = createMissionInstance(fs, "/project", "alpha", { id: "compiler", version: "2.1" });
+  const again = createMissionInstance(fs, "/project", "alpha", profile);
   assert.equal(again.ok, true);
   assert.equal(fs.files.get(`/project/${paths.files.handoff}`), "operator prose\n");
   assert.equal(createMissionInstance(fs, "/project", "alpha", null).ok, false, "identity collision cannot silently change profile");
@@ -116,6 +118,8 @@ test("MI6: operator create/select commands are explicit and do not switch the ru
   const fs = createMemoryFs(DEFAULT_FILES);
   const pi = createMockPi();
   const mc = createMockCtx({ cwd: "/project", sessionId: "legacy-session" });
+  const profilePath = "/project/.pi-handoff/work-profiles/research/1.0.json";
+  fs.writeFile(profilePath, JSON.stringify({ schema: 1, id: "research", version: "1.0", instructions: ["Record negative results."], knowledgeRefs: ["PROTOCOL.md#4"] }));
   contextGuard(pi.pi as never, { fs, env: {} });
   await pi.emit({ type: "session_start", reason: "startup" } as never, mc.ctx as never);
   await pi.runCommand("handoff", "instance create beta --profile research@1.0", mc.ctx);

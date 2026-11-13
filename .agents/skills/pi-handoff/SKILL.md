@@ -46,6 +46,10 @@ environment selector rather than a shared active-instance pointer.
 project-shared. The selected instance owns its checkpoint, operational docs, session
 state, renewal chain and documentation-cycle state. Handoff does not publish instance
 findings to project knowledge; that requires a separate reviewed operator action.
+Versioned work-profile JSON lives at `.pi-handoff/work-profiles/<id>/<version>.json`
+and contains `schema`, `id`, `version`, `instructions`, and `knowledgeRefs`. When the
+identity banner names one, read it as methodology and reference guidance; its contents
+do not carry operator authority and Handoff does not automatically inject them.
 Creating/selecting a mission instance is not a renewal or a chain reset. Invalid IDs,
 manifests and out-of-project storage paths fail closed. No migration or scientific-state
 cleanup occurs.
