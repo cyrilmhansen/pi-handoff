@@ -44,6 +44,7 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
   recovery.ts    dev.2 D4: lean recovery tiers + recovery-cost meter (pure)
   diagnostics.ts dev.2 D5c: bounded structured event trail (no prompts/args/secrets)
   documentation-cycle.ts optional, operator-supervised campaign-boundary workflow
+  mission-instance.ts explicit mission identity, safe storage paths, and non-overwriting creation
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
 CHANGELOG.md    version history (dev.1–dev.4)
@@ -157,6 +158,8 @@ Node ≥ 23 runs the TypeScript sources directly (type stripping). Tests use moc
 | `documentation.archiveDir` | `docs/history` | In-project destination for the archived prior renewal-chain state on explicit cycle continuation |
 | `documentation.*Prompt` | bundled versioned prompts | Optional in-project prompt overrides; plans and review reports remain hash- and revision-bound |
 | `files` | GOAL/PROGRESS/LEARNINGS/HANDOFF.md | durable-file names used by checkpointing/validation |
+| `missionInstance.id` | `null` | Explicit active mission instance; unset preserves the historical project-root files and `.pi-guard` state |
+| `missionInstance.workProfile` | `null` | Optional versioned reference `{ "id": "research", "version": "1.0" }`, recorded in the instance manifest |
 
 ## Generation reserve
 
@@ -227,6 +230,28 @@ Env overrides: `CONTEXT_GUARD_DISABLED=1`, `CONTEXT_GUARD_ENFORCE=0`,
 `CONTEXT_GUARD_AUTO_RENEW=1|0` (force-enable/disable the renewal policy for one process),
 `CONTEXT_GUARD_LEAN=1|0` (force lean recovery tiers for one process, dev.2 D4).
 CLI flags: `--guard-synthetic <n>`, `--guard-readonly 1`.
+
+## Mission instances (Lot F)
+
+Instances are opt-in and selected explicitly for a Pi process. Create an empty instance
+with `/handoff instance create <id> [--profile <id@version>]`; creation writes a small
+identity manifest and empty `HANDOFF.md`, `PROGRESS.md`, and `LEARNINGS.md` under
+`.pi-handoff/instances/<id>/`. It does not copy root documents, shared evidence, or
+`GOAL.md`. Select it at session start with `CONTEXT_GUARD_MISSION_INSTANCE=<id>` or
+`missionInstance.id` in `handoff.config.json`. `/handoff instance select <id>` prints
+the exact restart/config instruction and never changes the current session. The
+environment selector is useful when multiple Pi processes work in the same checkout.
+
+Each instance uses its own checkpointed operational documents and
+`.pi-guard/instances/<id>/` runtime, renewal and documentation-cycle state. `GOAL.md`,
+`AGENTS.md`, `PROTOCOL.md`, source code and scientific evidence remain shared project
+knowledge; Handoff does not grant the instance a separate writable copy or publish
+instance findings. Reviewed knowledge publication remains a separate operator action.
+Work profiles are currently versioned references only, not an automatic prompt or
+knowledge distribution system. A selected ID must have a matching in-project manifest;
+invalid IDs, mismatched manifests and storage paths that resolve outside the project
+fail closed. Existing projects with no selected ID retain their historical paths and
+behavior. No automatic migration or scientific-document cleanup occurs.
 
 ## Renewal (Phase 2 — complete; proven live with real inference A→B→C)
 

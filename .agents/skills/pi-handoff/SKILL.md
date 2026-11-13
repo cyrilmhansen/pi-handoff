@@ -30,6 +30,26 @@ try to run `/handoff verify` in a shell; use `handoff_inspect` for inspection an
 registered handoff tools for agent actions. Inspection does not verify scientific
 results or mutate project/state files.
 
+## Mission instances (Lot F)
+
+Projects without an explicit instance selection keep the legacy project-root operational
+files. An operator can create an instance with `/handoff instance create <id>` and
+optionally record a versioned work-profile reference with `--profile <id@version>`.
+Creation makes empty instance-owned `HANDOFF.md`, `PROGRESS.md` and `LEARNINGS.md`; it
+does not copy the shared project documents. Select the created instance before starting
+Pi with `CONTEXT_GUARD_MISSION_INSTANCE=<id>` or `missionInstance.id` in
+`handoff.config.json`. `/handoff instance select <id>` only prints how to restart; it does
+not change the current context. For concurrent Pi processes, use an explicit per-process
+environment selector rather than a shared active-instance pointer.
+
+`GOAL.md`, `AGENTS.md`, `PROTOCOL.md`, code and canonical scientific evidence remain
+project-shared. The selected instance owns its checkpoint, operational docs, session
+state, renewal chain and documentation-cycle state. Handoff does not publish instance
+findings to project knowledge; that requires a separate reviewed operator action.
+Creating/selecting a mission instance is not a renewal or a chain reset. Invalid IDs,
+manifests and out-of-project storage paths fail closed. No migration or scientific-state
+cleanup occurs.
+
 ## Supervised documentation campaign transition (optional)
 
 `documentation.enabled` is **false by default**. When an operator enables it, use
