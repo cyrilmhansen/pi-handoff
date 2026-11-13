@@ -398,3 +398,31 @@ does not mean software work is committed, validated or published. Audit does not
 scientific correctness, authorize consolidation, modify GOAL.md or alter the renewal
 chain. For archival and strategy pivots, the operator-approved process in the skill's
 `references/consolidation.md` still applies.
+
+## 9. Supervised documentation cycles (Lot E)
+
+The optional campaign-boundary workflow is controlled by `documentation.enabled`
+(default `false`) and is distinct from the renewal chain. `/handoff cycle plan` requires
+an explicitly configured, capped development chain plus a current, attested checkpoint;
+it opens one fresh read-only planning context and records its base Git revision and
+source fingerprints. The mission writes only a bounded plan artifact. Operator approval
+must name its exact SHA-256, and approval is refused if the source fingerprint, protected
+GOAL fingerprint, Git revision, plan metadata, or plan bytes no longer match.
+
+Only `/handoff cycle apply` after approval opens an application context. It must use
+`scripts/durable_edit.py` for approved edits and archives. Application is not automatic;
+crashes or uncertain dispatches retain their stage marker and require explicit
+inspection, correction or abort. `/handoff cycle review` opens a separate fresh context;
+its report is bound to the review revision/fingerprint and exact report hash. A passing
+document review does not attest scientific claims. `NO_CHANGE` is an explicit plan result
+and can skip apply/review without changing documents.
+
+Only the separate operator command `/handoff cycle continue`, after a passing review or
+an approved `NO_CHANGE`, archives the old renewal-state bytes in the configured in-project
+archive and initializes the next chain. It never starts a new session, deletes session
+history, or cleans artifacts. A crash during this multi-write transition leaves a journal
+and preserved source state; retry is explicit and validates the journal/archive before
+finishing. Repeated or concurrent stage commands cannot dispatch twice. `/handoff cycle
+status` is read-only, and `/handoff cycle recover <token>` clears only the displayed
+stale transition lock; it never replays a stage. Slash commands remain Pi operator
+commands, not Bash commands.
