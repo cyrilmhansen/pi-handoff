@@ -568,3 +568,42 @@ such changes are reported rather than repaired. To resume an old objective, crea
 instance ID and explicitly consult the old sealed record. New instances retain the
 project's shared code, protocol and evidence access, but start with their own empty
 operational documents and state; no Next action or LEARNINGS content is inherited.
+
+## 14. Selective shared knowledge publication (Lot I)
+
+Project knowledge is an append-only registry under `.pi-handoff/knowledge/`. An agent or
+operator may prepare a bounded JSON proposal in `proposals/`; a proposal names one source
+mission document and project-relative evidence files with raw-byte SHA-256 digests. Paths
+must remain inside the project and may not traverse symlinks. Handoff verifies source and
+evidence bytes, the selected mission/profile, its checkpoint or closure identity when
+available, and the current registry before presenting a plan fingerprint. Planning and
+all list/show/verify operations are read-only.
+
+Only an operator slash command may publish, after confirming the exact plan fingerprint.
+The project-wide publication lock is separate from each Lot G mission lock, so different
+mission instances serialize writes to the shared registry. Publication rechecks the plan
+under lock and creates one immutable record atomically without replacement. Identical
+content is idempotent. A changed publication for the same logical ID requires an explicit
+supersession relation and reason. Existing records, including `falsified` and superseded
+records, remain unchanged and consultable. Handoff detects identity conflicts, not
+scientific contradictions between different statements; those require human review.
+
+Each record preserves the source mission and optional work profile, statement,
+classification and rationale, source locator, evidence paths and hashes, checkpoint or
+closure provenance, publication time, operator decision and publication fingerprint.
+Evidence is referenced rather than copied. Classifications (`accepted`, `proposed`,
+`falsified`, `superseded`) are documented decisions, not independent scientific
+validation. A publication grants no operator authority and does not edit `GOAL.md`,
+scientific ledgers, mission documents or `Next action`. The registry is not injected into
+new-session context; no proposal is promoted or published automatically. Sealed missions
+may be cited without being modified. Legacy operation without an explicitly selected
+mission cannot publish.
+
+The registry lock coordinates cooperating Handoff processes in one local project tree;
+network filesystems and separate checkouts are outside the guarantee. A potentially
+abandoned lock requires explicit inspection and recovery after proving its owner absent;
+recovery never retries a publication. Interrupted temporary artifacts are preserved and
+reported for operator inspection; their presence blocks further publication until an
+operator has backed up and explicitly inspected/resolved the artifact. Corruption,
+unknown registry files and uncertain publication state fail closed. No automatic
+migration, cleanup, evidence rewrite or scientific-state change occurs.

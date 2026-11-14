@@ -21,6 +21,7 @@ alone** — no transcript replay, no lossy compaction.
 | Operator | Pi `/handoff` and `/guard` slash commands |
 | Agent | Tools actually registered in Pi, including its normal file tools |
 | Agent | `handoff_inspect` — read-only checkpoint and renewal inspection |
+| Agent | `handoff_knowledge` — read-only list, show and verify of published project knowledge |
 | Agent | `handoff_finalize` — checkpoint and attest without renewing |
 | Agent | `handoff_renew` — request renewal through the controlled gate |
 | Operator | `/handoff cycle …` — explicitly stage, approve, review and continue a documentation campaign |
@@ -29,6 +30,10 @@ Slash commands are Pi interface commands, **not Bash commands**. The agent must 
 try to run `/handoff verify` in a shell; use `handoff_inspect` for inspection and the
 registered handoff tools for agent actions. Inspection does not verify scientific
 results or mutate project/state files.
+
+The agent may prepare a knowledge proposal file, but only the operator can plan and
+approve publication with `/handoff knowledge …`. Published classifications record an
+operator decision; they do not validate scientific claims or grant operator authority.
 
 ## Mission instances (Lot F)
 
@@ -258,6 +263,32 @@ an owner could still run. The guarantee applies to Handoff writes and intercepte
 not arbitrary external programs or other checkouts. Keep the selected ID stable for the
 whole process; restart Pi to change it. No instance selection means the historical unlocked
 layout and behavior.
+
+## Selective project knowledge (Lot I)
+
+`handoff_knowledge` is an agent-callable, read-only tool for listing, showing and verifying
+publications. It does not publish, approve or stage a record. Slash commands such as
+`/handoff knowledge plan` and `/handoff knowledge publish` belong to the Pi operator
+interface and are not Bash commands.
+
+An agent may prepare a bounded JSON proposal under
+`.pi-handoff/knowledge/proposals/`, referencing a source locator in its mission's
+`HANDOFF.md`, `PROGRESS.md` or `LEARNINGS.md` and evidence by project-relative paths and
+raw-byte SHA-256 hashes. The operator reviews `/handoff knowledge plan <name>` and must
+confirm its exact fingerprint to publish. A publication is immutable and records its
+mission/profile provenance, evidence references, classification, rationale and operator
+decision. A changed publication requires explicit supersession; falsified and older
+records remain available. Handoff detects identity conflicts but cannot decide whether
+scientific statements contradict one another.
+
+Classifications are documented operator decisions, not scientific validation. A
+publication gives no operator authority, does not change `GOAL.md`, project evidence,
+mission files or `Next action`, and is not injected into sessions. A sealed mission may be
+cited without modification. No publication, promotion, migration or cleanup happens
+automatically. Publication serialization is scoped to cooperating processes in one local
+project tree; network filesystems and separate checkouts are not covered.
+If status reports an interrupted atomic temporary artifact, publication plans are blocked.
+Back up and inspect it explicitly; Handoff never removes or replays it.
 
 ## Mission-instance closure (Lot H)
 

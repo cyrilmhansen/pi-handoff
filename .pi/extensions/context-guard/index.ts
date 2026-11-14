@@ -100,6 +100,7 @@ import {
 import { configForMissionInstance, createMissionInstance, instancePathIsSafe, missionChainId, readMissionInstanceProfile, validMissionInstanceId, validWorkProfileRef, workProfilePath } from "./mission-instance.ts";
 import { acquireInstanceLock, inspectInstanceLock, instanceLockPath, ownsInstanceLock, processSelectionIsStable, recoverAbandonedInstanceLock, releaseInstanceLock } from "./mission-lock.ts";
 import { inspectMissionClosure, makeMissionClosureRecord, missionClosurePaths, parseMissionClosure, prepareMissionClosure, type MissionClosureInspection, type MissionClosurePlan } from "./mission-lifecycle.ts";
+import { formatKnowledgeRecord, knowledgeRecordPath, knowledgeRegistryLockPath, knowledgeRegistrySummary, knowledgePathsSafe, listKnowledge, makeKnowledgeRecord, planKnowledgePublication, showKnowledge, verifyKnowledge, verifyKnowledgeReferences, type KnowledgeClassification, type KnowledgePlan } from "./knowledge.ts";
 
 export const CUSTOM_TYPE = "context-guard";
 const MAX_OPERATOR_TASK_BYTES = 64 * 1024;
@@ -542,6 +543,161 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       notify(ctx, "mission was sealed but closure integrity is " + (inspection?.state ?? "uncertain") +
         "; no files were changed again. Preserve every byte and inspect before any operator repair.", "error");
     }
+  }
+
+  function prepareKnowledgePlan(name: string, registryLockOwned = false): KnowledgePlan | undefined {
+    if (!g) return undefined;
+    return planKnowledgePublication({
+      fs,
+      cwd: g.cwd,
+      selectedMissionId: g.config.missionInstance.id,
+      stateDir: resolvedStateDir(g),
+      checkpoint: validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME),
+      ownsMission: hasInstanceOwnership(),
+      ownsRegistryLock: registryLockOwned,
+      proposalName: name,
+    });
+  }
+
+  function knowledgePlanReport(plan: KnowledgePlan): string {
+    const p = plan.proposal;
+    const lines = [
+      `knowledge publication plan: ${p?.id ?? "invalid proposal"}`,
+      `  source mission: ${plan.missionId || "none selected"}${plan.workProfile ? `; profile ${plan.workProfile.id}@${plan.workProfile.version}` : ""}${plan.sourceClosure ? `; sealed ${plan.sourceClosure}` : ""}`,
+      `  proposal file: ${plan.proposalPath || "invalid"}; sha256=${plan.proposalHash ?? "unavailable"}`,
+      `  classification: ${p?.classification ?? "invalid"}; evidence references=${p?.evidence.length ?? 0}; verified bytes=${plan.evidenceBytes}`,
+      `  registry: ${plan.registryCount} records; sha256=${plan.registryFingerprint}`,
+      `  logical identity: ${p?.id ?? "unavailable"}; publication=${plan.publicationId ?? "unavailable"}${plan.idempotent ? " (identical publication already exists)" : ""}`,
+    ];
+    if (p) {
+      lines.push(`  statement: ${p.statement}`);
+      lines.push(`  rationale: ${p.rationale}`);
+      lines.push(`  source: ${p.source.path}#${p.source.locator}; sha256=${p.source.sha256}`);
+      for (const ref of p.evidence) lines.push(`  evidence: ${ref.path}; sha256=${ref.sha256}; ${ref.description}`);
+      if (p.supersedes) lines.push(`  supersedes: ${p.supersedes.publicationId}; reason=${p.supersedes.reason}`);
+    }
+    if (plan.blockers.length) lines.push("  blockers:\n" + plan.blockers.map((item) => `    - ${item}`).join("\n"));
+    else lines.push(`  approval fingerprint: ${plan.publicationFingerprint}`, `  publish with /handoff knowledge publish ${plan.proposalPath.split("/").at(-1)} --confirm ${plan.publicationFingerprint}`);
+    lines.push("  classification is an operator-recorded decision; Handoff does not independently validate scientific claims.");
+    return lines.join("\n");
+  }
+
+  function knowledgeCommand(rawArgs: string, ctx: ExtensionContext): void {
+    const args = rawArgs.trim().split(/\s+/).filter(Boolean);
+    const action = args[0] ?? "help";
+    const cwd = g?.cwd ?? ctx.cwd;
+    if (action === "status") {
+      const status = knowledgeRegistrySummary(fs, cwd);
+      const owner = status.lock.owner;
+      notify(ctx, `knowledge registry: ${status.count} valid publication(s); lock=${status.lock.state}${owner ? ` pid=${owner.pid} host=${owner.hostname} session=${owner.sessionId}` : ""}${status.errors.length ? `\n  issues:\n${status.errors.map((x) => `  - ${x}`).join("\n")}` : ""}${status.warnings.length ? `\n  warnings:\n${status.warnings.map((x) => `  - ${x}`).join("\n")}` : ""}`, status.errors.length || status.warnings.length || status.lock.state !== "missing" ? "warning" : "info");
+      return;
+    }
+    if (action === "list") {
+      const filter: { classification?: KnowledgeClassification; missionId?: string; id?: string } = {};
+      for (let i = 1; i < args.length; i++) {
+        const key = args[i];
+        const value = args[++i];
+        if (!value || !["--classification", "--mission", "--id"].includes(key)) {
+          notify(ctx, "usage: /handoff knowledge list [--classification accepted|proposed|falsified|superseded] [--mission <id>] [--id <id>]", "warning");
+          return;
+        }
+        if (key === "--classification" && ["accepted", "proposed", "falsified", "superseded"].includes(value)) filter.classification = value as KnowledgeClassification;
+        else if (key === "--mission" && validMissionInstanceId(value)) filter.missionId = value;
+        else if (key === "--id" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)) filter.id = value;
+        else { notify(ctx, `invalid knowledge filter: ${key} ${value}`, "warning"); return; }
+      }
+      const result = listKnowledge(fs, cwd, filter);
+      const text = result.items.length ? result.items.map(formatKnowledgeRecord).join("\n\n") : "knowledge registry: no matching publications";
+      notify(ctx, text + (result.errors.length ? `\n\nregistry issues:\n${result.errors.map((x) => `- ${x}`).join("\n")}` : "") + (result.warnings.length ? `\n\nregistry warnings:\n${result.warnings.map((x) => `- ${x}`).join("\n")}` : ""), result.errors.length || result.warnings.length ? "warning" : "info");
+      return;
+    }
+    if (action === "show" || action === "verify") {
+      const id = args[1];
+      if (!id || args.length !== 2 || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) { notify(ctx, `usage: /handoff knowledge ${action} <knowledge-id>`, "warning"); return; }
+      if (action === "show") {
+        const result = showKnowledge(fs, cwd, id);
+        notify(ctx, result.items.length ? result.items.map(formatKnowledgeRecord).join("\n\n") + (result.warnings.length ? `\n\nregistry warnings:\n${result.warnings.join("\n")}` : "") : `knowledge ${id}: not found${result.errors.length ? `\n${result.errors.join("\n")}` : ""}${result.warnings.length ? `\n${result.warnings.join("\n")}` : ""}`, result.errors.length || result.warnings.length ? "warning" : "info");
+      } else {
+        const result = verifyKnowledge(fs, cwd, id);
+        const rows = result.items.map((item) => `${formatKnowledgeRecord({ record: item.record, state: item.state })}\n  references: ${item.references.length ? item.references.join("; ") : "verified"}`);
+        notify(ctx, rows.length ? rows.join("\n\n") + (result.errors.length ? `\n\nregistry issues:\n${result.errors.join("\n")}` : "") + (result.warnings.length ? `\n\nregistry warnings:\n${result.warnings.join("\n")}` : "") : `knowledge ${id}: not found${result.errors.length ? `\n${result.errors.join("\n")}` : ""}${result.warnings.length ? `\n${result.warnings.join("\n")}` : ""}`, result.ok && !result.warnings.length ? "info" : "warning");
+      }
+      return;
+    }
+    if (action === "plan") {
+      if (args.length !== 2) { notify(ctx, "usage: /handoff knowledge plan <proposal-name>", "warning"); return; }
+      const plan = prepareKnowledgePlan(args[1]);
+      if (plan) notify(ctx, knowledgePlanReport(plan), plan.blockers.length ? "warning" : "info");
+      return;
+    }
+    if (action === "publish") {
+      const match = /^publish\s+([A-Za-z0-9][A-Za-z0-9._-]{0,63}(?:\.json)?)\s+--confirm\s+([a-f0-9]{64})$/i.exec(rawArgs.trim());
+      if (!match) { notify(ctx, "usage: /handoff knowledge publish <proposal-name> --confirm <fingerprint>", "warning"); return; }
+      if (!g) { notify(ctx, "context-guard: not initialized", "error"); return; }
+      if (g.readOnlyRequested) { notify(ctx, "knowledge publication is refused in explicit read-only audit mode", "warning"); return; }
+      const proposalName = match[1];
+      const confirmed = match[2].toLowerCase();
+      const initial = prepareKnowledgePlan(proposalName);
+      if (!initial) { notify(ctx, "knowledge publication requires an explicit selected mission and valid proposal plan", "warning"); return; }
+      if (initial.publicationFingerprint !== confirmed) { notify(ctx, `knowledge approval is stale; current fingerprint is ${initial.publicationFingerprint}. Review /handoff knowledge plan again.`, "warning"); return; }
+      if (initial.blockers.length) { notify(ctx, `knowledge publication refused:\n${initial.blockers.map((x) => `- ${x}`).join("\n")}`, "warning"); return; }
+      if (initial.idempotent) { notify(ctx, `knowledge publication ${initial.publicationId} already exists; no registry file was written.`, "info"); return; }
+      const proposal = initial.proposal;
+      if (!proposal || !initial.publicationId || !knowledgePathsSafe(fs, g.cwd, proposal.id)) { notify(ctx, "knowledge publication refused: unsafe registry path or invalid proposal identity", "warning"); return; }
+      const lockPath = knowledgeRegistryLockPath(g.cwd, fs);
+      const acquired = acquireInstanceLock(fs, lockPath, g.sessionId);
+      if (!acquired.ok) {
+        const owner = acquired.inspection.owner;
+        notify(ctx, `knowledge publication refused: ${acquired.detail}${owner ? `; owner pid ${owner.pid} host ${owner.hostname} session ${owner.sessionId}` : `; lock state ${acquired.inspection.state}`}. Use /handoff knowledge status; never remove a possibly-live lock.`, "warning");
+        return;
+      }
+      let outcome = "";
+      let level: "info" | "warning" | "error" = "info";
+      try {
+        const current = prepareKnowledgePlan(proposalName, true);
+        if (!current || current.publicationFingerprint !== confirmed || current.blockers.length) {
+          outcome = `knowledge publication refused after registry lock: approval is stale or state is blocked. ${current ? `Current fingerprint ${current.publicationFingerprint}; ${current.blockers.join("; ")}` : "plan unavailable"}. No record was written.`;
+          level = "warning";
+        } else if (current.idempotent) {
+          outcome = `knowledge publication ${current.publicationId} already exists; no duplicate was written.`;
+        } else if (!fs.createExclusiveAtomic) {
+          outcome = "knowledge publication refused: filesystem lacks atomic no-replace publication.";
+          level = "warning";
+        } else {
+          const record = makeKnowledgeRecord(current, g.sessionId);
+          const recordPath = knowledgeRecordPath(g.cwd, record.knowledgeId, record.publicationId, fs);
+          const bytes = JSON.stringify(record, null, 2) + "\n";
+          if (!fs.createExclusiveAtomic(recordPath, bytes)) {
+            outcome = "knowledge publication outcome is uncertain: immutable target already exists; it was never overwritten. Inspect /handoff knowledge verify.";
+            level = "error";
+          } else {
+            const registry = listKnowledge(fs, g.cwd, { id: record.knowledgeId });
+            const persisted = registry.items.find((item) => item.record.publicationId === record.publicationId)?.record;
+            const refs = persisted ? verifyKnowledgeReferences(fs, g.cwd, persisted) : { ok: false, detail: ["published record could not be re-read"] };
+            outcome = persisted && persisted.publicationFingerprint === record.publicationFingerprint && refs.ok
+              ? `knowledge ${record.knowledgeId} published immutably; publication=${record.publicationId}; fingerprint=${record.publicationFingerprint}; references verified. Classification is an operator decision, not independent scientific validation.`
+              : `knowledge publication record was atomically written but post-write verification is uncertain; preserve it and inspect /handoff knowledge verify (${refs.detail.join("; ") || registry.errors.join("; ")}).`;
+            if (!persisted || !refs.ok) level = "error";
+          }
+        }
+      } catch (err) {
+        outcome = `knowledge publication outcome is uncertain; preserve registry bytes and inspect /handoff knowledge status: ${err instanceof Error ? err.message : String(err)}`;
+        level = "error";
+      } finally {
+        const released = releaseInstanceLock(fs, lockPath);
+        if (!released.released) { outcome += ` Registry lock was not released (${released.detail}); inspect status.`; level = "error"; }
+      }
+      notify(ctx, outcome, level);
+      return;
+    }
+    if (action === "recover") {
+      if (!g || g.readOnlyRequested) { notify(ctx, "knowledge lock recovery requires a normal operator session", "warning"); return; }
+      if (args.length !== 1 || !knowledgePathsSafe(fs, cwd)) { notify(ctx, "usage: /handoff knowledge recover; unsafe registry paths are refused", "warning"); return; }
+      const result = recoverAbandonedInstanceLock(fs, knowledgeRegistryLockPath(cwd, fs), g.sessionId);
+      notify(ctx, `knowledge lock recovery ${result.ok ? "complete" : "refused"}: ${result.detail}; state=${result.inspection.state}${result.inspection.owner ? ` pid=${result.inspection.owner.pid} host=${result.inspection.owner.hostname} session=${result.inspection.owner.sessionId}` : ""}. Recovery does not replay or complete a publication. Re-plan and confirm again.`, result.ok ? "info" : "warning");
+      return;
+    }
+    notify(ctx, "usage: /handoff knowledge status|plan <proposal-name>|publish <proposal-name> --confirm <fingerprint>|list [filters]|show <id>|verify <id>|recover", "warning");
   }
 
   /** Read-only audit mode forbids every write inside the project tree. */
@@ -1265,7 +1421,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     // the project's closingAllowlist does not name it. `handoff_renew` stays
     // allowlist-gated because it DOES schedule a switch.
     if (g.machine.currentLevel >= 4 && g.config.enforceClosing) {
-      if (!g.config.closingAllowlist.includes(event.toolName) && event.toolName !== "handoff_finalize" && event.toolName !== "handoff_inspect") {
+      if (!g.config.closingAllowlist.includes(event.toolName) && event.toolName !== "handoff_finalize" && event.toolName !== "handoff_inspect" && event.toolName !== "handoff_knowledge") {
         recordDiag("tool_block", { tool: event.toolName, kind: "closing" });
         return {
           block: true,
@@ -1929,6 +2085,48 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     },
   } as never);
 
+  pi.registerTool({
+    name: "handoff_knowledge",
+    label: "Inspect shared knowledge",
+    description:
+      "Read-only access to the project's append-only Handoff knowledge registry. List/filter publications, show provenance, or verify record fingerprints and referenced files. This tool cannot create proposals, approve, publish, supersede, recover locks, modify mission documents, or confer operator/scientific authority.",
+    promptSnippet: "handoff_knowledge — read and verify explicitly published project knowledge",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "show", "verify"] },
+        id: { type: "string", description: "Knowledge id required for show and verify." },
+        classification: { type: "string", enum: ["accepted", "proposed", "falsified", "superseded"] },
+        missionId: { type: "string", description: "Filter list results by source mission." },
+      },
+      required: ["action"],
+      additionalProperties: false,
+    },
+    async execute(_toolCallId: string, params: { action?: string; id?: string; classification?: string; missionId?: string }, _signal: unknown, _onUpdate: unknown, toolCtx: ExtensionContext) {
+      const cwd = g?.cwd ?? toolCtx.cwd;
+      if (params.action === "list") {
+        const result = listKnowledge(fs, cwd, {
+          classification: params.classification as KnowledgeClassification | undefined,
+          missionId: params.missionId,
+          id: params.id,
+        });
+        const report = result.items.map(formatKnowledgeRecord).join("\n\n") || "No published knowledge matches this filter.";
+        return { content: [{ type: "text", text: report + (result.errors.length ? `\n\nRegistry issues:\n${result.errors.join("\n")}` : "") + (result.warnings.length ? `\n\nRegistry warnings:\n${result.warnings.join("\n")}` : "") }], details: { count: result.items.length, errors: result.errors, warnings: result.warnings } };
+      }
+      if ((params.action === "show" || params.action === "verify") && typeof params.id === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(params.id)) {
+        if (params.action === "show") {
+          const result = showKnowledge(fs, cwd, params.id);
+          const report = result.items.map(formatKnowledgeRecord).join("\n\n") || `Knowledge ${params.id} was not found.`;
+          return { content: [{ type: "text", text: report + (result.errors.length ? `\n\nRegistry issues:\n${result.errors.join("\n")}` : "") + (result.warnings.length ? `\n\nRegistry warnings:\n${result.warnings.join("\n")}` : "") }], details: { items: result.items, errors: result.errors, warnings: result.warnings } };
+        }
+        const result = verifyKnowledge(fs, cwd, params.id);
+        const report = result.items.map((item) => `${formatKnowledgeRecord({ record: item.record, state: item.state })}\n  references: ${item.references.length ? item.references.join("; ") : "verified"}`).join("\n\n") || `Knowledge ${params.id} was not found.`;
+        return { content: [{ type: "text", text: report + (result.errors.length ? `\n\nRegistry issues:\n${result.errors.join("\n")}` : "") + (result.warnings.length ? `\n\nRegistry warnings:\n${result.warnings.join("\n")}` : "") }], details: result };
+      }
+      return { content: [{ type: "text", text: "Read-only actions are list, show <id>, or verify <id>." }], details: { ok: false } };
+    },
+  } as never);
+
   /* ---------------------------------------------------------------- */
   /* Phase 2 renewal (increment B): the ONLY paths that switch sessions. */
   /* Operator: /handoff renew [notes]; model: handoff_renew tool ->     */
@@ -2478,6 +2676,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         return;
       }
       const parts = args.trim().split(/\s+/).filter(Boolean);
+      if (parts[0] === "knowledge") {
+        const knowledgeArgs = args.trim().replace(/^knowledge(?:\s+|$)/, "");
+        knowledgeCommand(knowledgeArgs, ctx);
+        return;
+      }
       if (parts[0] === "instance") {
         const sub = parts[1];
         const active = g.config.missionInstance.id;

@@ -247,3 +247,55 @@ inspection. A sealed instance cannot be reactivated or reused; create a new ID. 
 filesystem changes cannot be prevented but are reported by status. Session finalize,
 renewal, chain reset, process exit and documentation-cycle continuation do not close a
 mission.
+
+### Shared knowledge publication (Lot I)
+
+The model-callable `handoff_knowledge` tool only supports `list`, `show` and `verify`.
+It cannot prepare/publish a record or approve a classification. Slash commands below are
+Pi operator commands, not shell commands.
+
+Prepare a bounded JSON proposal under `.pi-handoff/knowledge/proposals/`. It must identify
+one source document in the named mission, a non-empty locator, the raw-byte SHA-256 of
+that source and at least one project-relative evidence file with its SHA-256 and a short
+description. Evidence paths cannot leave the project or traverse symlinks. Proposal
+maximum is 128 KiB; each evidence file is limited to 16 MiB and total evidence to 64 MiB.
+Use one of `accepted`, `proposed`, `falsified`, or `superseded`; the classification and
+rationale document a decision and do not establish scientific validity.
+
+```json
+{
+  "schema": 1,
+  "id": "method-observation-01",
+  "missionId": "mission-2026-11",
+  "classification": "proposed",
+  "statement": "Precise, bounded statement of a reusable finding.",
+  "rationale": "Why this classification is recorded.",
+  "source": {
+    "path": ".pi-handoff/instances/mission-2026-11/LEARNINGS.md",
+    "locator": "P-12",
+    "sha256": "<64 lowercase hex characters>"
+  },
+  "evidence": [{
+    "path": "artifacts/run-summary.txt",
+    "sha256": "<64 lowercase hex characters>",
+    "description": "Run summary supporting the finding."
+  }]
+}
+```
+
+For a revision, add `supersedes: {"publicationId":"<old publication id>","reason":"new evidence, refutation, correction, or replacement"}`. Do not edit old records. An identical proposal is idempotent; a different use of the same logical ID needs explicit supersession. Handoff detects duplicate identities, not semantic scientific contradictions.
+
+- `/handoff knowledge status` — record count, lock state and registry warnings.
+- `/handoff knowledge plan <proposal-name>` — read-only checks and state-bound approval fingerprint.
+- `/handoff knowledge publish <proposal-name> --confirm <fingerprint>` — operator-only approval and atomic append; rechecks proposal, references and registry while holding the shared registry lock.
+- `/handoff knowledge list [--classification <class>] [--mission <id>] [--id <id>]`, `/handoff knowledge show <id>`, `/handoff knowledge verify <id>` — read-only consultation.
+- `/handoff knowledge recover` — explicit recovery only when the registry lock owner is proven absent; it never replays a publication. Re-plan and reconfirm afterward.
+
+The record links source mission/profile, checkpoint or closure identity, evidence hashes,
+operator decision, time and integrity fingerprints. A closed mission can be cited without
+changing it. Publications are not injected into mission prompts, do not alter Next action,
+GOAL or scientific evidence, and confer no operator authority. Registry serialization
+covers cooperating processes in one local project tree, not network filesystems or other
+checkouts. Temporary artifacts and uncertain state are preserved for operator inspection.
+An interrupted atomic temporary artifact also blocks new plans until the operator has
+backed it up and explicitly inspected/resolved it; Handoff never cleans or replays it.

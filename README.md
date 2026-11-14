@@ -26,6 +26,10 @@ under explicit operator authorization; the history lives in `PROGRESS.md` /
 `LEARNINGS.md`, never in a silent goal rewrite. Reuse in another project (`drpli`) is a
 separate, operator-authorized action: this repository has deployed nothing anywhere.
 
+Since that consolidation, main also integrates Lots F–H (isolated mission instances,
+exclusive instance ownership and terminal in-place closure). Lot I is unreleased work and
+does not change the version or checkpoint schema.
+
 Environment this was built and verified against: Pi 1.4.0 (`/usr/lib/node_modules/@earendil-works/pi-coding-agent`),
 Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compaction disabled.
 
@@ -47,6 +51,7 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
   mission-instance.ts explicit mission identity, safe storage paths, and non-overwriting creation
   mission-lock.ts exclusive per-process instance ownership and conservative crash recovery
   mission-lifecycle.ts read-only close planning and fail-closed in-place mission sealing
+  knowledge.ts append-only operator-approved knowledge publications and verification
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
 CHANGELOG.md    version history (dev.1–dev.4)
@@ -607,3 +612,32 @@ need explicit operator recovery after stopping all Pi processes that could selec
 see Protocol §12. Distinct instance IDs can run concurrently. This relies on local
 filesystems honoring atomic exclusive creation and covers Handoff-controlled writes plus
 intercepted Pi tools, not arbitrary external programs, other checkouts or network filesystems.
+
+## Shared knowledge publication (Lot I — unreleased)
+
+An explicitly selected mission can prepare a small JSON proposal under
+`.pi-handoff/knowledge/proposals/`. Its source must be one of that mission's durable
+operational documents; each evidence reference is a project-relative file path plus a
+raw-byte SHA-256. Planning reads the proposal, mission source, evidence and current
+registry and reports a fingerprint. It does not write or edit the mission.
+
+Only the operator slash command publishes:
+`/handoff knowledge plan <proposal-name>` followed by
+`/handoff knowledge publish <proposal-name> --confirm <fingerprint>`. Records are
+individual immutable files under `.pi-handoff/knowledge/records/<knowledge-id>/`.
+Publication uses a project-wide exclusive lock, separate from Lot G's per-mission locks,
+rechecks source and registry state, and atomically creates the record without replacing
+an existing one. Identical content is idempotent. A changed record with an existing
+logical ID requires explicit supersession; earlier accepted or falsified records remain
+available and are shown as superseded through the append-only relation.
+
+`/handoff knowledge list`, `show`, `verify` and the model-callable read-only
+`handoff_knowledge` tool provide consultation. They never inject the registry at session
+start or modify mission documents, `Next action`, `GOAL.md` or scientific evidence.
+Classifications are recorded operator decisions, not Handoff's independent scientific
+validation. The registry lock is scoped to one shared local project tree: network
+filesystems and separate checkouts are outside the concurrency guarantee. A proven-dead
+owner lock may be recovered explicitly; recovery never replays a publication. Corrupt or
+interrupted artifacts are preserved for operator inspection.
+An interrupted atomic temporary artifact blocks further publication until an operator
+backs it up and explicitly inspects/resolves it; Handoff does not delete or replay it.
