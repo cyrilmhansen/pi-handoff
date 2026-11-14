@@ -3,6 +3,38 @@
 All notable changes. Versions are pre-1.0 development tags; the guard ships as
 project-local files (`.pi/extensions/context-guard/`), no package registry.
 
+## v0.1.0-rc.1 — 2026-11-14 (experimental supervised pilot candidate)
+
+This release candidate is based on `f4206dbc9fcab89b666bc8623cbe8477f8bd7c95` and
+includes Lots A–I plus the Q2 fail-closed renewal-state correction. It does not include
+the experimental Q3 qualification branch. It is a prerelease for supervised real-work
+feedback, not a production-ready claim.
+
+- **Lots A–E:** reliable schema-v3 checkpoint parsing and attestation, read-only status
+  and inspection, controlled renewal with a separate operator task, structured durable
+  document editing/audit, reduced redundant checkpoint writes, and an optional
+  operator-supervised documentation-cycle workflow.
+- **Lots F–I:** isolated mission instances with exclusive process ownership, explicit
+  in-place closure, and immutable operator-approved shared-knowledge records.
+- **Q2 fail-closed correction:** missing, corrupt, incomplete, cross-instance or
+  generation-incoherent renewal state cannot be interpreted as a new chain. Explicit
+  creation of a new mission identity initializes its chain exclusively. Valid legacy
+  renewal-state v1 records remain compatible.
+- Correctly formed checkpoint schema v3 remains compatible; no checkpoint schema
+  migration is introduced. No automatic migration, cleanup or rewrite of scientific
+  project state occurs.
+- `renewal.successorTurn: "custom"` remains the default. `"user"` remains experimental.
+  `documentation.enabled` remains `false` by default.
+
+**Qualification limits:** Pi 1.5.2 passed the real-runtime RPC suite without inference.
+Pi 1.4.0 compatibility was not qualified by Q1–Q3. Real renewals using this RC code and
+the documentation cycle with inference were not qualified by Q3. Q2's measured
+restoration scenarios validated fail-closed refusal. These are limits of evidence, not
+claims of demonstrated functional defects. See `docs/qualification/predeploy-a-i.md`
+and the installation, upgrade and rollback procedures in `docs/`.
+
+No automatic migration or deployment is performed by this release candidate.
+
 ## v0.1.0-dev.4 — 2026-11-13 (development consolidation)
 
 Lots A–E are integrated at base `96750d746003886610ac9fb9544fb52bf0dbffcd`.

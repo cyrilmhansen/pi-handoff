@@ -435,21 +435,24 @@ status` is read-only, and `/handoff cycle recover <token>` clears only the displ
 stale transition lock; it never replays a stage. Slash commands remain Pi operator
 commands, not Bash commands.
 
-## 10. v0.1.0-dev.4 release boundary
+## 10. v0.1.0-rc.1 qualification boundary
 
-Lots A–E are available together in this development version. `renewal.successorTurn`
-defaults to `"custom"`; `"user"` is an opt-in experiment, not a measured improvement.
-`documentation.enabled` defaults to `false`; documentary stages and the new-chain
-transition require explicit operator commands. Authority is provenance-bound: operator
-commands, agent-callable tools and extension-generated messages are separate. Neither a
-generated custom turn nor a generated user-role turn grants operator approval or extra
-authority. Handoff does not automatically migrate, rewrite, archive or clean scientific
-evidence, claims ledgers, session history or other project state.
+The RC candidate includes Lots A–I and Q2's fail-closed renewal-state correction.
+`renewal.successorTurn` defaults to `"custom"`; `"user"` is an opt-in experiment, not a
+measured improvement. `documentation.enabled` defaults to `false`; documentary stages
+and new-chain transition require explicit operator commands. Authority remains
+provenance-bound: operator commands, agent-callable tools and extension-generated
+messages are separate. A generated custom turn or user-role turn grants no operator
+approval or extra authority. Handoff performs no automatic migration, rewrite, archive
+or cleanup of scientific evidence, claims ledgers, session history or other project
+state.
 
-The deterministic suites and Rune CI passed for their respective lot commits. The real
-Sushi custom-versus-user A/B and a complete documentation-cycle workflow using real
-inference were not run; their outcomes remain unverified. No inference test is part of
-the dev.4 release validation.
+Pi 1.5.2 real-runtime RPC was validated without inference. Pi 1.4.0 remains unqualified.
+Q2's measured restoration scenarios validated fail-closed refusal for missing/corrupt
+renewal state. Real renewals using the RC code and a complete documentation cycle with
+real inference were not qualified by Q3; these are evidence limits, not demonstrated
+defects. No inference is part of the RC validation. This prerelease is intended for a
+supervised, reversible pilot and is not described as production ready.
 
 ## 11. Mission instances (Lot F)
 

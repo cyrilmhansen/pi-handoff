@@ -1,6 +1,6 @@
-# Pi Handoff — context-guard for Pi 1.4.0
+# Pi Handoff — context-guard for Pi
 
-Minimal Pi 1.4.0 extension + durable working-memory files that monitor remaining context,
+Project-local Pi extension + durable working-memory files that monitor remaining context,
 alert at configurable thresholds, enforce a closing phase, persist crash-safe
 checkpoints, and — since Phase 2 — renew a session in-place into a fresh successor that
 recovers from files alone (no transcript replay, no lossy compaction). No third-party
@@ -18,14 +18,16 @@ under explicit operator authorization; the history lives in `PROGRESS.md` /
 `LEARNINGS.md`, never in a silent goal rewrite. Reuse in another project (`drpli`) is a
 separate, operator-authorized action: this repository has deployed nothing anywhere.
 
-**Current main** (`8caee04`) integrates Lots A–I, including explicitly isolated/owned/
-closable mission instances and selective operator-approved shared knowledge publication.
-Q1 historically reproduced a fail-open restore defect. Q2 now refuses missing, corrupt,
-incomplete, cross-instance and generation-incoherent renewal state; explicit operator
-creation of a new mission exclusively initializes its mission-bound zero-count chain.
-See `docs/qualification/predeploy-a-i.md` for the historical reproducer, Q2 correction
-and remaining limits. The zero-inference RPC suite ran under installed Pi 1.5.2; Pi 1.4.0
-remains unqualified in this environment.
+**RC `v0.1.0-rc.1` candidate** (source `f4206dbc`) integrates Lots A–I and the Q2
+fail-closed restoration correction, including explicitly isolated/owned/closable mission
+instances and selective operator-approved shared knowledge publication. Missing,
+corrupt, incomplete, cross-instance and generation-incoherent renewal state is refused;
+only explicit creation of a new mission identity initializes a new chain. See
+`docs/qualification/predeploy-a-i.md` for the historical Q1 reproducer and measured Q2
+correction. Pi 1.5.2 passed zero-inference RPC validation. Pi 1.4.0, real renewals using
+the RC code, and the documentation cycle with inference remain unqualified; these are
+limits of evidence, not demonstrated defects. The candidate is intended for a reversible,
+supervised pilot.
 
 Historical API-contract verification targeted Pi 1.4.0. Q1/Q2 real-RPC runs used
 the installed Pi 1.5.2 at `/usr/lib/node_modules/@earendil-works/pi-coding-agent`; a Pi
@@ -52,7 +54,7 @@ the installed Pi 1.5.2 at `/usr/lib/node_modules/@earendil-works/pi-coding-agent
   knowledge.ts append-only operator-approved knowledge publications and verification
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
-CHANGELOG.md    version history (dev.1–dev.4)
+CHANGELOG.md    version history (dev.1–dev.4 and rc.1 candidate)
 docs/profiles/experimental-95k.json  dev.2 D6 example profile (asserted self-consistent)
 docs/long-project-guide.md  Phase 1d: integration guide for long-running projects (PL/I-80 case study)
 GOAL.md PROGRESS.md LEARNINGS.md HANDOFF.md   durable working memory
@@ -236,7 +238,7 @@ be active at session start. Example profile: `docs/profiles/experimental-95k.jso
 real `mergeConfig` path, D6x1 reproduces the A-11 Sushi figures (124 464 / 134 464 /
 144 464 / 149 464) from the same function.
 
-**Experimental policy (current for this project, dev.4):** Phase 2 adopted
+**Experimental policy (configuration carried into rc.1):** Phase 2 adopted
 `"generationReserve": 20000` experimentally for renewal work (LEARNINGS P-7); the
 dev.2 operator decisions moved it to **5 000** (chain-safe per A-32 + RN15) with
 thresholds 30k/20k/10k/5k. With the declared 220 000 window the nominal crossings are

@@ -1,11 +1,12 @@
-# AGENTS.md — handoff prototype (Pi context-guard)
+# AGENTS.md — Pi Handoff release candidate
 
-Pi context-guard extension + durable handoff files. Lots A–I are integrated on `main`
-at `8caee04b4c2106dba36c03514274e91e5277f607`: checkpoint/renewal reliability, operator
-tasks, document editing and supervised cycles, isolated/owned/closable mission instances,
-and operator-approved shared knowledge publication. No version bump or publication is
-part of Q1. Do not tag, publish or push without separate explicit authorization. No
-scientific-state migration or cleanup is part of this work.
+Pi context-guard extension + durable handoff files. RC `v0.1.0-rc.1` is prepared from
+`f4206dbc9fcab89b666bc8623cbe8477f8bd7c95` and includes Lots A–I plus the Q2 fail-closed
+correction: checkpoint/renewal reliability, operator tasks, document editing and supervised
+cycles, isolated/owned/closable mission instances, and operator-approved shared knowledge
+publication. This is an experimental prerelease for a reversible, supervised pilot, not a
+production-ready claim. Do not tag, publish, push or deploy without separate explicit
+authorization. No scientific-state migration or cleanup is part of this work.
 
 **Q1 restore defect and Q2 correction:** Q1 historically reproduced a fail-open renewal
 when `<stateDir>/renewal-state.json` was absent/corrupt. Q2 on `qual/predeploy-a-i`
@@ -33,12 +34,14 @@ Every fresh session:
    Manual prose in HANDOFF/PROGRESS wins over managed checkpoint blocks (schema v3);
    freshness is reported at `session_start` and via `/handoff verify`. Never infer or
    change the active instance from document contents.
-2. Verify with `node --test test/` before touching code. Latest Q2 baseline:
-   **305 pass / 1 gated skip (306 total)**. Zero-inference real-runtime gates:
-   `node scripts/e2e-rpc-two-process.mjs` (**60/60**, including fail-closed missing-chain
-   refusal and explicit mission bootstrap/restart; current installed Pi is 1.5.2, so
-   this is not a Pi 1.4.0 qualification), `node scripts/check-skill-discovery.mjs` (8/8).
-   The
+2. Verify with `node --test test/` before touching code. Latest measured baseline:
+   **305 pass / 1 gated skip (306 total)**.
+   Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs` (**60/60**,
+   including fail-closed missing-chain refusal and explicit mission bootstrap/restart;
+   Pi 1.5.2 only, not a Pi 1.4.0 qualification), `node scripts/check-skill-discovery.mjs`
+   (8/8). Q2 restoration scenarios were measured and refused missing/corrupt chain state.
+   Real renewals with this RC code and the documentation cycle with inference remain
+   unqualified; see the changelog and qualification report.
    `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate
    `b07e29b` — A-36) spends REAL inference — re-run only after renewal-wiring changes in
    `index.ts` (the D7 driver changes are lifecycle-only and covered by
