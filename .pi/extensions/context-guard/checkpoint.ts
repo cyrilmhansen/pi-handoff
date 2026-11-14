@@ -6,7 +6,7 @@
  * No pi imports; safe for Node type-stripped execution.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fsDefault from "node:fs";
 import pathDefault from "node:path";
 
@@ -20,9 +20,15 @@ export interface FsOps {
   writeFile(path: string, content: string): void; // must be atomic where durability matters
   /** Optional exclusive create, used as a crash-visible cross-process transition lock. */
   createExclusive?(path: string, content: string): boolean;
+  /** Optional atomic no-replace publication of a fully written file (same-filesystem hard link). */
+  createExclusiveAtomic?(path: string, content: string): boolean;
   exists(path: string): boolean;
   mkdirRecursive(path: string): void;
   listFiles(dir: string): string[];
+  /** Optional strict listing for audits that must distinguish empty from unreadable. */
+  listFilesStrict?(dir: string): string[];
+  /** Optional raw-byte content hash (preserves integrity for binary mission artifacts). */
+  hashFile?(path: string): string | undefined;
   remove(path: string): void;
   /** Canonical path with symlinks resolved; undefined when unsupported/unresolvable. */
   realpath?(path: string): string | undefined;
@@ -98,6 +104,29 @@ export function createLocalFs(): FsOps {
       finally { fs.closeSync(fd); }
       return true;
     },
+    createExclusiveAtomic(p, content) {
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      const temporary = `${p}.tmp-${process.pid}-${randomUUID()}`;
+      let fd: number | undefined;
+      try {
+        fd = fs.openSync(temporary, "wx");
+        fs.writeFileSync(fd, content, "utf8");
+        fs.fsyncSync(fd);
+        fs.closeSync(fd);
+        fd = undefined;
+        try { fs.linkSync(temporary, p); }
+        catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+          throw err;
+        }
+        return true;
+      } finally {
+        if (fd !== undefined) {
+          try { fs.closeSync(fd); } catch { /* preserve the original failure */ }
+        }
+        try { fs.rmSync(temporary, { force: true }); } catch { /* a leftover temp is detected as uncertain state */ }
+      }
+    },
     exists(p) {
       return fs.existsSync(p);
     },
@@ -110,6 +139,13 @@ export function createLocalFs(): FsOps {
       } catch {
         return [];
       }
+    },
+    listFilesStrict(dir) {
+      return fs.readdirSync(dir);
+    },
+    hashFile(p) {
+      try { return createHash("sha256").update(fs.readFileSync(p)).digest("hex"); }
+      catch { return undefined; }
     },
     remove(p) {
       fs.rmSync(p, { force: true });

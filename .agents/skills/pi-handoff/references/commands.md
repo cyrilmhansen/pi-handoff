@@ -229,3 +229,21 @@ only the abandoned `.owner.lock` and/or `.owner.lock.recovery` and restart Pi. D
 age as proof or remove artifacts while acquisition could still be active. These guarantees
 cover local filesystems honoring exclusive creation and Handoff/intercepted Pi operations;
 they do not lock arbitrary external processes, other checkouts, or network filesystems.
+
+### Mission-instance closure (Lot H)
+
+- `/handoff instance close plan` — read-only state-bound plan and approval fingerprint.
+- `/handoff instance close --confirm <fingerprint> --reason "..."` — terminally seal the
+  selected instance after rechecking the plan, current attestation, blockers and owner
+  lock. A clean worktree is not required.
+- `/handoff instance close status` — inspect the closure record and verify retained-file
+  hashes, including after process restart.
+
+Closure requires a current, attested checkpoint; attestation is a Handoff readiness proof,
+not scientific/software validation. The record remains alongside the instance's documents
+and state, without moving or deleting anything. `closure.pending` or a corrupt record
+means uncertain and immutable: preserve all bytes and request explicit operator
+inspection. A sealed instance cannot be reactivated or reused; create a new ID. External
+filesystem changes cannot be prevented but are reported by status. Session finalize,
+renewal, chain reset, process exit and documentation-cycle continuation do not close a
+mission.

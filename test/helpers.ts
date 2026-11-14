@@ -215,6 +215,7 @@ export function createMockCtx(options: MockCtxOptions = {}): MockCtx {
 /* ------------------------------------------------------------------ */
 
 import type { FsOps } from "../.pi/extensions/context-guard/checkpoint.ts";
+import { createHash } from "node:crypto";
 
 export interface MemoryFs extends FsOps {
   files: Map<string, string>;
@@ -262,6 +263,9 @@ export function createMemoryFs(initial: Record<string, string> = {}): MemoryFs {
       writes.push(p);
       return true;
     },
+    createExclusiveAtomic(p, content) {
+      return fs.createExclusive(p, content);
+    },
     exists(p) {
       return files.has(p);
     },
@@ -276,6 +280,14 @@ export function createMemoryFs(initial: Record<string, string> = {}): MemoryFs {
     listFiles(dir) {
       const prefix = dir.endsWith("/") ? dir : `${dir}/`;
       return [...files.keys()].filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length)).filter((k) => !k.includes("/"));
+    },
+    listFilesStrict(dir) {
+      const prefix = `${dir.replace(/\/$/, "")}/`;
+      return [...new Set([...files.keys()].filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length).split("/")[0]))];
+    },
+    hashFile(p) {
+      const content = files.get(p);
+      return content === undefined ? undefined : createHash("sha256").update(content, "utf8").digest("hex");
     },
     remove(p) {
       files.delete(p);

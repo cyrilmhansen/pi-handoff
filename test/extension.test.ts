@@ -473,7 +473,7 @@ test("D2: healthy inspect is concise by default and detailed diagnostics remain 
   await h.command("handoff", "ready");
   const tool = h.mockPi.tools.get("handoff_inspect");
   const brief = await tool.execute("inspect-brief", {}, undefined, undefined, h.mockCtx.ctx);
-  assert.match(brief.content[0].text, /^checkpoint current .*attested; renewal ready-now \(\d+\/\d+\)\./);
+  assert.match(brief.content[0].text, /^checkpoint current .*attested; renewal ready-now \(\d+\/\d+\); mission lifecycle legacy\./);
   assert.match(brief.content[0].text, /Mission\/scientific claims are not independently verified/);
   assert.doesNotMatch(brief.content[0].text, /recovery cost|changed sources|document ownership/i);
   const full = await tool.execute("inspect-full", { details: true }, undefined, undefined, h.mockCtx.ctx);

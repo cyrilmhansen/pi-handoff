@@ -388,10 +388,12 @@ try {
   await loser.command({ id: "loser-renew", type: "prompt", message: "/handoff renew loser must not persist" });
   await loser.command({ id: "loser-cycle", type: "prompt", message: "/handoff cycle plan" });
   await loser.command({ id: "loser-instance", type: "prompt", message: "/handoff instance status" });
+  await loser.command({ id: "loser-close-plan", type: "prompt", message: "/handoff instance close plan" });
   await new Promise((r) => setTimeout(r, 500));
   const loserTexts = loser.uiTexts().slice(loserStatusStart).join("\n");
   check("LOT G: losing real Pi process is told who owns the instance", /NOT HELD|not owned by this Pi process/.test(loserTexts) && new RegExp(`pid ${ownerRecord.pid}`).test(loserTexts), loserTexts.split("\n").find((line) => /ownership|NOT HELD/.test(line))?.slice(0, 220) ?? loserTexts.slice(0, 220));
   check("LOT G: losing real Pi process cannot checkpoint, attest, renew or start a document cycle", /not owned by this Pi process/.test(loserTexts) && /refused|read-only/.test(loserTexts));
+  check("LOT H: a non-owner cannot obtain a close approval for the selected instance", /close plan/.test(loserTexts) && /does not own the selected mission instance/.test(loserTexts) && !/approval fingerprint:/.test(loserTexts));
   check("LOT G: losing real Pi process leaves every selected-instance file and state byte-identical", JSON.stringify(manifest(sharedInstancePath)) === JSON.stringify(ownerFilesBeforeLoser) && JSON.stringify(fs.existsSync(sharedStatePath) ? manifest(sharedStatePath) : []) === JSON.stringify(ownerStateBeforeLoser) && JSON.stringify(sharedDocs.map((p) => fs.readFileSync(p, "utf8"))) === JSON.stringify(docsBefore));
 
   const parallel = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-parallel"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "parallel" }, label: "INSTANCE-PARALLEL" });
@@ -404,7 +406,31 @@ try {
   const restarted = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-restarted"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "shared" }, label: "INSTANCE-RESTARTED" });
   await awaitReady(restarted);
   check("LOT G: restart acquires the instance after normal owner exit", JSON.parse(fs.readFileSync(ownerPath, "utf8")).pid === restarted.child.pid);
+  await restarted.command({ id: "close-checkpoint", type: "prompt", message: "/handoff checkpoint close lifecycle e2e" });
+  await restarted.command({ id: "close-attest", type: "prompt", message: "/handoff ready" });
+  const closePlanStart = restarted.uiTexts().length;
+  await restarted.command({ id: "close-plan", type: "prompt", message: "/handoff instance close plan" });
+  const closePlanText = restarted.uiTexts().slice(closePlanStart).join("\n");
+  const closeHash = /approval fingerprint: ([a-f0-9]{64})/.exec(closePlanText)?.[1];
+  check("LOT H: real Pi close plan is read-only and exposes a state-bound approval", Boolean(closeHash) && /checkpoint: current;.*attestation=attested/.test(closePlanText), closePlanText.slice(-240));
+  const closeResponse = await restarted.command({ id: "close-confirm", type: "prompt", message: `/handoff instance close --confirm ${closeHash} --reason \"RPC lifecycle proof\"` });
+  await new Promise((r) => setTimeout(r, 300));
+  const closurePath = path.join(ownerTree, ".pi-handoff", "instances", "shared", "closure.json");
+  const seal = fs.existsSync(closurePath) ? JSON.parse(fs.readFileSync(closurePath, "utf8")) : null;
+  check("LOT H: real Pi confirms one immutable in-place closure record", closeResponse.success && seal?.missionId === "shared" && seal?.reason === "RPC lifecycle proof" && seal?.checkpoint?.attestation === "attested", JSON.stringify(seal && { missionId: seal.missionId, operationId: seal.operationId }));
   await restarted.shutdown();
+  check("LOT H: normal process shutdown releases the owner lock but retains closure", !fs.existsSync(ownerPath) && fs.existsSync(closurePath));
+  const sealedInstanceBeforeRead = manifest(sharedInstancePath);
+  const sealedStateBeforeRead = manifest(sharedStatePath);
+  const closedRead = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-closed-read"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "shared" }, label: "INSTANCE-CLOSED-READ" });
+  await awaitReady(closedRead);
+  await closedRead.command({ id: "closed-status", type: "prompt", message: "/handoff instance close status" });
+  await closedRead.command({ id: "closed-checkpoint", type: "prompt", message: "/handoff checkpoint must be refused" });
+  await closedRead.command({ id: "closed-instance-status", type: "prompt", message: "/handoff instance status" });
+  const closedTexts = closedRead.uiTexts().join("\n");
+  check("LOT H: real Pi restart reads the seal and rejects checkpoint writes", /mission closure CLOSED/.test(closedTexts) && /CLOSED and immutable/.test(closedTexts), closedTexts.split("\n").filter((line) => /closure|refused/.test(line)).slice(-2).join(" | "));
+  check("LOT H: closed-instance consultation leaves all instance/state bytes unchanged", JSON.stringify(manifest(sharedInstancePath)) === JSON.stringify(sealedInstanceBeforeRead) && JSON.stringify(manifest(sharedStatePath)) === JSON.stringify(sealedStateBeforeRead));
+  await closedRead.shutdown();
   }
 
   // ---- optional: ONE minimal real turn (spends inference; off by default) ----
