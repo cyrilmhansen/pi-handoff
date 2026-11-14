@@ -13,9 +13,10 @@
  *
  * Required: Q3_BASE_URL and Q3_MODEL matching a loaded /v1/models entry.
  * Optional: Q3_MAX_OUTPUT (default 2048; per completion), Q3_RUN (default all).
- * Live budget: R1 max 4 inference prompts / 10 completions / 20,480 output tokens;
- * D1 max 3 stages / 6 completions / 12,288 output tokens. Provider usage is
- * measured from session records where available; the configured max is per response.
+ * Planned budget: R1 max 4 prompts / 10 completions / 20,480 output tokens; D1
+ * max 3 stages / 6 completions / 12,288 output tokens. The 2048 maxTokens setting
+ * is per response. Aggregate completions/tokens are measured after a settled phase
+ * where the session record exposes them; the aggregate plan is not a live kill switch.
  * The provider context is physically capped by its advertised context length.
  */
 
@@ -52,7 +53,7 @@ if (process.env.GUARD_E2E_KEEP === "1") {
   console.error("Q3 does not retain temporary trees; preserve evidence in its report instead.");
   process.exit(2);
 }
-const requested = new Set(RUN.split(",").map((x) => x.trim()).filter(Boolean));
+const requested = new Set(RUN === "all" ? ["r1", "r2", "d1", "m1"] : RUN.split(",").map((x) => x.trim()).filter(Boolean));
 if ([...requested].some((x) => !["preflight", "r1", "r2", "d1", "m1"].includes(x))) throw new Error(`unknown Q3 phase: ${RUN}`);
 
 // Put every nested ArtifactTracker directory below this task-owned /tmp/atlas root.
@@ -66,7 +67,9 @@ tracker.installHandlers();
 let root = "";
 let agentDir = "";
 let projectR1 = "";
+let projectR2 = "";
 let projectD1 = "";
+let failureArtifactRoot = "";
 let activeRpc = null;
 let modelInfo = null;
 let r1Outcome = { autonomous: "UNTESTED", operator: "UNTESTED", successor: "UNTESTED" };
@@ -75,23 +78,46 @@ let r2Outcome = { missing: "UNTESTED", corrupt: "UNTESTED" };
 let m1Outcome = "UNTESTED";
 const observations = { sourceCommit: null, runtime: null, model: null, compaction: null, budgets: null, r1: {}, r2: {}, d1: {}, m1: {} };
 
-function preserveFailedPhase(phase, project, agent, error) {
+function preserveFailedPhase(phase, project, error) {
   if (!project || !fs.existsSync(project)) return;
-  const parent = path.join(REPO, "docs/qualification/q3-live-artifacts");
-  fs.mkdirSync(parent, { recursive: true });
-  const target = path.join(parent, `${phase}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`);
-  fs.mkdirSync(target, { recursive: false });
-  fs.cpSync(project, path.join(target, "project"), { recursive: true, dereference: false });
-  if (agent && fs.existsSync(agent)) fs.cpSync(agent, path.join(target, "agent"), { recursive: true, dereference: false });
-  writeJson(path.join(target, "failure.json"), {
+  failureArtifactRoot ||= fs.mkdtempSync(path.join("/var/tmp", `atlas-q3-failures-${process.pid}-`));
+  const target = path.join(failureArtifactRoot, `${phase}-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`);
+  fs.mkdirSync(target, { recursive: false, mode: 0o700 });
+  const missionId = phase === "d1" ? "q3-doc" : phase === "r1" ? "q3-r1" : "q3-r1";
+  const candidates = [
+    "handoff.config.json",
+    `.pi-handoff/instances/${missionId}/mission.json`,
+    `.pi-handoff/instances/${missionId}/HANDOFF.md`,
+    `.pi-handoff/instances/${missionId}/PROGRESS.md`,
+    `.pi-handoff/instances/${missionId}/LEARNINGS.md`,
+    `.pi-guard/q3/instances/${missionId}/renewal-state.json`,
+    `.pi-guard/q3/instances/${missionId}/documentation-cycle/state.json`,
+  ];
+  const hashes = Object.fromEntries(candidates.flatMap((rel) => {
+    const full = path.join(project, rel);
+    return fs.existsSync(full) && fs.statSync(full).isFile() ? [[rel, hash(fs.readFileSync(full))]] : [];
+  }));
+  let cycleState;
+  const cyclePath = path.join(project, `.pi-guard/q3/instances/${missionId}/documentation-cycle/state.json`);
+  if (fs.existsSync(cyclePath)) {
+    try {
+      const value = readJson(cyclePath);
+      cycleState = { phase: value.phase, cycleId: value.cycleId, baseRevision: value.baseRevision, baseFingerprint: value.baseFingerprint, goalFingerprint: value.goalFingerprint, updatedAt: value.updatedAt, planFile: value.planFile };
+    } catch { cycleState = { corrupt: true }; }
+  }
+  fs.writeFileSync(path.join(target, "trace.json"), JSON.stringify({
     sourceCommit: BASE,
     phase,
     runtime: observations.runtime,
     model: observations.model,
     budgets: observations.budgets,
-    error: String(error instanceof Error ? error.stack ?? error.message : error),
-  });
-  console.log(`Q3_PRESERVED_FAILURE_ARTIFACTS ${path.relative(REPO, target)}`);
+    errorClass: error instanceof Error ? error.name : "Error",
+    errorCategory: /timeout/i.test(String(error?.message ?? error)) ? "timeout" : /refus|unavailable|corrupt/i.test(String(error?.message ?? error)) ? "refusal-or-state" : "other",
+    rpcTrace: observations[phase]?.rpcTrace ?? [],
+    stateFileHashes: hashes,
+    documentationCycle: cycleState,
+  }, null, 2) + "\n", { mode: 0o600 });
+  console.log(`Q3_PRESERVED_FAILURE_ARTIFACTS ${target}`);
 }
 
 function readJson(p) { return JSON.parse(fs.readFileSync(p, "utf8")); }
@@ -196,15 +222,38 @@ function piArgs(project, options = {}) {
 function startPi(project, options = {}) {
   const child = tracker.trackChild(spawn("bwrap", piArgs(project, options), { cwd: "/", env: { PATH: "/usr/local/bin:/usr/bin:/bin", LANG: "C.UTF-8" }, stdio: ["pipe", "pipe", "pipe"] }));
   const records = [];
+  const trace = [];
   const waiters = [];
   const stderr = [];
+  const processStartedAt = performance.now();
+  let firstStreamingEvent = false;
+  const traceEvent = (event, fields = {}) => trace.push({ event, elapsedMs: Math.round(performance.now() - processStartedAt), ...fields });
   let buffer = "";
   child.stdout.on("data", (chunk) => {
     buffer += String(chunk);
     let end;
     while ((end = buffer.indexOf("\n")) >= 0) {
       const line = buffer.slice(0, end).replace(/\r$/, ""); buffer = buffer.slice(end + 1);
-      try { records.push(JSON.parse(line)); for (const wake of waiters.splice(0)) wake(); } catch {}
+      try {
+        const record = JSON.parse(line);
+        records.push(record);
+        if (record.type !== "response") {
+          const event = { type: record.type };
+          if (record.type === "message_start" || record.type === "message_end") event.role = record.message?.role;
+          if (record.type === "message_update") {
+            event.streamEvent = record.assistantMessageEvent?.type;
+            const usage = record.usage;
+            if (usage) event.usage = { input: usage.input, output: usage.output, totalTokens: usage.totalTokens };
+            if (!firstStreamingEvent) { firstStreamingEvent = true; traceEvent("first_stream_event", { streamEvent: event.streamEvent }); }
+          }
+          if (record.type === "tool_execution_start" || record.type === "tool_execution_end") event.toolName = record.toolName;
+          if (record.type === "agent_settled") event.aborted = record.aborted;
+          if (record.type === "agent_end") event.willRetry = record.willRetry;
+          if (record.type === "extension_ui_request") event.method = record.method;
+          traceEvent("pi_event", event);
+        }
+        for (const wake of waiters.splice(0)) wake();
+      } catch {}
     }
   });
   child.stderr.on("data", (x) => stderr.push(String(x)));
@@ -224,8 +273,16 @@ function startPi(project, options = {}) {
   const request = async (type, extra = {}, timeoutMs = 60000) => {
     const id = `q3-${++nextId}-${randomUUID().slice(0, 8)}`;
     const start = records.length;
+    traceEvent("rpc_request_sent", { id, command: type, timeoutMs });
     send({ id, type, ...extra });
-    return await waitFor((r) => r.type === "response" && r.id === id, timeoutMs, `RPC ${type}`, start);
+    try {
+      const response = await waitFor((r) => r.type === "response" && r.id === id, timeoutMs, `RPC ${type}`, start);
+      traceEvent("rpc_response_received", { id, command: type, success: response.success, disposition: response.data?.disposition });
+      return response;
+    } catch (error) {
+      traceEvent("rpc_timeout", { id, command: type, timeoutMs, processAlive: child.exitCode === null && child.signalCode === null });
+      throw error;
+    }
   };
   const texts = () => records.filter((r) => r.type === "extension_ui_request" && ["notify", "terminal"].includes(r.method)).map((r) => String(r.message ?? r.text ?? ""));
   const command = async (text, pattern, timeoutMs = 60000) => {
@@ -244,8 +301,24 @@ function startPi(project, options = {}) {
     const settled = records.filter((r) => r.type === "agent_settled").length;
     const response = await request("prompt", { message }, timeoutMs);
     if (!response.success || response.data?.disposition !== "started") throw new Error(`inference was not started: ${JSON.stringify(response.data ?? response.error)}`);
-    await waitFor((r) => r.type === "agent_settled" && records.filter((x) => x.type === "agent_settled").length > settled, timeoutMs, "model turn settle");
+    traceEvent("model_turn_accepted", { disposition: response.data.disposition });
+    try {
+      await waitFor((r) => r.type === "agent_settled" && records.filter((x) => x.type === "agent_settled").length > settled, timeoutMs, "model turn settle");
+    } catch (error) {
+      const diagnostics = await diagnosticSnapshot();
+      error.q3Diagnostics = diagnostics;
+      throw error;
+    }
     return response;
+  };
+  const diagnosticSnapshot = async () => {
+    let currentState = null;
+    let stateError = null;
+    try {
+      const response = await request("get_state", {}, 2500);
+      currentState = response.success ? { isStreaming: response.data?.isStreaming, isCompacting: response.data?.isCompacting, messageCount: response.data?.messageCount, sessionId: response.data?.sessionId } : null;
+    } catch (error) { stateError = String(error.message ?? error); }
+    return { processAlive: child.exitCode === null && child.signalCode === null, exitCode: child.exitCode, signalCode: child.signalCode, state: currentState, stateError, trace: [...trace], stderrClass: /401|unauthorized|api.?key/i.test(stderr.join("")) ? "authentication" : /ECONNREFUSED|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(stderr.join("")) ? "transport" : stderr.length ? "other" : "empty" };
   };
   const shutdown = async () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
@@ -256,7 +329,7 @@ function startPi(project, options = {}) {
   };
   const sessionText = async (st) => fs.readFileSync(sourceSessionPath(st.sessionFile), "utf8");
   const lastText = async () => (await request("get_last_assistant_text")).data?.text ?? "";
-  return { child, records, stderr, send, waitFor, request, command, state, infer, shutdown, texts, sessionText, lastText, label: options.id ?? "bootstrap" };
+  return { child, records, trace, stderr, send, waitFor, request, command, state, infer, shutdown, texts, sessionText, lastText, diagnosticSnapshot, label: options.id ?? "bootstrap" };
 }
 
 async function rpcReady(rpc) {
@@ -424,13 +497,14 @@ async function runR1() {
 }
 
 async function runR2() {
-  if (!projectR1) {
-    // R2 is independently runnable without repeating the paid R1 campaign. Build a
+  if (!projectR2) {
+    // R2 is independently runnable without depending on R1's partial project or
+    // repeating its paid campaign. Build a
     // fresh Q2-bootstrapped source and attest a checkpoint using operator RPC only.
     prepareAgent("agent-r2-source");
-    projectR1 = await cloneProject("r2-source");
-    setupProject(projectR1, "q3-r1", { maxRenewals: 2 });
-    const sourceRpc = await createMission(projectR1, "q3-r1", 2, false); activeRpc = sourceRpc;
+    projectR2 = await cloneProject("r2-source");
+    setupProject(projectR2, "q3-r2", { maxRenewals: 2 });
+    const sourceRpc = await createMission(projectR2, "q3-r2", 2, false); activeRpc = sourceRpc;
     await sourceRpc.command("/handoff checkpoint Q3 R2 isolated source fixture", /context-guard \/handoff:/);
     await sourceRpc.command("/handoff ready", /attested|READY/);
     await sourceRpc.command("/handoff verify");
@@ -441,15 +515,15 @@ async function runR2() {
   }
   const missing = path.join(root, "r2-missing");
   const corrupt = path.join(root, "r2-corrupt");
-  fs.cpSync(projectR1, missing, { recursive: true, dereference: false });
-  fs.cpSync(projectR1, corrupt, { recursive: true, dereference: false });
-  const docsPaths = [".pi-handoff/instances/q3-r1/HANDOFF.md", ".pi-handoff/instances/q3-r1/PROGRESS.md"];
+  fs.cpSync(projectR2, missing, { recursive: true, dereference: false });
+  fs.cpSync(projectR2, corrupt, { recursive: true, dereference: false });
+  const docsPaths = [".pi-handoff/instances/q3-r2/HANDOFF.md", ".pi-handoff/instances/q3-r2/PROGRESS.md"];
   for (const p of docsPaths) fs.chmodSync(path.join(missing, p), 0o644);
-  const missState = chainPath(missing, "q3-r1");
+  const missState = chainPath(missing, "q3-r2");
   const beforeMissingDocs = docsPaths.map((p) => fs.readFileSync(path.join(missing, p), "utf8"));
   fs.unlinkSync(missState);
   prepareAgent("agent-r2-missing");
-  const rpc = startPi(missing, { id: "q3-r1" }); activeRpc = rpc; const st = await rpcReady(rpc);
+  const rpc = startPi(missing, { id: "q3-r2" }); activeRpc = rpc; const st = await rpcReady(rpc);
   await rpc.command("/handoff renew Q3 missing-state refusal", /renewal NOT performed|state-unavailable|MUTATIONS REFUSED/);
   const afterSt = await rpc.state();
   const missingUntouched = !fs.existsSync(missState) && docsPaths.every((p, i) => fs.readFileSync(path.join(missing, p), "utf8") === beforeMissingDocs[i]) && afterSt.sessionId === st.sessionId;
@@ -458,12 +532,12 @@ async function runR2() {
   observations.r2.missingDiagnostic = rpc.texts().filter((t) => /renewal|state unavailable|state-unavailable/i.test(t)).slice(-3);
   await rpc.shutdown(); activeRpc = null;
 
-  const corruptState = chainPath(corrupt, "q3-r1");
+  const corruptState = chainPath(corrupt, "q3-r2");
   const badBytes = "{\"version\":1,\"renewalsDone\":0,\"broken\":true}\n";
   fs.writeFileSync(corruptState, badBytes);
   const docsBefore = docsPaths.map((p) => fs.readFileSync(path.join(corrupt, p), "utf8"));
   prepareAgent("agent-r2-corrupt");
-  const rpc2 = startPi(corrupt, { id: "q3-r1" }); activeRpc = rpc2; const st2 = await rpcReady(rpc2);
+  const rpc2 = startPi(corrupt, { id: "q3-r2" }); activeRpc = rpc2; const st2 = await rpcReady(rpc2);
   await rpc2.command("/handoff renew Q3 corrupt-state refusal", /renewal NOT performed|state-unavailable|MUTATIONS REFUSED/);
   const after2 = await rpc2.state();
   const corruptUntouched = fs.readFileSync(corruptState, "utf8") === badBytes && docsPaths.every((p, i) => fs.readFileSync(path.join(corrupt, p), "utf8") === docsBefore[i]) && after2.sessionId === st2.sessionId;
@@ -654,7 +728,7 @@ try {
   observations.runtime = { node: process.version, pi: await capture("pi", ["--version"]) };
   await verifyProvider();
   root = tracker.createTempDir("artifacts-");
-  observations.budgets = { R1: { maxPrompts: 4, maxCompletions: 10, maxOutputTokens: 10 * MODEL_MAX }, D1: { maxStages: 3, maxCompletions: 6, maxOutputTokens: 6 * MODEL_MAX }, modelMaxOutputPerCompletion: MODEL_MAX, contextLength: modelInfo.context_length };
+  observations.budgets = { nature: "planned aggregate limits; per-response maxTokens is enforced, cumulative usage is measured only after settlement and is not a live kill switch", R1: { maxPrompts: 4, maxCompletions: 10, maxOutputTokens: 10 * MODEL_MAX }, D1: { maxStages: 3, maxCompletions: 6, maxOutputTokens: 6 * MODEL_MAX }, modelMaxOutputPerCompletion: MODEL_MAX, contextLength: modelInfo.context_length };
   console.log(`Q3_BUDGET_BEFORE_INFERENCE ${JSON.stringify(observations.budgets)}`);
   if (requested.has("preflight")) {
     prepareAgent("agent-preflight");
@@ -671,9 +745,11 @@ try {
     catch (error) {
       if (r1Outcome.autonomous === "UNTESTED" && /autonomous|renewal outcome|renewal refused|tool/.test(String(error))) r1Outcome.autonomous = "FAIL";
       observations.r1.error = error instanceof Error ? error.message : String(error);
+      observations.r1.rpcTrace = error?.q3Diagnostics?.trace ?? activeRpc?.trace ?? [];
+      observations.r1.timeoutState = error?.q3Diagnostics ?? (activeRpc ? await activeRpc.diagnosticSnapshot().catch(() => null) : null);
       console.error(`Q3_R1_PARTIAL ${JSON.stringify(observations.r1)}`);
       if (activeRpc) { await activeRpc.shutdown().catch(() => {}); activeRpc = null; }
-      try { preserveFailedPhase("r1", projectR1, agentDir, error); } catch (saveError) { console.error(`Q3_R1_EVIDENCE_COPY_FAILED ${saveError instanceof Error ? saveError.message : String(saveError)}`); }
+      try { preserveFailedPhase("r1", projectR1, error); } catch (saveError) { console.error(`Q3_R1_EVIDENCE_COPY_FAILED ${saveError instanceof Error ? saveError.message : String(saveError)}`); }
     }
   }
   if (requested.has("r2")) {
@@ -681,20 +757,32 @@ try {
     catch (error) { observations.r2.error = error instanceof Error ? error.message : String(error); console.error(`Q3_R2_PARTIAL ${JSON.stringify(observations.r2)}`); if (activeRpc) { await activeRpc.shutdown().catch(() => {}); activeRpc = null; } }
   }
   if (requested.has("m1")) {
+    // Never seal or publish from an incomplete/failed R1 mission. Use the
+    // deterministic completed-work fixture unless every R1 live stage passed.
+    if (![r1Outcome.autonomous, r1Outcome.operator, r1Outcome.successor].every((status) => status === "PASS")) projectR1 = "";
     try { await closeAndPublish(); }
-    catch (error) { m1Outcome = "FAIL"; observations.m1.error = error instanceof Error ? error.message : String(error); console.error(`Q3_M1_PARTIAL ${JSON.stringify(observations.m1)}`); if (activeRpc) { await activeRpc.shutdown().catch(() => {}); activeRpc = null; } try { preserveFailedPhase("m1", projectR1, agentDir, error); } catch (saveError) { console.error(`Q3_M1_EVIDENCE_COPY_FAILED ${saveError instanceof Error ? saveError.message : String(saveError)}`); } }
+    catch (error) { m1Outcome = "FAIL"; observations.m1.error = error instanceof Error ? error.message : String(error); observations.m1.rpcTrace = activeRpc?.trace ?? []; observations.m1.timeoutState = activeRpc ? await activeRpc.diagnosticSnapshot().catch(() => null) : null; console.error(`Q3_M1_PARTIAL ${JSON.stringify(observations.m1)}`); if (activeRpc) { await activeRpc.shutdown().catch(() => {}); activeRpc = null; } try { preserveFailedPhase("m1", projectR1, error); } catch (saveError) { console.error(`Q3_M1_EVIDENCE_COPY_FAILED ${saveError instanceof Error ? saveError.message : String(saveError)}`); } }
   }
-  else if (requested.has("m1")) { m1Outcome = "UNTESTED"; console.log("UNTESTED M1: R1 did not reach a coherent operator-renewed state."); }
   if (requested.has("d1")) {
     try { await runD1(); }
-    catch (error) { if (d1Outcome === "UNTESTED" && /model proposed|malformed plan/.test(String(error))) d1Outcome = "FAIL"; observations.d1.error ??= error instanceof Error ? error.message : String(error); console.error(`Q3_D1_PARTIAL ${JSON.stringify(observations.d1)}`); if (activeRpc) { await activeRpc.shutdown().catch(() => {}); activeRpc = null; } try { preserveFailedPhase("d1", projectD1, agentDir, error); } catch (saveError) { console.error(`Q3_D1_EVIDENCE_COPY_FAILED ${saveError instanceof Error ? saveError.message : String(saveError)}`); } }
+    catch (error) { if (d1Outcome === "UNTESTED" && /model proposed|malformed plan/.test(String(error))) d1Outcome = "FAIL"; observations.d1.error ??= error instanceof Error ? error.message : String(error); observations.d1.rpcTrace = activeRpc?.trace ?? []; observations.d1.timeoutState = activeRpc ? await activeRpc.diagnosticSnapshot().catch(() => null) : null; console.error(`Q3_D1_PARTIAL ${JSON.stringify(observations.d1)}`); if (activeRpc) { await activeRpc.shutdown().catch(() => {}); activeRpc = null; } try { preserveFailedPhase("d1", projectD1, error); } catch (saveError) { console.error(`Q3_D1_EVIDENCE_COPY_FAILED ${saveError instanceof Error ? saveError.message : String(saveError)}`); } }
   }
   observations.r1Outcome = r1Outcome;
   observations.r2Outcome = r2Outcome;
   observations.d1Outcome = d1Outcome;
   observations.m1Outcome = m1Outcome;
+  const completeSetRequested = ["r1", "r2", "d1", "m1"].every((phase) => requested.has(phase));
+  const requiredStatuses = [
+    r1Outcome.autonomous, r1Outcome.operator, r1Outcome.successor,
+    r2Outcome.missing, r2Outcome.corrupt, d1Outcome, m1Outcome,
+  ];
+  const hasFailure = requiredStatuses.includes("FAIL");
+  const allPass = requiredStatuses.every((status) => status === "PASS");
+  observations.overallQualification = !completeSetRequested ? "UNTESTED" : hasFailure || !allPass ? "BLOCKED" : "PASS";
+  if (!completeSetRequested) observations.overallQualificationReason = "partial Q3_RUN; required A–I live qualification remains untested";
+  else if (!allPass) observations.overallQualificationReason = "one or more required phases failed or remained UNTESTED";
   console.log(`Q3_RESULT ${JSON.stringify(observations)}`);
-  if (Object.values(r2Outcome).includes("FAIL") || r1Outcome.autonomous === "FAIL" || r1Outcome.operator === "FAIL" || r1Outcome.successor === "FAIL" || d1Outcome === "FAIL" || m1Outcome === "FAIL") exitCode = 1;
+  if (hasFailure || (completeSetRequested && observations.overallQualification !== "PASS")) exitCode = 1;
 } catch (error) {
   exitCode = 1;
   observations.error = error instanceof Error ? error.stack ?? error.message : String(error);
@@ -702,7 +790,9 @@ try {
   observations.r2Outcome = r2Outcome;
   observations.d1Outcome = d1Outcome;
   observations.m1Outcome = m1Outcome;
-  observations.budgets = { R1: { maxPrompts: 4, maxCompletions: 10, maxOutputTokens: 10 * MODEL_MAX }, D1: { maxStages: 3, maxCompletions: 6, maxOutputTokens: 6 * MODEL_MAX }, modelMaxOutputPerCompletion: MODEL_MAX, contextLength: modelInfo?.context_length ?? null };
+  observations.overallQualification = ["r1", "r2", "d1", "m1"].every((phase) => requested.has(phase)) ? "BLOCKED" : "UNTESTED";
+  observations.overallQualificationReason = "a required phase did not complete; no partial run is a Q3 qualification PASS";
+  observations.budgets = { nature: "planned aggregate limits, not a live kill switch", R1: { maxPrompts: 4, maxCompletions: 10, maxOutputTokens: 10 * MODEL_MAX }, D1: { maxStages: 3, maxCompletions: 6, maxOutputTokens: 6 * MODEL_MAX }, modelMaxOutputPerCompletion: MODEL_MAX, contextLength: modelInfo?.context_length ?? null };
   console.error(`Q3_PARTIAL ${JSON.stringify(observations)}`);
 } finally {
   if (activeRpc) await activeRpc.shutdown().catch(() => {});

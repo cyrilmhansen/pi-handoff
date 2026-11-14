@@ -48,7 +48,7 @@ Ces plafonds cumulés sont des limites du plan d'expérience, pas un coupe-circu
 
 Ancien `scripts/e2e-renew.mjs` inspecté mais **jamais lancé** : il cible le chemin historique, omet le bootstrap d'instance Q2, prévoit un fallback opérateur pour le parcours autonome et utilise `git add -A`.
 
-Conducteur ajouté : `node scripts/e2e-q3-live.mjs` (`Q3_RUN=preflight|r1|r2|d1|m1`, `Q3_BASE_URL`, `Q3_MODEL`). `preflight`, R2 et M1 sont sans inférence. Une exécution R1 et une exécution D1 ont été tentées, sans retry d'inférence. Le conducteur conserve désormais le clone et le répertoire agent sous `docs/qualification/q3-live-artifacts/` si une phase live future échoue; aucune preuve post-échec n'a été récupérée rétroactivement des deux runs initiaux.
+Conducteur ajouté : `node scripts/e2e-q3-live.mjs` (`Q3_RUN=preflight|r1|r2|d1|m1`, `Q3_BASE_URL`, `Q3_MODEL`). `preflight`, R2 et M1 sont sans inférence. Une exécution R1 et une exécution D1 ont été tentées, sans retry d'inférence. Le conducteur corrigé conserve désormais uniquement un rapport d'événements et de métadonnées expurgé, sous un répertoire unique à permissions restreintes dans `/var/tmp`; il ne conserve ni clone, ni transcript, ni arguments ou contenu des prompts. Aucune preuve post-échec n'a été récupérée rétroactivement des deux runs initiaux.
 
 Validation finale, exécutée séquentiellement hors Rune CI et hors inférence :
 
@@ -62,3 +62,52 @@ git diff --check                          PASS (rapport et conducteur inclus)
 ## Décision
 
 **BLOCKED** pour une qualification pré-déploiement intégrée : l'essai de renouvellement réel et le cycle documentaire avec inférence ne sont pas qualifiés, et Pi 1.4.0 est absent. R2, les mécanismes RPC 1.5.2 et le parcours fixture de clôture/publication ont réussi sans inférence, mais ne remplacent pas les transitions live requises. Ne pas utiliser ces résultats pour revendiquer un renouvellement autonome ou un parcours documentaire réel validé.
+
+## Q3-DIAG — 2026-11-14
+
+### Classification
+
+**INCONCLUSIVE** quant à la cause des expirations R1/D1 d'origine. Les éléments Q3-DIAG établissent que les deux transports testés ont progressé, mais les traces structurées des anciennes campagnes ont été supprimées par l'ancien conducteur. Elles ne permettent pas de déterminer jusqu'où R1 ou D1 était arrivé.
+
+Le premier diagnostic direct a reçu une réponse HTTP 200 et un flux SSE : en-têtes vers 1269 ms, premier chunk vers 1270 ms, fin vers 1272 ms. Il a épuisé `max_tokens=24` sans texte visible (`finish_reason=length`, 19 tokens d'entrée, 24 de sortie). La requête réellement exécutée n'incluait pas `reasoning_effort` et utilisait donc l'effort par défaut `medium` annoncé par Sushi; le contenu de pensée non visible n'a pas été capturé, donc la cause du plafond n'est pas établie. Ce résultat ne constitue pas une panne du provider. Le script livré explicite `reasoning_effort: "off"`, mais cette modification n'a pas été rejouée. Le test Pi, deuxième et dernière génération, a démarré et terminé un tour en Bubblewrap, mais n'a pas produit le texte visible attendu. Le harnais Pi de ce diagnostic n'avait pas le `thinkingLevelMap` explicite utilisé par les campagnes Q3 et sa limite de 24 tokens était volontairement très basse. L'attribution la plus précise est donc une **limitation du smoke test**, sans preuve d'une panne Sushi, Pi/RPC ou Handoff.
+
+Le premier diagnostic a aussi rencontré après le tour l'erreur de classification `directPassed is not defined`. Elle n'a pas affecté le dispatch ou la trace du tour, mais rendait son classement final défectueux. Cette erreur de harnais est corrigée dans le fichier livré. Aucune génération n'a été répétée pour valider le correctif.
+
+### Protocole RPC et séquence observée
+
+La documentation installée pour Pi **1.5.2** décrit la réponse RPC à `prompt` comme l'accusé de prise en charge du prompt, pas comme le résultat final du tour. `disposition: "handled"` signifie qu'aucun tour modèle n'a démarré. Les événements observables incluent notamment `agent_start`, `turn_start`, `message_start`, `message_update`, les événements d'exécution d'outil, `turn_end`, `agent_end` et `agent_settled`. `agent_end` n'est pas une preuve d'inactivité finale; `agent_settled` est l'événement de fin utile pour ce conducteur.
+
+Dans le smoke Pi, l'ordre enregistré était : requêtes `get_state` et `set_auto_retry` envoyées/répondues ; `prompt` envoyé puis répondu `success` avec `disposition: "started"` ; `agent_start` et `turn_start` environ 1,32 s après le début du conducteur ; `message_start` vers 3,69 s ; premier `message_update` vers 3,694 s ; mise à jour de pensée, `message_end`, `turn_end`, `agent_end(willRetry=false)` et `agent_settled(aborted=false)`. Le tour s'est achevé dans le délai de 30 s, sans `tool_execution_start`, sans compaction observée et sans erreur stderr. Pi a consommé 549 tokens d'entrée et 24 de sortie. Le processus est ensuite sorti avec code 0. Le premier événement de streaming était une mise à jour de pensée, sans contenu texte visible. Ces compteurs proviennent de l'usage du tour Pi, pas du budget théorique.
+
+Le diagnostic a ainsi observé un tour réel Pi RPC → Sushi → Pi terminé, pas une transition Handoff ni un successeur. Le message exact attendu (`Q3_SMOKE_OK`) n'a pas été observé. Le `thinkingLevelMap` a été ajouté au harnais après cette génération ; son comportement corrigé reste non testé.
+
+### Lecture des expirations R1/D1 historiques
+
+- **R1** : le conducteur Q3 historique attendait `agent_settled` jusqu'à expiration, puis détruisait son répertoire temporaire. Il n'avait pas conservé le transcript, l'événement de streaming, l'usage final, ni un instantané RPC de l'état au timeout. Aucun point précis d'arrêt ne peut être reconstitué. Le smoke Pi démontre seulement que le chemin RPC/Sushi minimal peut terminer un tour dans une autre session et avec une requête très courte.
+- **D1** : le conducteur attendait la réponse RPC de `/handoff cycle plan` avant d'attendre `agent_settled`. Son timeout concernait donc d'abord l'accusé de réception de la commande, pas directement un timeout modèle prouvé. Le code actuel persiste la phase `planning`, puis attend `ctx.newSession`; dans le callback de remplacement, il envoie une notification et attend `sendMessage(..., {triggerTurn:true})`. Le handler attend la fin de ce dispatch. Cet ordre rend plausible un délai du handler pendant le changement de session ou le déclenchement, mais faute d'événements/session/journaux D1 conservés, cela reste une hypothèse, pas une cause démontrée. Aucune planification n'a été approuvée, aucun `cycle continue` lancé.
+- Les anciens artefacts de session R1/D1 avaient été nettoyés; ils n'ont pas été reconstruits. Le transcript du smoke courant a lui aussi été retiré avec son dossier temporaire. Seuls les événements résumés ci-dessus sont conservés dans ce rapport. Sushi était servi par un proxy local `mitmdump -q`; aucun journal détaillé du proxy ou du serveur Sushi n'a été trouvé, hormis la disponibilité `/models` et les mesures de la requête directe.
+
+### Portée du diagnostic
+
+Deux générations courtes exactement ont été consommées : une requête directe au provider (20 s max, 24 tokens) et une requête Pi RPC sous Bubblewrap (30 s max, 24 tokens, retries désactivés, aucun outil). Pas de renouvellement, pas de nouvelle campagne R1/D1, aucune approbation et aucun `cycle continue`. La génération directe a eu lieu depuis l'hôte ; le test Pi a utilisé Bubblewrap. Aucun changement de modèle/provider, aucune inférence de secours.
+
+Le code de Handoff n'a pas été modifié : aucun défaut du cœur n'a été reproduit. Le conducteur Q3-DIAG ajoute des événements horodatés distincts pour l'envoi/réponse RPC, le cycle agent, le premier flux, les appels d'outils, le règlement et l'état du processus après expiration. Le conducteur Q3 live conserve pour les échecs futurs un artefact limité et expurgé (événements, empreintes et métadonnées de cycle; sans transcript, contenu de prompt, arguments d'outil ni clés). Une expiration ne devient pas un PASS et un `UNTESTED` obligatoire ne peut plus produire une qualification globale réussie. Les compteurs mesurés après règlement sont explicitement distingués des limites budgétaires planifiées, qui ne sont pas des coupe-circuits cumulatifs.
+
+Le conducteur isole maintenant R2 dans son propre projet même si R1 a laissé un projet partiel, et M1 utilise un fixture complété si les trois étapes R1 n'ont pas toutes réussi. Les suites déterministes/RPC ci-dessous ne consomment pas d'inférence et ne valident pas ces parcours live.
+
+### Suites sans inférence
+
+Les commandes ont été exécutées séquentiellement, hors Rune CI et sans inférence :
+
+```text
+node --test test/                         305 pass / 0 fail / 1 gated skip (306 total)
+node scripts/check-skill-discovery.mjs    8/8
+node scripts/e2e-rpc-two-process.mjs      60/60
+git diff --check                          PASS
+```
+
+Ces suites ne remplacent pas R1/D1 réel.
+
+### Décision
+
+La classification demeure **INCONCLUSIVE** : la progression s'est arrêtée après la réception/émission d'un tour Pi terminé dans le smoke minimal, mais cela ne localise pas l'arrêt des campagnes historiques. Le point exact R1 entre prompt, streaming et fin, ainsi que le point D1 entre dispatch de commande, changement de session et début du tour, restent impossibles à déterminer sans leurs traces originales. Le prochain essai éventuel devra utiliser le conducteur corrigé et une requête courte instrumentée avant toute campagne bornée ; cette qualification ne relance ni n'autorise les campagnes complètes.
