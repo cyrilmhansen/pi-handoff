@@ -1,10 +1,14 @@
 # context-guard — command, configuration and state reference
 
-Version reference: **v0.1.0-dev.4** plus Lot F mission-instance support (Pi 1.4.0).
-Historical D1–D9 details remain in the changelog; Rune CI service files remain external
-to this extension. `renewal.successorTurn: "user"` and the documentation-cycle workflow
-remain explicitly opt-in; real Sushi A/B and real-inference document-cycle validation
-have not been performed. Behavior details live in `PROTOCOL.md`.
+Feature reference: Lots A–I are integrated on `main@8caee04`; the version remains
+`v0.1.0-dev.4` because no release bump was made. Historical D1–D9 details remain in the
+changelog; Rune CI service files remain external to this extension.
+`renewal.successorTurn: "user"` and the documentation-cycle workflow remain explicitly
+opt-in; real Sushi A/B and real-inference document-cycle validation have not been
+performed. Q1 found that missing/corrupt renewal chain state can be treated as a new
+chain; pre-deployment status is **BLOCKED** pending fail-closed correction. Current
+installed Pi 1.5.2 passed the zero-inference RPC load; Pi 1.4.0 was unavailable for Q1.
+Behavior details live in `PROTOCOL.md` and the Q1 report.
 
 ## Commands (extension slash-commands; handled without a model turn)
 
