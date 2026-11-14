@@ -522,3 +522,49 @@ prevent arbitrary external programs, unrecognized third-party tools, or another 
 from directly editing files. Keep the instance selection fixed for the whole Pi process;
 changing it requires a restart. Ownership prevents concurrent Handoff authorization; it
 does not attest external filesystem writers or scientific results.
+
+## 13. Mission-instance closure (Lot H)
+
+Closing an explicitly selected mission is a separate, terminal lifecycle operation. It is
+not task completion, `/handoff finalize`, a Pi session renewal, a documentation-cycle
+continuation, process shutdown, or a renewal-chain reset. Legacy mode without a selected
+instance never seals project-root files.
+
+Review `/handoff instance close plan` first. The read-only plan reports the retained
+instance and state paths, current checkpoint and attestation, renewal-chain state,
+documentation-cycle phase, blockers, and an approval fingerprint over the inspected
+state. A normal close requires a current, attested checkpoint, but that attestation only
+proves Handoff readiness; it is not evidence of scientific success or software
+validation. A clean Git worktree is not required. Git revision is recorded for reference
+and does not participate in approval. Confirm with
+`/handoff instance close --confirm <fingerprint> --reason "..."`. Handoff rechecks the
+fingerprint and blockers and requires this process to still own the Lot G lock.
+
+The close record is created in place at
+`.pi-handoff/instances/<id>/closure.json`; it records schema version, mission/profile
+identity, operator reason, time and operation identity, SHA-256 hashes of mission and
+instance state files, checkpoint identity/attestation, terminal renewal state, and the
+informational Git revision. Files and histories are not moved, copied, deleted, or
+rewritten. An exclusive pending marker plus same-filesystem atomic no-replace publication
+prevents overwriting a prior seal. A crash or error that leaves `closure.pending`, an
+incomplete/corrupt record, or another ambiguous state is **uncertain**: the instance is
+read-only through Handoff. Preserve all bytes and inspect with
+`/handoff instance close status`; do not delete markers or retry by assumption. Quiesce
+all processes, make an external backup of both the instance and state directories, and
+have an operator inspect the exact files before any manual repair. If a complete closure
+record validates, all recorded hashes match, and the pending marker names the same
+operation, an operator may explicitly complete sealing by removing only that matching
+pending marker while all Pi processes are stopped; restart then reports `CLOSED`. If the
+record is absent, malformed, mismatched or its hashes differ, do not infer that closing
+was cancelled and do not clear the marker to reactivate the ID; preserve the backup and
+continue under a new instance ID. Handoff has no automatic repair or reactivation path.
+
+A valid closure permanently blocks Handoff mutations for that ID, including checkpoint,
+attestation, renewal, chain state, document-cycle state, and instance creation/reuse.
+Read-only inspection and audits remain available. `/handoff instance close status` checks
+the recorded file hashes and reports missing or externally changed files. This is a
+protocol guard, not filesystem immutability: external programs can still alter files, and
+such changes are reported rather than repaired. To resume an old objective, create a new
+instance ID and explicitly consult the old sealed record. New instances retain the
+project's shared code, protocol and evidence access, but start with their own empty
+operational documents and state; no Next action or LEARNINGS content is inherited.

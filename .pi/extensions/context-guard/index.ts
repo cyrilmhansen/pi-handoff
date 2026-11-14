@@ -99,6 +99,7 @@ import {
 } from "./diagnostics.ts";
 import { configForMissionInstance, createMissionInstance, instancePathIsSafe, missionChainId, readMissionInstanceProfile, validMissionInstanceId, validWorkProfileRef, workProfilePath } from "./mission-instance.ts";
 import { acquireInstanceLock, inspectInstanceLock, instanceLockPath, ownsInstanceLock, processSelectionIsStable, recoverAbandonedInstanceLock, releaseInstanceLock } from "./mission-lock.ts";
+import { inspectMissionClosure, makeMissionClosureRecord, missionClosurePaths, parseMissionClosure, prepareMissionClosure, type MissionClosureInspection, type MissionClosurePlan } from "./mission-lifecycle.ts";
 
 export const CUSTOM_TYPE = "context-guard";
 const MAX_OPERATOR_TASK_BYTES = 64 * 1024;
@@ -381,9 +382,171 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return details.join("\n");
   }
 
+  function missionClosureInspection(): MissionClosureInspection | undefined {
+    if (!g || g.config.missionInstance.id === null || !validMissionInstanceId(g.config.missionInstance.id)) return undefined;
+    return inspectMissionClosure(fs, g.cwd, g.config.missionInstance.id, resolvedStateDir(g));
+  }
+
+  function missionClosureMarkerExists(): boolean {
+    if (!g || g.config.missionInstance.id === null || !validMissionInstanceId(g.config.missionInstance.id)) return false;
+    const paths = missionClosurePaths(g.cwd, g.config.missionInstance.id);
+    return fs.exists(paths.closure) || fs.exists(paths.pending);
+  }
+
+  function closureMutationRefusal(): string | undefined {
+    if (!g || g.config.missionInstance.id === null || !missionClosureMarkerExists()) return undefined;
+    const inspection = missionClosureInspection();
+    if (inspection?.state === "closed") return "mission instance " + g.config.missionInstance.id + " is CLOSED and immutable through Handoff";
+    if (inspection?.state === "changed") return "mission instance " + g.config.missionInstance.id + " is CLOSED; sealed files changed externally (" + inspection.changed.slice(0, 4).join(", ") + ")";
+    return "mission instance " + g.config.missionInstance.id + " has an uncertain closure record; it remains immutable through Handoff pending explicit operator inspection";
+  }
+
+  function prepareMissionClosePlan(): MissionClosurePlan | undefined {
+    if (!g || g.config.missionInstance.id === null) return undefined;
+    const instanceId = g.config.missionInstance.id;
+    const cycleLock = joinPath(resolvedStateDir(g), "documentation-cycle/transition.lock");
+    return prepareMissionClosure({
+      fs,
+      cwd: g.cwd,
+      missionId: instanceId,
+      stateDir: resolvedStateDir(g),
+      checkpoint: validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME),
+      renewalMax: g.config.renewal.maxRenewals,
+      gitRevision: gitHeadRevision() ?? undefined,
+      ownsLock: hasInstanceOwnership(),
+      readOnly: g.config.readOnly || g.readOnlyRequested,
+      stateCorrupted: g.stateCorrupted,
+      renewalBusy: renewalRuntime.pending !== null || renewalRuntime.running || renewalRuntime.toolScheduled,
+      cycleBusy: documentationCycleRunning || fs.exists(cycleLock),
+    });
+  }
+
+  function missionCloseReport(plan: MissionClosurePlan): string {
+    const inspection = missionClosureInspection();
+    const lines = [
+      "mission close plan: " + plan.missionId,
+      "  lifecycle: " + (inspection?.state ?? "unknown") + (inspection ? " — " + inspection.detail : ""),
+      "  retain in place: " + plan.missionRoot + " (manifest, operational documents, results/references) and " + plan.stateRoot + " (checkpoint/session and renewal history)",
+      "  checkpoint: " + plan.checkpoint.state + "; id=" + (plan.checkpoint.id ?? "none") + "; attestation=" + plan.checkpoint.attestation,
+      "  renewal chain: " + (plan.renewalState.chainId || "not initialized") + "; renewals=" + plan.renewalState.renewalsDone + "/" + plan.renewalMax + "; stopped=" + plan.renewalState.stopped,
+      "  documentation cycle: " + plan.cyclePhase,
+      "  Git revision (informational only): " + (plan.gitRevision ?? "unavailable") + "; worktree cleanliness is not required",
+    ];
+    if (plan.blockers.length) lines.push("  blockers:\n" + plan.blockers.map((item) => "    - " + item).join("\n"));
+    else lines.push("  approval fingerprint: " + plan.fingerprint, '  confirm with /handoff instance close --confirm ' + plan.fingerprint + ' --reason "<operator reason>"');
+    lines.push("  checkpoint attestation covers recovery integrity only; it does not validate scientific or software results.");
+    return lines.join("\n");
+  }
+
+  function parseCloseConfirmation(raw: string): { fingerprint: string; reason: string } | { error: string } {
+    const match = /^\s*--confirm\s+([a-f0-9]{64})\s+--reason\s+([\s\S]+?)\s*$/i.exec(raw);
+    if (!match) return { error: 'usage: /handoff instance close --confirm <fingerprint> --reason "operator reason"' };
+    let reason = match[2].trim();
+    if ((reason.startsWith('"') && reason.endsWith('"')) || (reason.startsWith("'") && reason.endsWith("'"))) reason = reason.slice(1, -1);
+    if (!reason.trim()) return { error: "closure reason must not be empty" };
+    return { fingerprint: match[1].toLowerCase(), reason };
+  }
+
+  function handleMissionClose(rawArgs: string, ctx: ExtensionContext): void {
+    if (!g || g.config.missionInstance.id === null) {
+      notify(ctx, "mission close requires an explicitly selected mission instance; legacy project mode is unchanged", "warning");
+      return;
+    }
+    const command = rawArgs.trim();
+    if (command === "plan" || command === "inspect" || command === "status") {
+      const inspection = missionClosureInspection();
+      if (inspection && inspection.state !== "active") {
+        const tail = inspection.state === "changed" ? "\n  changed/missing: " + inspection.changed.join(", ") : "";
+        const record = inspection.record;
+        notify(ctx, "mission closure " + inspection.state.toUpperCase() + ": " + inspection.detail +
+          (record ? "\n  closed " + record.closedAt + "; reason: " + record.reason + "; operation " + record.operationId : "") +
+          tail + "\n  Preserve all bytes. If the closure is corrupt or uncertain, do not remove it to reactivate this ID; create a new mission instance for further work.",
+          inspection.state === "closed" ? "info" : "warning");
+        return;
+      }
+      const plan = prepareMissionClosePlan();
+      if (!plan) return;
+      notify(ctx, missionCloseReport(plan), plan.blockers.length ? "warning" : "info");
+      return;
+    }
+
+    const confirmation = parseCloseConfirmation(command);
+    if ("error" in confirmation) { notify(ctx, confirmation.error, "warning"); return; }
+    const paths = missionClosurePaths(g.cwd, g.config.missionInstance.id);
+    const existingRaw = fs.readFile(paths.closure);
+    if (existingRaw !== undefined) {
+      const existing = parseMissionClosure(existingRaw, g.config.missionInstance.id);
+      if (existing?.operationId === "close:" + confirmation.fingerprint && existing.reason === confirmation.reason) {
+        const inspection = missionClosureInspection();
+        notify(ctx, "mission instance " + g.config.missionInstance.id + " is already sealed by this exact operation; no file was rewritten. Integrity: " +
+          (inspection?.state ?? "unknown") + " (" + (inspection?.detail ?? "not inspected") + ").", inspection?.state === "closed" ? "info" : "warning");
+      } else notify(ctx, "mission close refused: closure.json already exists; it was preserved and never overwritten. Inspect /handoff instance close status.", "warning");
+      return;
+    }
+
+    const plan = prepareMissionClosePlan();
+    if (!plan) return;
+    if (plan.fingerprint !== confirmation.fingerprint) {
+      notify(ctx, "mission close refused: approval is stale; current fingerprint is " + plan.fingerprint + ". Review /handoff instance close plan again.", "warning");
+      return;
+    }
+    if (plan.blockers.length) {
+      notify(ctx, "mission close refused; no closure record was created:\n" + plan.blockers.map((item) => "- " + item).join("\n"), "warning");
+      return;
+    }
+    const rechecked = prepareMissionClosePlan();
+    if (!rechecked || rechecked.fingerprint !== plan.fingerprint || rechecked.blockers.length) {
+      notify(ctx, "mission close refused: state changed or became blocked during final recheck; no closure record was created. Review a fresh plan.", "warning");
+      return;
+    }
+    const record = makeMissionClosureRecord(rechecked, confirmation.reason);
+    const closureBytes = JSON.stringify(record, null, 2) + "\n";
+    const pendingBytes = JSON.stringify({ schema: 1, missionId: record.missionId, operationId: record.operationId, fingerprint: record.sourceFingerprint }) + "\n";
+    try {
+      if (!fs.createExclusive || !fs.createExclusive(paths.pending, pendingBytes)) {
+        notify(ctx, "mission close refused: a pending marker already exists or exclusive creation is unavailable; preserve it and inspect explicitly.", "warning");
+        return;
+      }
+      if (!fs.createExclusiveAtomic || !fs.createExclusiveAtomic(paths.closure, closureBytes)) {
+        g.config = { ...g.config, readOnly: true };
+        notify(ctx, "mission close outcome is uncertain; the pending marker was preserved and no cleanup or retry was performed. Inspect /handoff instance close status.", "error");
+        return;
+      }
+      const createdRaw = fs.readFile(paths.closure);
+      const verify = prepareMissionClosePlan();
+      const unrelatedBlockers = verify?.blockers.filter((item) => item !== "a prior mission-close attempt left an uncertain pending marker") ?? ["final verification failed"];
+      if (createdRaw !== closureBytes || !verify || verify.fingerprint !== rechecked.fingerprint || unrelatedBlockers.length > 0) {
+        g.config = { ...g.config, readOnly: true };
+        notify(ctx, "mission close outcome is uncertain after exclusive publication; closure and pending bytes were preserved. No files were rewritten.", "error");
+        return;
+      }
+      if (fs.readFile(paths.pending) !== pendingBytes) {
+        g.config = { ...g.config, readOnly: true };
+        notify(ctx, "mission close outcome is uncertain: the pending marker changed during publication and was preserved.", "error");
+        return;
+      }
+      fs.remove(paths.pending);
+    } catch (err) {
+      if (fs.exists(paths.pending) || fs.exists(paths.closure)) g.config = { ...g.config, readOnly: true };
+      const inspection = missionClosureInspection();
+      notify(ctx, "mission close outcome is uncertain; no cleanup or retry was performed. Preserve closure artifacts and inspect explicitly (" +
+        (inspection?.state ?? "unknown") + "; " + (err instanceof Error ? err.message : String(err)) + ").", "error");
+      return;
+    }
+    const inspection = missionClosureInspection();
+    g.config = { ...g.config, readOnly: true };
+    if (inspection?.state === "closed") {
+      notify(ctx, "mission instance " + g.config.missionInstance.id + " CLOSED and sealed in place at " + paths.root +
+        "; closure " + record.operationId + "; hashes verified. The checkpoint attestation does not validate scientific or software results.", "info");
+    } else {
+      notify(ctx, "mission was sealed but closure integrity is " + (inspection?.state ?? "uncertain") +
+        "; no files were changed again. Preserve every byte and inspect before any operator repair.", "error");
+    }
+  }
+
   /** Read-only audit mode forbids every write inside the project tree. */
   function canWriteProjectTree(): boolean {
-    return g ? !g.config.readOnly && hasInstanceOwnership() : false;
+    return g ? !g.config.readOnly && hasInstanceOwnership() && !missionClosureMarkerExists() : false;
   }
 
   function hasInstanceOwnership(): boolean {
@@ -393,6 +556,8 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   }
 
   function ownershipRefusal(): string | undefined {
+    const closed = closureMutationRefusal();
+    if (closed) return closed;
     if (!g || g.config.missionInstance.id === null || hasInstanceOwnership()) return undefined;
     return `mission instance ${g.config.missionInstance.id} is not owned by this Pi process${g.missionInstanceLockError ? ` (${g.missionInstanceLockError})` : " (the owner lock is missing, corrupt, or has changed)"}`;
   }
@@ -401,6 +566,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   function canPersistState(): boolean {
     if (!g) return false;
     if (!hasInstanceOwnership()) return false;
+    if (missionClosureMarkerExists()) return false;
     if (!g.config.readOnly) return true;
     // containment is realpath-aware AND normalized: `..` tricks and a symlinked
     // state dir inside the tree are still part of the audited tree.
@@ -547,7 +713,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       g?.missionInstanceError
         ? `mission instance: selection refused (${g.missionInstanceError})`
         : g?.config.missionInstance.id
-          ? `mission instance: ${g.config.missionInstance.id}; ownership ${hasInstanceOwnership() ? "held by this Pi process" : "NOT HELD"}${g.config.missionInstance.workProfile ? `; work profile ${workProfilePath(g.config.missionInstance.workProfile)}` : ""}; read this instance's operational files`
+          ? `mission instance: ${g.config.missionInstance.id}; lifecycle ${missionClosureInspection()?.state ?? "active"}; ownership ${hasInstanceOwnership() ? "held by this Pi process" : "NOT HELD"}${g.config.missionInstance.workProfile ? `; work profile ${workProfilePath(g.config.missionInstance.workProfile)}` : ""}; read this instance's operational files`
           : "mission instance: legacy project mode",
       `session: ${sessionId}`,
       `start: ${event.reason}${event.previousSessionFile ? ` after ${event.previousSessionFile}` : ""}`,
@@ -870,14 +1036,21 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         if (!validWorkProfileRef(rawConfig.missionInstance.workProfile)) throw new Error("invalid work profile reference");
         if (rawConfig.missionInstance.workProfile && JSON.stringify(rawConfig.missionInstance.workProfile) !== JSON.stringify(identity.profile)) throw new Error("selected work profile does not match the instance manifest");
         config = configForMissionInstance({ ...rawConfig, missionInstance: { ...rawConfig.missionInstance, workProfile: identity.profile } });
-        selectedLockPath = instanceLockPath(cwd, instanceId);
-        if (!rawConfig.readOnly) {
-          const acquired = acquireInstanceLock(fs, selectedLockPath, sessionId);
+        const instanceStateDir = pathDefault.resolve(cwd, config.stateDir);
+        const startupClosure = inspectMissionClosure(fs, cwd, instanceId, instanceStateDir);
+        if (startupClosure.state !== "active") {
+          missionInstanceLockError = "mission lifecycle " + startupClosure.state + ": " + startupClosure.detail;
+          config = { ...config, readOnly: true };
+        } else {
+          selectedLockPath = instanceLockPath(cwd, instanceId);
+        }
+        if (startupClosure.state === "active" && !rawConfig.readOnly) {
+          const acquired = acquireInstanceLock(fs, selectedLockPath!, sessionId);
           if (!acquired.ok) {
             missionInstanceLockError = acquired.detail + (acquired.inspection.owner ? `; owner pid ${acquired.inspection.owner.pid} on ${acquired.inspection.owner.hostname}, session ${acquired.inspection.owner.sessionId}` : `; lock state: ${acquired.inspection.state}`);
             config = { ...config, readOnly: true };
           }
-        } else {
+        } else if (startupClosure.state === "active") {
           missionInstanceLockError = "read-only audit session does not acquire or release mission ownership";
         }
       }
@@ -919,7 +1092,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       readOnlyRequested: rawConfig.readOnly,
     };
     if (missionInstanceError) notify(ctx, `context-guard: mission instance selection refused (${missionInstanceError}); project-tree writes and renewal are disabled.`, "error");
-    if (missionInstanceLockError) notify(ctx, `context-guard: mission instance has no write ownership (${missionInstanceLockError}); checkpoint, attestation, renewal, document-cycle mutations, and writes to its operational files are refused.`, "warning");
+    if (missionInstanceLockError) notify(ctx, `context-guard: mission instance has no write authorization (${missionInstanceLockError}); checkpoint, attestation, renewal, document-cycle mutations, and writes to its operational files are refused.`, "warning");
     const goalText = fs.readFile(joinPath(cwd, config.files.goal));
     g.goalHash = goalText === undefined ? undefined : sha256(goalText);
     const learningsText = fs.readFile(joinPath(cwd, config.files.learnings));
@@ -1073,7 +1246,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
 
   pi.on("tool_call", (event: ToolCallEvent, _ctx: ExtensionContext) => {
     if (!g || !g.config.enabled) return undefined;
-    if (g.config.missionInstance.id !== null && !hasInstanceOwnership()) {
+    if (g.config.missionInstance.id !== null && (!hasInstanceOwnership() || missionClosureMarkerExists())) {
       const input = event.input as { path?: string; file_path?: string } | undefined;
       const target = input?.path ?? input?.file_path;
       const managedMutation = event.toolName === "bash" || (!!target && isSelectedInstanceTarget(target));
@@ -1081,7 +1254,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         recordDiag("tool_block", { tool: event.toolName, kind: "instance-ownership" });
         return {
           block: true,
-          reason: ownershipRefusal() ?? "context-guard: this Pi process no longer holds its mission-instance ownership; stop writes and restart after safe ownership recovery.",
+          reason: ownershipRefusal() ?? "context-guard: this Pi process has no mission write authorization; the instance may be closed, uncertain, or not owned. Stop writes and inspect status.",
         };
       }
     }
@@ -1226,6 +1399,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     });
     const successorCanPrepare = f.kind === "current" && chain.state.renewedFromCheckpointId === checkpointId && chain.state.lastSuccessorSessionId === g.sessionId;
     const renewalState = decision.renew ? "ready-now" : decision.why === "not-authorized" || (decision.why === "already-renewed" && successorCanPrepare) ? "preparation-required" : "refused";
+    const lifecycle = missionClosureInspection();
     const nextAction = readinessEval.checks.find((c) => c.id === "next-action-recorded");
     const report = {
       checkpoint: f.kind,
@@ -1251,6 +1425,12 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         gitWorkingTree: "not-inspected",
       },
       science: "Mission/scientific claims have NOT been independently verified by this inspection.",
+      missionLifecycle: lifecycle ? {
+        state: lifecycle.state,
+        detail: lifecycle.detail,
+        closedAt: lifecycle.record?.closedAt ?? null,
+        changedFiles: lifecycle.state === "changed" ? lifecycle.changed : [],
+      } : { state: "legacy", detail: "no mission instance selected" },
     };
     const detailsText = [
       `context-guard verify: checkpoint ${f.kind}${"detail" in f ? `: ${f.detail}` : ""}` +
@@ -1261,13 +1441,14 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       `  renewal authorization (gate for /handoff renew): ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}`,
       `  renewal: ${renewalState} (${decision.why}) — ${decision.detail}; chain ${chain.state.chainId || "(none)"} ${chain.state.renewalsDone}/${g.config.renewal.maxRenewals}`,
       `  changed sources: ${report.changedSources.length ? report.changedSources.join(", ") : "none"}`,
+      `  mission lifecycle: ${lifecycle ? lifecycle.state + " — " + lifecycle.detail : "legacy mode; no instance closure seal"}`,
       `  document ownership: manual prose and Handoff-managed blocks are distinct in HANDOFF/PROGRESS; Git working-tree state is not inspected here (use git status/diff).`,
       `  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`,
       "  manual prose in HANDOFF.md/PROGRESS.md always takes precedence over these blocks.",
       `  science: ${report.science}`,
     ];
     const healthy = f.kind === "current" && auth.authorized && renewalState === "ready-now" && nextAction?.status === "pass";
-    const summary = `checkpoint ${f.kind}${checkpointId ? ` ${checkpointId}` : ""}; ${readiness?.state ?? "unattested"}; renewal ${renewalState}${renewalState === "ready-now" ? ` (${chain.state.renewalsDone}/${g.config.renewal.maxRenewals})` : ` (${decision.why})`}. Mission/scientific claims are not independently verified; Git working-tree state was not inspected.`;
+    const summary = `checkpoint ${f.kind}${checkpointId ? ` ${checkpointId}` : ""}; ${readiness?.state ?? "unattested"}; renewal ${renewalState}${renewalState === "ready-now" ? ` (${chain.state.renewalsDone}/${g.config.renewal.maxRenewals})` : ` (${decision.why})`}; mission lifecycle ${lifecycle?.state ?? "legacy"}. Mission/scientific claims are not independently verified; Git working-tree state was not inspected.`;
     return { text: includeDetails || !healthy ? detailsText.join("\n") : summary, details: report };
   }
 
@@ -2300,9 +2481,15 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       if (parts[0] === "instance") {
         const sub = parts[1];
         const active = g.config.missionInstance.id;
+        if (sub === "close") {
+          const closeArgs = args.trim().replace(/^instance\s+close(?:\s+|$)/, "");
+          handleMissionClose(closeArgs, ctx);
+          return;
+        }
         if (sub === "status" || !sub) {
+          const closure = active ? missionClosureInspection() : undefined;
           ctx.ui.notify(active
-            ? `mission instance ${active} (work profile ${g.config.missionInstance.workProfile ? `${g.config.missionInstance.workProfile.id}@${g.config.missionInstance.workProfile.version}` : "none"}); ownership ${hasInstanceOwnership() ? "HELD by this process" : `NOT HELD (${g.missionInstanceLockError ?? "lock token missing or changed"})`}; operational files: ${g.config.files.handoff}, ${g.config.files.progress}, ${g.config.files.learnings}; state: ${g.config.stateDir}`
+            ? `mission instance ${active} (work profile ${g.config.missionInstance.workProfile ? `${g.config.missionInstance.workProfile.id}@${g.config.missionInstance.workProfile.version}` : "none"}); lifecycle ${closure?.state ?? "active"} (${closure?.detail ?? "no closure record"}); ownership ${hasInstanceOwnership() ? "HELD by this process" : `NOT HELD (${g.missionInstanceLockError ?? "lock token missing or changed"})`}; operational files: ${g.config.files.handoff}, ${g.config.files.progress}, ${g.config.files.learnings}; state: ${g.config.stateDir}`
             : "legacy project mode: shared project-root operational files and .pi-guard state; no mission instance selected.", "info");
           return;
         }
@@ -2314,6 +2501,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           }
           if (g.readOnlyRequested) {
             ctx.ui.notify("mission-instance recovery is unavailable in read-only audit mode; inspect the owner and use a normal operator session", "warning");
+            return;
+          }
+          const closurePaths = missionClosurePaths(g.cwd, id);
+          if (fs.exists(closurePaths.closure) || fs.exists(closurePaths.pending)) {
+            ctx.ui.notify("mission-instance owner recovery is refused for a closed or uncertain instance; use /handoff instance close status", "warning");
             return;
           }
           if (!instancePathIsSafe(fs, g.cwd, id)) {
@@ -2348,6 +2540,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           }
           if (!instancePathIsSafe(fs, g.cwd, id)) {
             ctx.ui.notify("mission instance creation refused: instance storage path resolves outside the project", "error");
+            return;
+          }
+          const targetClosure = missionClosurePaths(g.cwd, id);
+          if (fs.exists(targetClosure.closure) || fs.exists(targetClosure.pending)) {
+            ctx.ui.notify(`mission instance creation refused: ${id} is closed or has an uncertain close operation; closed identities cannot be reused`, "warning");
             return;
           }
           const lockPath = instanceLockPath(g.cwd, id);
@@ -2386,7 +2583,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           ctx.ui.notify(`selection is per Pi process and takes effect only at session start. Restart this project with CONTEXT_GUARD_MISSION_INSTANCE=${id}, or set missionInstance.id to "${id}" in handoff.config.json. Existing sessions are unchanged.`, "info");
           return;
         }
-        ctx.ui.notify("usage: /handoff instance status | create <id> [--profile <id@version>] | select <id> | recover <id>. Selection is explicit per process and takes effect at session start.", "warning");
+        ctx.ui.notify("usage: /handoff instance status | create <id> [--profile <id@version>] | select <id> | recover <id> | close plan | close --confirm <fingerprint> --reason <text> | close status. Selection is explicit per process and takes effect at session start.", "warning");
         return;
       }
       if (parts[0] === "status") {
@@ -2461,7 +2658,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       if (parts.length > 0 && parts[0] !== "checkpoint") {
         ctx.ui.notify(
-          'usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew --task "..." | renew --task-file <project-path> | renew go | renew stop | renew resume | renew status | instance status|create <id>|select <id> | cycle status|plan|approve|apply|no-change|review|accept-review|continue|abort|recover. Slash commands are Pi operator commands, not Bash commands.',
+          'usage: /handoff status | verify | ready [check] | checkpoint [notes] | finalize [notes] | renew [notes] | renew --task "..." | renew --task-file <project-path> | renew go | renew stop | renew resume | renew status | instance status|create <id>|select <id>|close plan|close --confirm <fingerprint> --reason <text> | cycle status|plan|approve|apply|no-change|review|accept-review|continue|abort|recover. Slash commands are Pi operator commands, not Bash commands.',
           "warning",
         );
         return;

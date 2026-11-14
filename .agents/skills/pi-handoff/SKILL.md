@@ -258,3 +258,22 @@ an owner could still run. The guarantee applies to Handoff writes and intercepte
 not arbitrary external programs or other checkouts. Keep the selected ID stable for the
 whole process; restart Pi to change it. No instance selection means the historical unlocked
 layout and behavior.
+
+## Mission-instance closure (Lot H)
+
+Mission closure is a terminal operation distinct from finishing a task, finalizing or
+renewing a Pi session, and resetting a renewal chain. Review `/handoff instance close
+plan` first; it is read-only and returns blockers plus a fingerprint for the inspected
+state. Closure requires a current, attested checkpoint and the selected instance's owner
+lock. Attestation is only Handoff readiness, not scientific or software validation. The
+operator confirms with `/handoff instance close --confirm <fingerprint> --reason "..."`.
+
+The closure seals files in place under `.pi-handoff/instances/<id>/`; it does not move or
+rewrite documents, checkpoint history, or session history. A valid `closure.json` makes
+the instance permanently non-writable through Handoff, including after restart. Use
+`/handoff instance close status` to inspect integrity; external edits or missing files
+are reported, never repaired automatically. A pending or corrupt closure is uncertain:
+preserve its files and do not retry or remove markers by assumption. Create a new ID to
+resume work, then consult the sealed mission explicitly. No Next action, LEARNINGS, or
+scientific evidence is copied automatically. No closure occurs on process exit or
+`/handoff finalize`.

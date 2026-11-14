@@ -46,6 +46,7 @@ Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compact
   documentation-cycle.ts optional, operator-supervised campaign-boundary workflow
   mission-instance.ts explicit mission identity, safe storage paths, and non-overwriting creation
   mission-lock.ts exclusive per-process instance ownership and conservative crash recovery
+  mission-lifecycle.ts read-only close planning and fail-closed in-place mission sealing
 test/            node:test suites with mocked Pi API events + synthetic budgets
 handoff.config.json   minimal configuration
 CHANGELOG.md    version history (dev.1–dev.4)
@@ -91,6 +92,25 @@ in-repository archive, and an active Next action must be replaced in the same op
 See the bundled skill reference `references/durable-edit.md`. Checkpoint blocks stay
 guard-owned; use `handoff_inspect` for verified freshness/attestation and Git commands
 for the actual staged and unstaged worktree state.
+
+## Mission-instance closure (Lot H)
+
+`/handoff instance close plan` is a read-only review of the selected instance. It reports
+the state to retain, blockers, checkpoint/attestation and a fingerprint bound to that
+state. A normal close requires a current, attested checkpoint; this is a Handoff
+readiness condition, not scientific or software validation. The operator seals the
+instance only with `/handoff instance close --confirm <fingerprint> --reason "..."` while
+the Pi process still owns its Lot G lock. A clean Git worktree is not required.
+
+The seal is `closure.json` in the existing instance directory. It hashes mission and
+operational state in place, records the profile, checkpoint, renewal state and an
+informational Git revision, and preserves documents and histories byte-for-byte. A
+pending or corrupt close record leaves the instance uncertain and read-only; Handoff
+never repairs it automatically. `/handoff instance close status` remains available after
+restart and reports external changes or missing files. This is protocol-level protection
+against Handoff writes, not filesystem immutability. To continue an old objective, create
+a new instance ID and explicitly consult the sealed instance. New instances start with
+empty operational documents and do not inherit the old Next action or LEARNINGS.
 
 ## Install / load
 
