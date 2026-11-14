@@ -607,3 +607,25 @@ reported for operator inspection; their presence blocks further publication unti
 operator has backed up and explicitly inspected/resolved the artifact. Corruption,
 unknown registry files and uncertain publication state fail closed. No automatic
 migration, cleanup, evidence rewrite or scientific-state change occurs.
+
+## 15. Pre-deployment restore qualification (Q1)
+
+**Deployment status: BLOCKED by a measured renewal-state restore defect.** The renewal
+decision currently treats an absent `<stateDir>/renewal-state.json` as an initial chain;
+malformed JSON also parses to an initial state, and the renewal execution path does not
+refuse on the returned `corrupt` flag. If a current, attested checkpoint remains, a
+checkout-only restore can therefore forget `renewalsDone`, `renewedFromCheckpointId` and
+`stopped`, and the real Pi inspection path reports renewal as ready. See
+`docs/qualification/predeploy-a-i.md` and its Q1 reproducers. Do not continue an existing
+mission after detecting missing/corrupt chain state, and do not infer that a green unit
+suite resolves this finding.
+
+For a coherent recovery, quiesce all Pi processes and preserve the project tree plus the
+entire configured `stateDir` (inside the project by default, external when configured).
+Pi session transcripts are stored separately and are neither read nor replayed by
+Handoff. They may be retained for forensic recordkeeping but do not reconstruct renewal
+authority. A Git-only checkout is not a complete operational restore. Until a
+fail-closed correction and requalification land, an ambiguous old chain must remain
+blocked; do not synthesize a zero-count state or reuse its checkpoint. Start a genuinely
+new, explicitly approved mission only under a new mission ID after its operational and
+transactional state is initialized separately.

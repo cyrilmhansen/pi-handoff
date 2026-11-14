@@ -192,10 +192,11 @@ try {
   const root = tracker.createTempDir("home");
   const agentA = path.join(root, "agent-a");
   const agentB = path.join(root, "agent-b");
+  const agentRestore = path.join(root, "agent-restore");
   const agentAudit = path.join(root, "agent-audit");
   const auditState = path.join(root, "audit-state");
 
-  for (const d of [agentA, agentB, agentAudit, auditState]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [agentA, agentB, agentRestore, agentAudit, auditState]) fs.mkdirSync(d, { recursive: true });
 
   const tree = makeProject("tree");
   const auditTree = makeProject("audit");
@@ -203,7 +204,7 @@ try {
   const a = startRpc({ dir: tree, agentDir: agentA, label: "A" });
   const b = startRpc({ dir: tree, agentDir: agentB, label: "B" });
   const [readyA, readyB] = [await awaitReady(a), await awaitReady(b)];
-  check("A/B: guard loaded and initialized in real pi 1.4.0 (session_start done, /guard status answered)", readyA && readyB);
+  check("A/B: guard loaded and initialized in real Pi RPC runtime (session_start done, /guard status answered)", readyA && readyB);
 
   const stA = await a.command({ id: "a-state", type: "get_state" });
   const stB = await b.command({ id: "b-state", type: "get_state" });
@@ -262,6 +263,25 @@ try {
   const own = (id) => JSON.parse(fs.readFileSync(path.join(tree, ".pi-guard", "sessions", `${id}.json`), "utf8"));
   check("A/B: no cross-overwrite (file contents name their own session)", own(idA).sessionId === idA && own(idB).sessionId === idB, `${own(idA).sessionId} / ${own(idB).sessionId}`);
   check("A/B: state files carry the Phase 1c audit fields", "checkpointId" in own(idA) && "handoffReady" in own(idA) && "learningsHash" in own(idA), JSON.stringify({ checkpointId: own(idA).checkpointId, handoffReady: own(idA).handoffReady }));
+
+  // Q1 restore reproducer: a fresh explicitly selected mission can make a current,
+  // attested checkpoint while renewal-state.json is absent. This is indistinguishable
+  // to the current gate from a Git-only restore that lost consumed/capped/stopped state.
+  const restoreTree = makeProject("restore-missing-renewal-state");
+  prepareMissionInstance(restoreTree, "restore");
+  const restoreConfigPath = path.join(restoreTree, "handoff.config.json");
+  const restoreConfig = JSON.parse(fs.readFileSync(restoreConfigPath, "utf8"));
+  restoreConfig.renewal = { ...restoreConfig.renewal, enabled: true, autoRenew: true, maxRenewals: 8 };
+  fs.writeFileSync(restoreConfigPath, JSON.stringify(restoreConfig, null, 2) + "\n");
+  const restorePi = startRpc({ dir: restoreTree, agentDir: agentRestore, env: { CONTEXT_GUARD_MISSION_INSTANCE: "restore" }, label: "RESTORE-MISSING-CHAIN" });
+  await awaitReady(restorePi);
+  await restorePi.command({ id: "restore-checkpoint", type: "prompt", message: "/handoff checkpoint Q1 restore gate proof" });
+  await restorePi.command({ id: "restore-ready", type: "prompt", message: "/handoff ready" });
+  await restorePi.command({ id: "restore-verify", type: "prompt", message: "/handoff verify" });
+  const restoreTexts = restorePi.uiTexts().join("\n");
+  const missingChainPath = path.join(restoreTree, ".pi-guard", "instances", "restore", "renewal-state.json");
+  check("Q1 BLOCKER REPRODUCED in real Pi RPC runtime: absent renewal state reports ready-now for an attested checkpoint", !fs.existsSync(missingChainPath) && /renewal: ready-now/.test(restoreTexts), restoreTexts.split("\n").filter((line) => /renewal:/.test(line)).slice(-1)[0] ?? "no renewal report");
+  await restorePi.shutdown();
   const legacyGone = !fs.existsSync(path.join(tree, ".pi-guard", "state.json"));
   const foreign = fs.existsSync(path.join(tree, ".pi-guard", "sessions", "foreign-legacy.json"));
   const tmps = fs.readdirSync(path.join(tree, ".pi-guard")).concat(fs.readdirSync(path.join(tree, ".pi-guard", "sessions"))).filter((f) => f.includes(".tmp-"));
@@ -435,7 +455,7 @@ try {
     missionId: "shared",
     classification: "accepted",
     statement: "The Pi RPC closure proof retained the sealed source files.",
-    rationale: "Observed from a real Pi 1.4.0 runtime without invoking inference.",
+    rationale: "Observed from a real Pi RPC runtime without invoking inference.",
     source: {
       path: ".pi-handoff/instances/shared/LEARNINGS.md",
       locator: "E2E-KNOWLEDGE",
@@ -474,6 +494,10 @@ try {
   await knowledgeReader.command({ id: "knowledge-list", type: "prompt", message: "/handoff knowledge list --id e2e-shared-knowledge" });
   const knowledgeReadText = knowledgeReader.uiTexts().join("\n");
   check("LOT I: another real Pi mission can consult the provenance and classification", /e2e-shared-knowledge current \[accepted\]/.test(knowledgeReadText) && /E2E-KNOWLEDGE/.test(knowledgeReadText), knowledgeReadText.split("\n").filter((line) => /e2e-shared-knowledge|E2E-KNOWLEDGE/.test(line)).slice(-2).join(" | "));
+  fs.writeFileSync(evidencePath, "deliberately corrupted qualification proof\n");
+  await knowledgeReader.command({ id: "knowledge-verify-corrupt", type: "prompt", message: "/handoff knowledge verify e2e-shared-knowledge" });
+  const corruptedEvidenceText = knowledgeReader.uiTexts().join("\n");
+  check("LOT I: real Pi consultation detects a corrupted copy of a referenced proof", /evidence hash mismatch: docs\/knowledge-proof\.txt/.test(corruptedEvidenceText), corruptedEvidenceText.split("\n").filter((line) => /evidence hash mismatch/.test(line)).slice(-1)[0] ?? "no mismatch report");
   const readerAfter = manifest(readerInstancePath).concat(manifest(readerStatePath).map((entry) => `state:${entry}`));
   check("LOT I: cross-mission consultation does not change operational documents or state", JSON.stringify(readerAfter) === JSON.stringify(readerBefore));
   await knowledgeReader.shutdown();

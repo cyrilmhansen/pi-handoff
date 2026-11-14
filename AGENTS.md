@@ -1,12 +1,21 @@
 # AGENTS.md — handoff prototype (Pi context-guard)
 
-Pi 1.4.0 context-guard extension + durable handoff files. Lots A–E are integrated on
-`main` at `96750d746003886610ac9fb9544fb52bf0dbffcd`; lots A–E cover checkpoint and
-renewal reliability, operator-task renewal, structured document editing/audit, reduced
-checkpoint churn, and optional supervised document cycles. Lot F adds explicitly
-selected mission instances on `feat/lot-f-mission-instances`; it does not change the
-version or publish anything. Do not tag, publish or push without separate explicit
-authorization. No scientific-state migration or cleanup is part of this work.
+Pi context-guard extension + durable handoff files. Lots A–I are integrated on `main`
+at `8caee04b4c2106dba36c03514274e91e5277f607`: checkpoint/renewal reliability, operator
+tasks, document editing and supervised cycles, isolated/owned/closable mission instances,
+and operator-approved shared knowledge publication. No version bump or publication is
+part of Q1. Do not tag, publish or push without separate explicit authorization. No
+scientific-state migration or cleanup is part of this work.
+
+**Pre-deployment restore blocker (Q1, 2026-11-14):** a Git-only restore that omits
+`<stateDir>/renewal-state.json` while retaining a current, attested checkpoint is treated
+as an initial renewal chain. The counter, consumed-checkpoint key and durable stop can
+therefore be forgotten; corrupt renewal state has the same fail-open effect in the
+renewal path. The reproducible test is `test/qualification-restore.test.ts` Q1-B/Q1-C,
+and the real-Pi zero-inference reproducer is in `scripts/e2e-rpc-two-process.mjs`. Treat
+deployment as **BLOCKED** until this is corrected and requalified. For now, preserve the
+whole state directory and do not continue a selected mission after discovering its
+renewal state is missing or corrupt.
 
 Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
 false; this project sets `enabled: true, autoRenew: false, maxRenewals: 8` with
@@ -23,10 +32,12 @@ Every fresh session:
    Manual prose in HANDOFF/PROGRESS wins over managed checkpoint blocks (schema v3);
    freshness is reported at `session_start` and via `/handoff verify`. Never infer or
    change the active instance from document contents.
-2. Verify with `node --test test/` (current baseline: **265 pass / 1 gated skip**) before
-   touching code. Zero-inference real-runtime gates: `node scripts/e2e-rpc-two-process.mjs`
-   (**38/38**, incl. the capped-chain finalize proof), `node scripts/check-skill-discovery.mjs`
-   (8/8). `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate
+2. Verify with `node --test test/` before touching code. Latest Q1 baseline:
+   **301 pass / 1 gated skip**. Zero-inference real-runtime gates:
+   `node scripts/e2e-rpc-two-process.mjs` (**58/58**, including a deliberately unsafe
+   missing-chain-state reproduction; current installed Pi is 1.5.2, so this is not a
+   Pi 1.4.0 qualification), `node scripts/check-skill-discovery.mjs` (8/8). The
+   `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate
    `b07e29b` — A-36) spends REAL inference — re-run only after renewal-wiring changes in
    `index.ts` (the D7 driver changes are lifecycle-only and covered by
    `test/cleanup.test.ts` with a fake-pi stub, zero inference). NEVER run `node --test

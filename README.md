@@ -6,19 +6,11 @@ checkpoints, and — since Phase 2 — renew a session in-place into a fresh suc
 recovers from files alone (no transcript replay, no lossy compaction). No third-party
 dependencies, no LLM involvement in the guard itself.
 
-**Current status — v0.1.0-dev.4 consolidation.** Lots A–E are integrated on `main`
-(`96750d7`): checkpoint/readiness and renewal reliability (A); operator-supplied task
-on renewal and an experimental user-role successor turn (B); structured section edits,
-archives and read-only document audit (C); checkpoint write reuse and clearer ownership
-(D); optional operator-supervised document cycles (E). Verification on this release
-branch: `node --test test/` → 257 pass / 0 fail / 1 gated skip;
-`node scripts/e2e-rpc-two-process.mjs` → 38/38 (Pi 1.4.0, zero inference);
-`node scripts/check-skill-discovery.mjs` → 8/8 (zero inference). Rune CI passed on the
-respective lot commits. The live Sushi A/B comparison of `successorTurn: "custom"` and
-`"user"` has not been run. The full documentation-cycle workflow has not been exercised
-with real inference. Neither is claimed as experimentally validated. No additional
-inference campaign is part of this development release. No tag or publication has been
-made. `GOAL.md` still
+**Historical v0.1.0-dev.4 note.** Lots A–E were consolidated on `main` at `96750d7`;
+the test and runtime counts below were measured for that release branch and are retained
+as historical context. The live Sushi A/B comparison of `successorTurn: "custom"` and
+`"user"` was not run then, and the full documentation-cycle workflow was not exercised
+with real inference. Neither was claimed as experimentally validated. `GOAL.md` still
 describes the *original* Phase 1 scope ("no automatic session
 switching"): that is historically correct, the file is protected, and it is deliberately
 left untouched — subsequent phases (1b/1c/1d and Phase 2) extended the original scope
@@ -26,12 +18,19 @@ under explicit operator authorization; the history lives in `PROGRESS.md` /
 `LEARNINGS.md`, never in a silent goal rewrite. Reuse in another project (`drpli`) is a
 separate, operator-authorized action: this repository has deployed nothing anywhere.
 
-Since that consolidation, main also integrates Lots F–H (isolated mission instances,
-exclusive instance ownership and terminal in-place closure). Lot I is unreleased work and
-does not change the version or checkpoint schema.
+**Current main** (`8caee04`) integrates Lots A–I, including explicitly isolated/owned/
+closable mission instances and selective operator-approved shared knowledge publication.
+Q1 pre-deployment qualification reproduced a critical restore defect: if
+`<stateDir>/renewal-state.json` is missing or corrupt while a current attested checkpoint
+remains, the renewal gate treats the chain as new and may forget an exhausted cap, a
+consumed checkpoint or the operator stop. See `docs/qualification/predeploy-a-i.md`.
+Deployment is blocked until a fail-closed correction is designed and qualified. Current
+qualification also ran the RPC suite with installed Pi 1.5.2; this does not substitute for
+the requested Pi 1.4.0 validation.
 
-Environment this was built and verified against: Pi 1.4.0 (`/usr/lib/node_modules/@earendil-works/pi-coding-agent`),
-Node v26.12.1, `PI_CODING_AGENT_DIR=/home/john/.sushibeta/pi`, automatic compaction disabled.
+Historical API-contract verification targeted Pi 1.4.0. Q1's current real-RPC runs used
+the installed Pi 1.5.2 at `/usr/lib/node_modules/@earendil-works/pi-coding-agent`; a Pi
+1.4.0 binary was not present, so that version remains unqualified here. Node v26.12.1.
 
 ## Layout
 
@@ -135,10 +134,15 @@ sibling modules. Pi loads it through `jiti` (verified).
 
 ## Run tests
 
+Historical dev.4 counts at the time: 258 tests (257 pass + 1 gated skip), RPC 38 checks,
+skill discovery 8 checks. Current Q1 counts and runtime qualification are in
+`docs/qualification/predeploy-a-i.md`; Q1 currently classifies deployment as BLOCKED.
+The scripts remain reproducible:
+
 ```bash
-node --test test/          # 258 tests (257 pass + 1 skipped: gated real-Pi e2e), no inference, no installs
-node scripts/e2e-rpc-two-process.mjs   # real pi 1.4.0, 2+2 processes, zero inference (38 checks)
-node scripts/check-skill-discovery.mjs # real pi 1.4.0: project skill discovery + trust-gated extension auto-load, zero inference (8 checks)
+node --test test/
+node scripts/check-skill-discovery.mjs
+node scripts/e2e-rpc-two-process.mjs
 node scripts/e2e-renew.mjs             # REAL inference: A→B→C renewal chain proof (24 checks); re-run after any renewal-wiring change
 ```
 
