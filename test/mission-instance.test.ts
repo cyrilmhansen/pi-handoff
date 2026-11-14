@@ -52,6 +52,31 @@ test("MI2c: missing instance beneath a symlinked parent is still refused", () =>
   assert.match(result.error, /outside the project/);
 });
 
+test("MI2d: initial chain bootstrap is exclusive, mission-bound, restart-stable, and never retried after interruption", () => {
+  const fs = createMemoryFs(DEFAULT_FILES);
+  const paths = missionInstancePaths("bootstrap");
+  const stateFile = `/project/${paths.stateDir}/renewal-state.json`;
+  fs.failNext.set(stateFile, 1);
+  const interrupted = createMissionInstance(fs, "/project", "bootstrap", null, "2026-01-01T00:00:00.000Z");
+  assert.equal(interrupted.ok, false);
+  assert.equal(fs.files.has(stateFile), false);
+  const retry = createMissionInstance(fs, "/project", "bootstrap", null);
+  assert.equal(retry.ok, false, "existing mission identity cannot silently bootstrap missing chain state on retry");
+  assert.equal(fs.files.has(stateFile), false);
+
+  const fresh = createMissionInstance(fs, "/project", "bootstrap-retry", null, "2026-01-02T00:00:00.000Z");
+  assert.equal(fresh.ok, true);
+  const initial = JSON.parse(fs.files.get(`/project/${missionInstancePaths("bootstrap-retry").stateDir}/renewal-state.json`)!);
+  assert.equal(initial.renewalsDone, 0);
+  assert.match(initial.chainId, /^mission:bootstrap-retry:/);
+  const restarted = createMissionInstance(fs, "/project", "bootstrap-retry", null);
+  assert.equal(restarted.ok, true);
+  assert.equal(JSON.parse(fs.files.get(`/project/${missionInstancePaths("bootstrap-retry").stateDir}/renewal-state.json`)!).chainId, initial.chainId);
+
+  fs.writeFile(`/project/${missionInstancePaths("bootstrap-retry").stateDir}/renewal-state.json`, JSON.stringify({ ...initial, chainId: "mission:other:chain:copied" }));
+  assert.equal(createMissionInstance(fs, "/project", "bootstrap-retry", null).ok, false, "copied cross-instance state is refused");
+});
+
 test("MI3: absent selection preserves legacy layout; explicit environment selection is per process", () => {
   const legacy = loadConfig((name) => name === "handoff.config.json" ? "{}" : undefined, {});
   assert.equal(configForMissionInstance(legacy).files.handoff, "HANDOFF.md");

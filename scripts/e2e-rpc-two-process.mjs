@@ -63,6 +63,7 @@ function makeProject(tag) {
   if (!fs.existsSync(path.join(dir, "GOAL.md"))) throw new Error("temp project has no GOAL.md — cannot test GOAL protection");
   if (!fs.existsSync(path.join(dir, "handoff.config.json"))) throw new Error("temp project has no handoff.config.json — the guard would use fallback defaults");
   fs.mkdirSync(path.join(dir, ".pi-guard", "sessions"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".pi-guard", "renewal-state.json"), JSON.stringify({ version: 1, chainId: `chain:${tag}:q2`, renewalsDone: 0, renewedFromCheckpointId: null, lastSuccessorSessionId: null, stopped: false, updatedAt: Date.now() }, null, 2) + "\n");
   // pre-existing messy runtime state + a stale legacy checkpoint, so the audit run has
   // repairs it MUST suppress (LEARNINGS A-10) and staleness it must not silently fix.
   fs.writeFileSync(path.join(dir, ".pi-guard", "state.json"), JSON.stringify({ version: 1, sessionId: "foreign-legacy", updatedAt: 1, snapshot: { currentLevel: 1, alertedLevels: [1], unknownStreak: 0, degraded: false, lastRemaining: 29000, evaluations: 4 } }));
@@ -79,6 +80,9 @@ function prepareMissionInstance(dir, id) {
   fs.writeFileSync(path.join(root, "HANDOFF.md"), "# HANDOFF\n\n## Recovery instructions\n\n## Last verified state\n\n## Unfinished operations\n\n## Next action\n\nContinue the isolated ownership test.\n\n## Discoveries not yet incorporated\n\n");
   fs.writeFileSync(path.join(root, "PROGRESS.md"), "# PROGRESS\n\n## Current phase\n\n## Completed\n\n## Pending\n\n## Verified evidence\n\n## Blockers\n\n## Next action\n\nContinue the isolated ownership test.\n");
   fs.writeFileSync(path.join(root, "LEARNINGS.md"), "# LEARNINGS\n\n## Accepted\n\n## Proposed\n\n## Falsified or superseded\n\n");
+  const stateDir = path.join(dir, ".pi-guard", "instances", id);
+  fs.mkdirSync(stateDir, { recursive: true });
+  fs.writeFileSync(path.join(stateDir, "renewal-state.json"), JSON.stringify({ version: 1, chainId: `mission:${id}:chain:q2-bootstrap`, renewalsDone: 0, renewedFromCheckpointId: null, lastSuccessorSessionId: null, stopped: false, updatedAt: Date.now() }, null, 2) + "\n");
 }
 
 function manifest(dir) {
@@ -193,10 +197,12 @@ try {
   const agentA = path.join(root, "agent-a");
   const agentB = path.join(root, "agent-b");
   const agentRestore = path.join(root, "agent-restore");
+  const agentBootstrap = path.join(root, "agent-bootstrap");
+  const agentBootstrapRestart = path.join(root, "agent-bootstrap-restart");
   const agentAudit = path.join(root, "agent-audit");
   const auditState = path.join(root, "audit-state");
 
-  for (const d of [agentA, agentB, agentRestore, agentAudit, auditState]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [agentA, agentB, agentRestore, agentBootstrap, agentBootstrapRestart, agentAudit, auditState]) fs.mkdirSync(d, { recursive: true });
 
   const tree = makeProject("tree");
   const auditTree = makeProject("audit");
@@ -273,15 +279,44 @@ try {
   const restoreConfig = JSON.parse(fs.readFileSync(restoreConfigPath, "utf8"));
   restoreConfig.renewal = { ...restoreConfig.renewal, enabled: true, autoRenew: true, maxRenewals: 8 };
   fs.writeFileSync(restoreConfigPath, JSON.stringify(restoreConfig, null, 2) + "\n");
+  const missingChainPath = path.join(restoreTree, ".pi-guard", "instances", "restore", "renewal-state.json");
+  fs.unlinkSync(missingChainPath);
   const restorePi = startRpc({ dir: restoreTree, agentDir: agentRestore, env: { CONTEXT_GUARD_MISSION_INSTANCE: "restore" }, label: "RESTORE-MISSING-CHAIN" });
   await awaitReady(restorePi);
   await restorePi.command({ id: "restore-checkpoint", type: "prompt", message: "/handoff checkpoint Q1 restore gate proof" });
   await restorePi.command({ id: "restore-ready", type: "prompt", message: "/handoff ready" });
   await restorePi.command({ id: "restore-verify", type: "prompt", message: "/handoff verify" });
+  await restorePi.command({ id: "restore-stop", type: "prompt", message: "/handoff renew stop" });
+  await restorePi.command({ id: "restore-resume", type: "prompt", message: "/handoff renew resume" });
   const restoreTexts = restorePi.uiTexts().join("\n");
-  const missingChainPath = path.join(restoreTree, ".pi-guard", "instances", "restore", "renewal-state.json");
-  check("Q1 BLOCKER REPRODUCED in real Pi RPC runtime: absent renewal state reports ready-now for an attested checkpoint", !fs.existsSync(missingChainPath) && /renewal: ready-now/.test(restoreTexts), restoreTexts.split("\n").filter((line) => /renewal:/.test(line)).slice(-1)[0] ?? "no renewal report");
+  check("Q2 FAIL-CLOSED: absent renewal state refuses an attested checkpoint and stop/resume without recreating state", !fs.existsSync(missingChainPath) && /renewal: refused/.test(restoreTexts) && /state-unavailable/.test(restoreTexts) && /renewal stop refused/.test(restoreTexts) && /renewal resume refused/.test(restoreTexts), restoreTexts.split("\n").filter((line) => /renewal:|state-unavailable|renewal-state\.json is absent|renewal (stop|resume) refused/.test(line)).slice(-4).join(" | ") || "no renewal report");
   await restorePi.shutdown();
+
+  // Q2 explicit new-mission bootstrap: the operator creation command atomically
+  // initializes a zero-count, mission-bound chain. A fresh Pi process recovers it
+  // unchanged; checkpoint/attestation do not seed or rewrite chain authority.
+  if (process.env.D7_FAKE_PI_LOG) {
+    check("Q2 explicit mission bootstrap (real Pi only; skipped by artifact-lifecycle fake)", true, "fake Pi does not execute extension commands");
+  } else {
+  const bootstrapTree = makeProject("q2-explicit-bootstrap");
+  const bootstrapCreator = startRpc({ dir: bootstrapTree, agentDir: agentBootstrap, label: "Q2-BOOTSTRAP-CREATOR" });
+  await awaitReady(bootstrapCreator);
+  await bootstrapCreator.command({ id: "q2-instance-create", type: "prompt", message: "/handoff instance create q2fresh" });
+  const bootstrapNotice = bootstrapCreator.uiTexts().join("\n");
+  const bootstrapPath = path.join(bootstrapTree, ".pi-guard", "instances", "q2fresh", "renewal-state.json");
+  const bootstrapRaw = fs.existsSync(bootstrapPath) ? fs.readFileSync(bootstrapPath, "utf8") : "";
+  const bootstrapState = bootstrapRaw ? JSON.parse(bootstrapRaw) : null;
+  check("Q2 explicit operator instance creation initializes a mission-bound chain once", /mission instance q2fresh created/.test(bootstrapNotice) && bootstrapState?.chainId?.startsWith("mission:q2fresh:") && bootstrapState?.renewalsDone === 0, bootstrapState ? `${bootstrapState.chainId} ${bootstrapState.renewalsDone}/8` : "renewal-state.json missing");
+  await bootstrapCreator.shutdown();
+  const bootstrapSuccessor = startRpc({ dir: bootstrapTree, agentDir: agentBootstrapRestart, env: { CONTEXT_GUARD_MISSION_INSTANCE: "q2fresh" }, label: "Q2-BOOTSTRAP-RESTART" });
+  await awaitReady(bootstrapSuccessor);
+  await bootstrapSuccessor.command({ id: "q2-bootstrap-checkpoint", type: "prompt", message: "/handoff checkpoint fresh mission bootstrap proof" });
+  await bootstrapSuccessor.command({ id: "q2-bootstrap-attest", type: "prompt", message: "/handoff ready" });
+  const afterBootstrapRecovery = fs.readFileSync(bootstrapPath, "utf8");
+  check("Q2 explicit bootstrap survives a real Pi restart without chain rewrite", afterBootstrapRecovery === bootstrapRaw && JSON.parse(afterBootstrapRecovery).chainId === bootstrapState?.chainId);
+  await bootstrapSuccessor.shutdown();
+  }
+
   const legacyGone = !fs.existsSync(path.join(tree, ".pi-guard", "state.json"));
   const foreign = fs.existsSync(path.join(tree, ".pi-guard", "sessions", "foreign-legacy.json"));
   const tmps = fs.readdirSync(path.join(tree, ".pi-guard")).concat(fs.readdirSync(path.join(tree, ".pi-guard", "sessions"))).filter((f) => f.includes(".tmp-"));

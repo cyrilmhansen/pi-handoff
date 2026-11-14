@@ -9,10 +9,12 @@ compatibility: Pi >= 1.4.0; requires the context-guard extension loaded (pi -e <
 This skill describes Lots A–I integrated on `main@8caee04`; the version is still
 `v0.1.0-dev.4` because no release bump was made. The `"user"` successor turn and
 documentation-cycle orchestration are opt-in; neither has real-model behavior validation.
-Q1 pre-deployment qualification is **BLOCKED**: missing or corrupt
-`<stateDir>/renewal-state.json` may be treated as a new chain and forget prior cap, stop
-or checkpoint-consumption state. Do not treat a Git-only checkout as a safe restore; see
-`docs/qualification/predeploy-a-i.md`.
+Q1 historically found a fail-open renewal after loss of `<stateDir>/renewal-state.json`.
+Q2 adds fail-closed handling and explicit, exclusive chain initialization on operator
+creation of a new mission. Missing/corrupt state is never reconstructed from an
+attestation; restore a coherent stateDir backup, or start a different mission identity.
+The global A–I deployment qualification still has untested runtime/version paths; see
+the Q2 results and limits in `docs/qualification/predeploy-a-i.md`.
 
 Context-guard monitors remaining context, alerts at thresholds, enforces a closing
 phase, and persists crash-safe checkpoints so a **fresh session can recover from files

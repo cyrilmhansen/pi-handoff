@@ -54,6 +54,8 @@ import {
   pruneSessionStates,
   readRecoveryBundle,
   renewAuthorization,
+  rollbackPendingRenewal,
+  replaceRenewalState,
   saveGuardState,
   saveRenewalState,
   sha256,
@@ -130,6 +132,8 @@ function renewalSafeInstructions(why: string, done: number, max: number): string
       return "Read-only audit mode never switches sessions; handoff_finalize is a reported dry run here. Ask the operator to leave audit mode only if a write or renewal is required.";
     case "pending":
       return "A renewal is already pending/running in this process; finish the current turn normally.";
+    case "state-unavailable":
+      return "The chain authorization record is missing, corrupt, or inconsistent. Do not renew, stop/resume, or create a replacement state for this mission. Restore its complete stateDir backup; if that is unavailable, start a distinct new mission identity and do not reuse this checkpoint.";
     default:
       return "Keep the durable files current and stop cleanly; renewal remains operator-driven.";
   }
@@ -250,6 +254,17 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
   /** Resolve the state directory (config/env may point it outside the project). */
   function resolvedStateDir(internals: GuardInternals): string {
     return joinPath(internals.cwd, internals.config.stateDir);
+  }
+
+  function loadCurrentRenewalState(internals: GuardInternals): ReturnType<typeof loadRenewalState> {
+    const loaded = loadRenewalState(fs, resolvedStateDir(internals));
+    if (loaded.status !== "valid") return loaded;
+    const missionId = internals.config.missionInstance.id;
+    const expected = missionId === null ? "chain:" : `mission:${missionId}:`;
+    if (!loaded.state.chainId.startsWith(expected)) {
+      return { ...loaded, state: { ...loaded.state, chainId: "" }, status: "corrupt", corrupt: true, detail: `renewal chain identity ${loaded.state.chainId} does not belong to ${missionId === null ? "legacy project mode" : `mission ${missionId}`}; restore the matching stateDir backup` };
+    }
+    return loaded;
   }
 
   function cycleStatePath(): string {
@@ -830,9 +845,9 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     // Renewal policy + durable chain state (cap/idempotence/stop survive replacement+restart).
     {
       const r = g.config.renewal;
-      const chain = loadRenewalState(fs, resolvedStateDir(g));
+      const chain = loadCurrentRenewalState(g);
       lines.push(
-        `  renewal: policy enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}; chain ${chain.state.chainId || "(none)"} done=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}; stop in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${renewalRuntime.pending || renewalRuntime.running || renewalRuntime.toolScheduled ? `; PENDING (${renewalRuntime.pending?.trigger ?? (renewalRuntime.toolScheduled ? "model request scheduled" : "renewal running")})` : ""}${chain.corrupt ? "; chain state CORRUPT (treated as initial)" : ""}`,
+        `  renewal: policy enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals}; state ${chain.status}${chain.state.chainId ? ` chain ${chain.state.chainId}` : ""} done=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}; stop in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${chain.status !== "valid" ? `; MUTATIONS REFUSED — ${chain.detail}; restore the complete stateDir backup or create a new mission identity` : ""}${renewalRuntime.pending || renewalRuntime.running || renewalRuntime.toolScheduled ? `; PENDING (${renewalRuntime.pending?.trigger ?? (renewalRuntime.toolScheduled ? "model request scheduled" : "renewal running")})` : ""}`,
       );
       lines.push(`  ${recoveryCostLine(recoveryCost(fs, g.cwd, g.config.files), g.config.recovery)}`);
     }
@@ -954,7 +969,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if (!opts.dryRun && !notes?.trim()) {
       const current = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
       if (current.kind === "current") {
-        const chain = loadRenewalState(fs, resolvedStateDir(g)).state;
+        const chain = loadCurrentRenewalState(g).state;
         const consumed = chain.renewedFromCheckpointId === current.identity?.id;
         const recordedSuccessor = consumed && chain.lastSuccessorSessionId === g.sessionId;
         if (!recordedSuccessor && current.identity) {
@@ -1114,7 +1129,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     // particular, an L3 auto-checkpoint must replace an earlier consumed-id refusal.
     let renewalHint = "";
     if (transition.level >= 3 && g.config.renewal.enabled && g.config.renewal.autoRenew) {
-      const chainNow = loadRenewalState(fs, resolvedStateDir(g));
+      const chainNow = loadCurrentRenewalState(g);
       const live = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
       const preview = decideRenewal({
         renewal: g.config.renewal,
@@ -1308,8 +1323,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     // Module-scope runtime survives replacement (A-17.4); the chain file survives
     // restarts. A successor must never resurrect a stopped chain, and a fresh process
     // must never forget one.
-    const chain0 = loadRenewalState(fs, resolvedStateDir(g));
+    const chain0 = loadCurrentRenewalState(g);
     renewalRuntime.operatorStop = chain0.state.stopped === true;
+    if (chain0.status !== "valid") {
+      notify(ctx, `context-guard: renewal chain state is ${chain0.status} — ${chain0.detail}. Renewal, stop/resume, and documentation-cycle transitions are refused. Restore the complete configured stateDir backup; do not recreate this chain from its checkpoint.`, "error");
+    }
     const pend = renewalRuntime.pending;
     renewalRuntime.pending = null; // any session start consumes a stale marker
     renewalRuntime.toolScheduled = false; // an undelivered bridge cannot survive a session boundary
@@ -1542,7 +1560,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       configName: DEFAULT_CONFIG_NAME,
       learningsHashAtSessionStart: g.learningsHash,
     });
-    const chain = loadRenewalState(fs, resolvedStateDir(g));
+    const chain = loadCurrentRenewalState(g);
     const decision = decideRenewal({
       renewal: g.config.renewal,
       trigger: "model",
@@ -1573,7 +1591,9 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         maxRenewals: g.config.renewal.maxRenewals,
         stopped: chain.state.stopped || renewalRuntime.operatorStop,
         checkpointAuthorization: auth.authorized,
+        chainStatus: chain.status,
         chainCorrupt: chain.corrupt,
+        chainDetail: chain.detail ?? null,
       },
       documentOwnership: {
         manualProse: [g.config.files.handoff, g.config.files.progress],
@@ -1746,6 +1766,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     if (command === "status") { cycleStatusNotify(ctx); return; }
     const gate = cycleGateError();
     if (gate) { notify(ctx, `context-guard cycle: refused (${gate})`, "warning"); return; }
+    const chainBeforeMutation = loadCurrentRenewalState(g!);
+    if (chainBeforeMutation.status !== "valid") {
+      notify(ctx, `context-guard cycle: ${command} refused — renewal chain state is ${chainBeforeMutation.status}: ${chainBeforeMutation.detail}; restore a coherent stateDir backup. No cycle or chain state was changed.`, "error");
+      return;
+    }
     const loaded = loadCycleState();
     if (loaded.corrupt) { notify(ctx, "context-guard cycle: state is corrupt; preserve it and repair it explicitly before any session or chain transition", "error"); return; }
     const current = loaded.state;
@@ -1757,8 +1782,8 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       const cp = validateCheckpoint(fs, g!.cwd, g!.config.files, DEFAULT_CONFIG_NAME);
       const auth = renewAuthorization(cp);
       if (!auth.authorized) { notify(ctx, `context-guard cycle: planning requires a current, attested checkpoint (${auth.reason})`, "warning"); return; }
-      const chain = loadRenewalState(fs, resolvedStateDir(g!));
-      if (chain.corrupt) { notify(ctx, "context-guard cycle: renewal state is corrupt; no documentation session was started", "error"); return; }
+      const chain = loadCurrentRenewalState(g!);
+      if (chain.status !== "valid") { notify(ctx, `context-guard cycle: renewal state is ${chain.status}; no documentation session was started (${chain.detail})`, "error"); return; }
       if (chain.state.stopped) { notify(ctx, "context-guard cycle: the development chain is durably stopped; operator must resume it explicitly before planning a new campaign", "warning"); return; }
       if (chain.state.renewalsDone < g!.config.renewal.maxRenewals) {
         notify(ctx, `context-guard cycle: campaign chain is not at its configured boundary (${chain.state.renewalsDone}/${g!.config.renewal.maxRenewals}); no documentation mission was started`, "warning");
@@ -1908,14 +1933,10 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       const auth = renewAuthorization(cp);
       if (!auth.authorized) { notify(ctx, `context-guard cycle: current, attested checkpoint required before new campaign (${auth.reason}); finalize explicitly first`, "warning"); return; }
       if (current.phase !== "continuing") {
-        const chain = loadRenewalState(fs, resolvedStateDir(g!));
-        if (chain.corrupt) { notify(ctx, "context-guard cycle: renewal state is corrupt; it was preserved and no reset occurred", "error"); return; }
+        const chain = loadCurrentRenewalState(g!);
+        if (chain.status !== "valid") { notify(ctx, `context-guard cycle: renewal state is ${chain.status}; it was preserved and no reset occurred (${chain.detail})`, "error"); return; }
         if (chain.state.stopped) { notify(ctx, "context-guard cycle: the development chain is durably stopped; resume it explicitly before approving a new campaign chain", "warning"); return; }
         const renewPath = joinPath(resolvedStateDir(g!), "renewal-state.json");
-        if (fs.readFile(renewPath) === undefined) {
-          const initialized = saveRenewalState(fs, resolvedStateDir(g!), chain.state);
-          if (!initialized.ok) { notify(ctx, `context-guard cycle: could not materialize the old chain before archiving: ${initialized.error}`, "error"); return; }
-        }
         const oldRaw = fs.readFile(renewPath);
         if (oldRaw === undefined) { notify(ctx, "context-guard cycle: renewal state could not be read for archival", "error"); return; }
         const archiveRelative = `${g!.config.documentation.archiveDir.replace(/\/$/, "")}/${g!.config.missionInstance.id ? `instances/${g!.config.missionInstance.id}/` : ""}renewal-chain-${current.cycleId}.json`;
@@ -1970,7 +1991,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         if ("error" in finalRef || finalRef.fingerprint !== finalFingerprint || finalRef.revision !== finalRevision || finalRef.goalFingerprint !== journal.goalFingerprint || !renewAuthorization(finalCheckpoint).authorized) {
           notify(ctx, "context-guard cycle: documents, Git HEAD, protected GOAL.md or checkpoint changed during archival; old chain is preserved. Re-review/finalize explicitly before retrying.", "error"); return;
         }
-        const reset = saveRenewalState(fs, resolvedStateDir(g!), newChain);
+        const reset = replaceRenewalState(fs, resolvedStateDir(g!), journal.archivedRenewalState, newChain);
         if (!reset.ok) { notify(ctx, `context-guard cycle: old chain is archived but new-chain write failed; rerun continue to resume safely (${reset.error})`, "error"); return; }
       }
       const completed: DocumentationCycleState = { ...journal, phase: "complete", updatedAt: Date.now() };
@@ -2137,7 +2158,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
 
   function renewStatusReport(): string {
     if (!g) return "context-guard: not initialized";
-    const chain = loadRenewalState(fs, resolvedStateDir(g));
+    const chain = loadCurrentRenewalState(g);
     const r = g.config.renewal;
     const fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
     const auth = renewAuthorization(fresh);
@@ -2145,8 +2166,8 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const lines = [
       `context-guard renewal status (state dir ${resolvedStateDir(g)})`,
       `  policy: enabled=${r.enabled} autoRenew=${r.autoRenew} maxRenewals=${r.maxRenewals} successorTurn=${r.successorTurn}${r.recoveryPrompt ? " recoveryPrompt=custom" : ""}${r.testCommand ? ` testCommand=${JSON.stringify(r.testCommand)}` : " testCommand=(none — successor prompt carries no build-verify line)"}`,
-      `  chain: ${chain.state.chainId || "(none yet)"} renewalsDone=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}${chain.state.lastSuccessorSessionId ? ` lastSuccessor=${chain.state.lastSuccessorSessionId}` : ""}`,
-      `  operator stop: in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${chain.corrupt ? "; CHAIN STATE CORRUPT (treated as initial)" : ""}`,
+      `  chain state: ${chain.status}${chain.state.chainId ? ` ${chain.state.chainId}` : ""} renewalsDone=${chain.state.renewalsDone}/${r.maxRenewals}${chain.state.renewedFromCheckpointId ? ` lastFrom=${chain.state.renewedFromCheckpointId}` : ""}${chain.state.lastSuccessorSessionId ? ` lastSuccessor=${chain.state.lastSuccessorSessionId}` : ""}`,
+      `  operator stop: in-memory=${renewalRuntime.operatorStop} durable=${chain.state.stopped}${chain.status !== "valid" ? `; MUTATIONS REFUSED — ${chain.detail}; restore a coherent stateDir backup; do not initialize this mission again` : ""}`,
       `  pending switch: ${renewalRuntime.pending ? `${renewalRuntime.pending.trigger} from ${renewalRuntime.pending.fromSessionId} (checkpoint ${renewalRuntime.pending.checkpointId})` : renewalRuntime.running ? "renewal command running" : renewalRuntime.toolScheduled ? "model renewal request scheduled" : "none"}`,
       `  authorization now: ${auth.authorized ? "AUTHORIZED" : "not authorized"} — ${auth.reason}${cpId ? ` (checkpoint ${cpId})` : ""}`,
       `  note: the cap and the idempotence key are DURABLE (renewal-state.json); they survive session replacement and process restart (RN9).`,
@@ -2154,21 +2175,26 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     return lines.join("\n");
   }
 
-  /** Persist the durable operator stop (in-memory flag is always set; durable write best-effort). */  function persistRenewalStop(stop: boolean, ctx: ExtensionContext): void {
+  /** Persist stop/resume only against an already valid chain; never create state implicitly. */
+  function persistRenewalStop(stop: boolean, ctx: ExtensionContext): void {
     const ownership = ownershipRefusal();
     if (ownership) {
       notify(ctx, `context-guard: renewal stop/resume refused — ${ownership}`, "warning");
       return;
     }
-    renewalRuntime.operatorStop = stop;
     if (!g) return;
     const stateDir = resolvedStateDir(g);
     if (!canPersistState()) {
-      notify(ctx, `context-guard: renewal stop flag set IN MEMORY only (state dir inside the audited tree / read-only mode; a restart would lose it)`, "warning");
+      notify(ctx, `context-guard: renewal ${stop ? "stop" : "resume"} refused — stateDir is read-only; no durable or in-memory state was changed`, "warning");
       return;
     }
-    const chain = loadRenewalState(fs, stateDir);
+    const chain = loadCurrentRenewalState(g);
+    if (chain.status !== "valid") {
+      notify(ctx, `context-guard: renewal ${stop ? "stop" : "resume"} refused — ${chain.detail ?? `chain state is ${chain.status}`}. Restore the complete stateDir backup; no state was written.`, "error");
+      return;
+    }
     const saved = saveRenewalState(fs, stateDir, { ...chain.state, stopped: stop, updatedAt: Date.now() });
+    if (saved.ok) renewalRuntime.operatorStop = stop;
     notify(
       ctx,
       saved.ok
@@ -2192,7 +2218,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
     const ownership = ownershipRefusal();
     if (ownership) return { ok: false, text: `context-guard FINALIZE refused — ${ownership}`, checkpointId: null, dry: true };
     const dry = !canWriteProjectTree();
-    const chain = loadRenewalState(fs, resolvedStateDir(g)); // READ-ONLY: finalize never writes chain state
+    const chain = loadCurrentRenewalState(g); // READ-ONLY: finalize never writes chain state
     const header = (outcome: string, cpId: string | null, readiness: string): string =>
       `context-guard FINALIZE (session ${g.sessionId}, ${new Date().toISOString()}): checkpoint ${cpId ?? "none"} readiness ${readiness} -> ${outcome}; chain done=${chain.state.renewalsDone}/${g.config.renewal.maxRenewals} UNTOUCHED; no session switch`;
     const lines: string[] = [];
@@ -2337,7 +2363,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           trigger,
           auth: { authorized: true, reason: "pre-gate (authorization checked after refresh)" },
           checkpointId: "__pre-gate__",
-          state: loadRenewalState(fs, resolvedStateDir(g)).state,
+          state: loadCurrentRenewalState(g).state,
           operatorStop: renewalRuntime.operatorStop,
           pendingInFlight: renewalRuntime.pending !== null,
           readOnly: g.config.readOnly,
@@ -2352,7 +2378,11 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       await ctx.waitForIdle();
       // 2. Durable prerequisite: refresh the checkpoint if it is not current, then attest.
       let fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
-      const chainBeforeRefresh = loadRenewalState(fs, resolvedStateDir(g));
+      const chainBeforeRefresh = loadCurrentRenewalState(g);
+      if (chainBeforeRefresh.status !== "valid") {
+        notify(ctx, `context-guard: renewal ABORTED — chain state became ${chainBeforeRefresh.status} before checkpoint preparation: ${chainBeforeRefresh.detail}`, "error");
+        return;
+      }
       if (fresh.kind === "current") {
         const prepared = prepareSuccessorCheckpoint(ctx, fresh, chainBeforeRefresh.state, notes);
         if (prepared.error) {
@@ -2387,7 +2417,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       // 3. Gate.
       const auth = renewAuthorization(fresh);
       const checkpointId = fresh.kind === "current" || fresh.kind === "stale" ? fresh.identity?.id ?? null : null;
-      const chain = loadRenewalState(fs, resolvedStateDir(g));
+      const chain = loadCurrentRenewalState(g);
       const decision = decideRenewal({
         renewal: g.config.renewal,
         trigger,
@@ -2507,14 +2537,10 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
         // Cancelled at session_before_switch (operator stop) BEFORE teardown: the old
         // session is still alive, so ctx remains valid. Roll the durable counters back.
         renewalRuntime.pending = null;
-        const cur = loadRenewalState(fs, stateDir);
-        saveRenewalState(fs, stateDir, {
-          ...cur.state,
-          renewalsDone: Math.max(0, cur.state.renewalsDone - 1),
-          renewedFromCheckpointId: null,
-          updatedAt: Date.now(),
-        });
-        notify(ctx, "context-guard: renewal CANCELLED by the operator stop — no session switch; chain state rolled back", "warning");
+        const rolledBack = rollbackPendingRenewal(fs, stateDir, chain.state, updated);
+        notify(ctx, rolledBack.ok
+          ? "context-guard: renewal CANCELLED by the operator stop — no session switch; chain state rolled back"
+          : `context-guard: renewal CANCELLED before switch, but chain rollback is uncertain (${rolledBack.error}); preserve state and inspect before retrying`, rolledBack.ok ? "warning" : "error");
         recordDiag("renewal_result", { trigger, ok: false, why: "cancelled-by-stop", checkpoint: checkpointId ?? undefined });
       }
       // Success path: do NOT touch ctx here — the successor's session_start handler
@@ -2565,7 +2591,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
           trigger: "model",
           auth: { authorized: true, reason: "pre-gate" },
           checkpointId: "__pre-gate__",
-          state: loadRenewalState(fs, resolvedStateDir(g)).state,
+          state: loadCurrentRenewalState(g).state,
           operatorStop: renewalRuntime.operatorStop,
           pendingInFlight: renewalRuntime.pending !== null || renewalRuntime.running || renewalRuntime.toolScheduled,
           readOnly: g.config.readOnly,
@@ -2576,7 +2602,10 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       // Synchronous durable prerequisite, then the full gate.
       let fresh = validateCheckpoint(fs, g.cwd, g.config.files, DEFAULT_CONFIG_NAME);
-      const chainBeforeRefresh = loadRenewalState(fs, resolvedStateDir(g));
+      const chainBeforeRefresh = loadCurrentRenewalState(g);
+      if (chainBeforeRefresh.status !== "valid") {
+        return { content: [{ type: "text", text: `context-guard: renewal NOT scheduled — chain state is ${chainBeforeRefresh.status}: ${chainBeforeRefresh.detail}` }], details: { ok: false, why: "state-unavailable" } };
+      }
       if (fresh.kind === "current") {
         const prepared = prepareSuccessorCheckpoint(toolCtx, fresh, chainBeforeRefresh.state, notes);
         if (prepared.error) {
@@ -2600,7 +2629,7 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
       }
       const auth = renewAuthorization(fresh);
       const checkpointId = fresh.kind === "current" || fresh.kind === "stale" ? fresh.identity?.id ?? null : null;
-      const chain = loadRenewalState(fs, resolvedStateDir(g));
+      const chain = loadCurrentRenewalState(g);
       const decision = decideRenewal({
         renewal: g.config.renewal,
         trigger: "model",
@@ -2758,7 +2787,9 @@ export default function contextGuard(pi: ExtensionAPI, overrides: GuardOverrides
             return;
           }
           try {
-            const result = createMissionInstance(fs, g.cwd, id, profile);
+            const targetConfig = configForMissionInstance({ ...g.config, missionInstance: { ...g.config.missionInstance, id, workProfile: profile } });
+            const targetStateDir = joinPath(g.cwd, targetConfig.stateDir);
+            const result = createMissionInstance(fs, g.cwd, id, profile, new Date().toISOString(), targetStateDir);
             ctx.ui.notify(result.ok
               ? `mission instance ${id} ${result.resumed ? "creation resumed" : "created"}; initialized missing empty operational documents [${result.created.join(", ")}]. No project documents were copied. Select explicitly at the next session start with CONTEXT_GUARD_MISSION_INSTANCE=${id} or missionInstance.id in handoff.config.json.`
               : `mission instance creation refused: ${result.error}`, result.ok ? "info" : "warning");

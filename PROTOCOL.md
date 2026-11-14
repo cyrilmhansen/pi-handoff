@@ -608,9 +608,9 @@ operator has backed up and explicitly inspected/resolved the artifact. Corruptio
 unknown registry files and uncertain publication state fail closed. No automatic
 migration, cleanup, evidence rewrite or scientific-state change occurs.
 
-## 15. Pre-deployment restore qualification (Q1)
+## 15. Pre-deployment restore qualification (Q1 historical finding)
 
-**Deployment status: BLOCKED by a measured renewal-state restore defect.** The renewal
+**Q1 snapshot only: deployment status was BLOCKED by a measured renewal-state restore defect.** The renewal
 decision currently treats an absent `<stateDir>/renewal-state.json` as an initial chain;
 malformed JSON also parses to an initial state, and the renewal execution path does not
 refuse on the returned `corrupt` flag. If a current, attested checkpoint remains, a
@@ -629,3 +629,30 @@ fail-closed correction and requalification land, an ambiguous old chain must rem
 blocked; do not synthesize a zero-count state or reuse its checkpoint. Start a genuinely
 new, explicitly approved mission only under a new mission ID after its operational and
 transactional state is initialized separately.
+
+The text above records the pre-correction Q1 behavior. Section 16 documents the Q2
+correction and current refusal/bootstrap rules.
+
+## 16. Q2 fail-closed renewal-state recovery
+
+Q2 supersedes Q1's observed behavior; Q1 remains the historical defect record. Renewal
+state has an explicit `valid | missing | corrupt` classification. A missing file is not
+an initial chain, and malformed, incomplete, inconsistent, or cross-instance state is
+not repaired or replaced automatically. Model/operator renewal, L3/L4 readiness,
+stop/resume, and documentation-cycle transitions refuse unavailable state and explain
+that the operator must restore a coherent project plus configured `stateDir` backup.
+Checkpoint attestations do not initialize chain authority.
+
+`saveRenewalState` updates only an existing valid chain and refuses identity changes or
+counter rollback. A new explicitly created mission gets a zero-count chain through
+exclusive creation, bound by the `mission:<id>:` chain identity. A retry against an
+existing mission whose bootstrap state is absent refuses; preserve the partial files and
+use a different mission ID after operator review. The supervised documentation-cycle
+transition is the sole controlled chain replacement path: its journal must archive the
+exact valid old state and its new chain must have a distinct identity.
+
+Valid schema-v1 states remain supported, including the historical omission of the
+`stopped` field. Required quota/idempotence fields must be present and consistent. If a
+consumed checkpoint is newer than or at the same generation as the current checkpoint
+but has a different identity, renewal refuses and asks for a coherent documents/state
+restore. No state file, checkpoint, or scientific result is deleted during recovery.

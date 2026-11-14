@@ -359,16 +359,78 @@ export function renewalStatePath(stateDir: string): string {
   return joinPath(stateDir, RENEWAL_STATE_FILE);
 }
 
-/** Read the durable renewal chain state. Never throws; corruption is reported, initial state returned. */
-export function loadRenewalState(fs: FsOps, stateDir: string): { state: RenewalState; corrupt: boolean } {
+/** Read chain state without synthesizing authority when the file is absent. */
+export function loadRenewalState(fs: FsOps, stateDir: string): { state: RenewalState; corrupt: boolean; status: import("./renewal.ts").RenewalStateStatus; detail?: string } {
   return parseRenewalState(fs.readFile(renewalStatePath(stateDir)));
 }
 
-/** Atomic write (FsOps.writeFile is temp+rename on the local fs). */
-export function saveRenewalState(fs: FsOps, stateDir: string, state: RenewalState): { ok: boolean; error?: string } {
+/** Explicit first-chain bootstrap, called only while creating a new mission identity. */
+export function initializeRenewalState(fs: FsOps, stateDir: string, state: RenewalState): { ok: boolean; error?: string } {
+  if (!state.chainId.trim() || state.updatedAt === null || state.renewalsDone !== 0 || state.renewedFromCheckpointId !== null || state.lastSuccessorSessionId !== null || state.stopped) {
+    return { ok: false, error: "initial chain state must have a nonempty id and zeroed transaction fields" };
+  }
+  if (parseRenewalState(serializeRenewalState(state)).status !== "valid") return { ok: false, error: "initial chain state failed transaction-schema validation" };
+  if (!fs.createExclusive) return { ok: false, error: "filesystem adapter cannot create initial chain state exclusively" };
   try {
     fs.mkdirRecursive(stateDir);
-    fs.writeFile(renewalStatePath(stateDir), serializeRenewalState(state));
+    if (!fs.createExclusive(renewalStatePath(stateDir), serializeRenewalState(state))) {
+      return { ok: false, error: "renewal-state.json already exists; initialization never overwrites an existing chain" };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Update an initialized chain only; missing/corrupt state is never repaired here. */
+export function saveRenewalState(fs: FsOps, stateDir: string, state: RenewalState): { ok: boolean; error?: string } {
+  try {
+    const current = loadRenewalState(fs, stateDir);
+    if (current.status !== "valid") return { ok: false, error: current.detail ?? `renewal chain state is ${current.status}; restore a coherent backup before mutation` };
+    if (!state.chainId.trim() || state.updatedAt === null || !Number.isSafeInteger(state.renewalsDone) || state.chainId !== current.state.chainId || state.renewalsDone < current.state.renewalsDone) {
+      return { ok: false, error: "refusing invalid renewal state, chain identity change, or transaction counter rollback" };
+    }
+    const serialized = serializeRenewalState(state);
+    if (parseRenewalState(serialized).status !== "valid") return { ok: false, error: "refusing renewal state with incomplete or inconsistent transaction fields" };
+    fs.mkdirRecursive(stateDir);
+    fs.writeFile(renewalStatePath(stateDir), serialized);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Journal-authorized campaign transition: replace a valid old chain only if its bytes still match the archived source. */
+export function replaceRenewalState(fs: FsOps, stateDir: string, expectedCurrentRaw: string, next: RenewalState): { ok: boolean; error?: string } {
+  const currentRaw = fs.readFile(renewalStatePath(stateDir));
+  const current = parseRenewalState(currentRaw);
+  if (current.status !== "valid" || currentRaw !== expectedCurrentRaw) return { ok: false, error: "current renewal state is missing, invalid, or changed from the archived transition source" };
+  if (!next.chainId.trim() || next.chainId === current.state.chainId || next.renewalsDone !== 0 || next.updatedAt === null || next.renewedFromCheckpointId !== null || next.lastSuccessorSessionId !== null || next.stopped) {
+    return { ok: false, error: "new campaign chain state is not a distinct zeroed chain" };
+  }
+  if (parseRenewalState(serializeRenewalState(next)).status !== "valid") return { ok: false, error: "new campaign chain failed transaction-schema validation" };
+  try {
+    fs.writeFile(renewalStatePath(stateDir), serializeRenewalState(next));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Roll back only this process's just-persisted pending renewal after Pi confirms no switch. */
+export function rollbackPendingRenewal(fs: FsOps, stateDir: string, before: RenewalState, expectedPending: RenewalState): { ok: boolean; error?: string } {
+  const current = loadRenewalState(fs, stateDir);
+  if (current.status !== "valid" || current.state.chainId !== expectedPending.chainId ||
+      current.state.renewalsDone !== expectedPending.renewalsDone ||
+      current.state.renewedFromCheckpointId !== expectedPending.renewedFromCheckpointId ||
+      current.state.updatedAt !== expectedPending.updatedAt ||
+      expectedPending.renewalsDone !== before.renewalsDone + 1 ||
+      expectedPending.chainId !== before.chainId) {
+    return { ok: false, error: "pending renewal state changed or no longer matches its rollback journal; preserve state for operator inspection" };
+  }
+  try {
+    const restored = { ...before, stopped: current.state.stopped, updatedAt: Date.now() };
+    fs.writeFile(renewalStatePath(stateDir), serializeRenewalState(restored));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };

@@ -88,6 +88,10 @@ const CYCLE_REVISION = "a".repeat(40);
 const RENEWAL_STATE_FILE = "/project/.pi-guard/renewal-state.json";
 const CYCLE_STATE_FILE = "/project/.pi-guard/documentation-cycle/state.json";
 
+function seedLegacyChain(h: Harness, chainId = "chain:session-1") {
+  h.memFs.writeFile(RENEWAL_STATE_FILE, serializeRenewalState({ ...INITIAL_RENEWAL_STATE, chainId, updatedAt: 1 }));
+}
+
 async function readyCappedCycleHarness(options: { cancelNewSession?: boolean } = {}) {
   const h = harness({
     config: { renewal: { enabled: true, maxRenewals: 2 }, documentation: { enabled: true, archiveDir: "docs/history" } },
@@ -97,7 +101,7 @@ async function readyCappedCycleHarness(options: { cancelNewSession?: boolean } =
   await startSession(h);
   await h.command("handoff", "checkpoint campaign work complete");
   await h.command("handoff", "ready");
-  const chain: RenewalState = { ...INITIAL_RENEWAL_STATE, chainId: "chain:campaign-old", renewalsDone: 2, updatedAt: 123 };
+  const chain: RenewalState = { ...INITIAL_RENEWAL_STATE, chainId: "chain:campaign-old", renewalsDone: 2, renewedFromCheckpointId: "g-old-campaign", updatedAt: 123 };
   h.memFs.writeFile(RENEWAL_STATE_FILE, serializeRenewalState(chain));
   return h;
 }
@@ -319,6 +323,7 @@ test("R9: /handoff writes a checkpoint whose next action and objective survive a
 
 test("A2: /handoff status and unknown verbs are read-only on an attested checkpoint", async () => {
   const h = harness({ config: { renewal: { enabled: true, autoRenew: true, maxRenewals: 8 } } });
+  seedLegacyChain(h);
   await startSession(h);
   await h.command("handoff", "checkpoint preserve these notes");
   await h.command("handoff", "ready");
@@ -404,6 +409,7 @@ test("auto-checkpoint refreshes stale state but reuses a current identity across
 
 test("A4: handoff_inspect reports current readiness without any file or state writes", async () => {
   const h = harness({ config: { renewal: { enabled: true, autoRenew: true, maxRenewals: 8 } } });
+  seedLegacyChain(h);
   await startSession(h);
   await h.command("handoff", "checkpoint inspect fixture");
   await h.command("handoff", "ready");
@@ -468,6 +474,7 @@ test("D1b: substantive checkpoint notes create a fresh unattested generation", a
 
 test("D2: healthy inspect is concise by default and detailed diagnostics remain available on request", async () => {
   const h = harness({ config: { renewal: { enabled: true, autoRenew: true, maxRenewals: 8 } } });
+  seedLegacyChain(h);
   await startSession(h);
   await h.command("handoff", "checkpoint inspect fixture");
   await h.command("handoff", "ready");
@@ -507,6 +514,24 @@ test("E1: documentation workflow is opt-in, starts a fresh read-only planning mi
   await h.command("handoff", "cycle plan");
   assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /current phase is planning/);
   assert.equal(h.mockCtx.newSessionCalls, 1, "repeated stage command never creates a second session");
+});
+
+test("Q2: documentation-cycle continuation refuses missing or corrupt chain state without initializing it", async () => {
+  const h = harness({ config: { renewal: { enabled: true, maxRenewals: 2 }, documentation: { enabled: true, archiveDir: "docs/history" } }, gitRevision: CYCLE_REVISION });
+  await startSession(h);
+  h.memFs.files.delete(RENEWAL_STATE_FILE);
+  const beforeDocs = ["/project/HANDOFF.md", "/project/PROGRESS.md", "/project/LEARNINGS.md"].map((p) => h.memFs.files.get(p));
+  await h.command("handoff", "cycle continue");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /cycle: continue refused.*state is missing/);
+  assert.equal(h.memFs.files.has(RENEWAL_STATE_FILE), false);
+  assert.equal(h.memFs.files.has(CYCLE_STATE_FILE), false);
+  assert.deepEqual(["/project/HANDOFF.md", "/project/PROGRESS.md", "/project/LEARNINGS.md"].map((p) => h.memFs.files.get(p)), beforeDocs);
+
+  h.memFs.writeFile(RENEWAL_STATE_FILE, "{corrupt");
+  const corruptBytes = h.memFs.files.get(RENEWAL_STATE_FILE);
+  await h.command("handoff", "cycle continue");
+  assert.match(h.mockCtx.notifications.at(-1)?.text ?? "", /cycle: continue refused.*state is corrupt/);
+  assert.equal(h.memFs.files.get(RENEWAL_STATE_FILE), corruptBytes, "corrupt bytes are preserved");
 });
 
 test("E2: stale plan approval is refused when source documents change", async () => {

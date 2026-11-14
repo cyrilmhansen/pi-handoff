@@ -152,26 +152,40 @@ export const INITIAL_RENEWAL_STATE: RenewalState = {
   updatedAt: null,
 };
 
-export function parseRenewalState(raw: string | undefined): { state: RenewalState; corrupt: boolean } {
-  if (raw == null || raw === "") return { state: { ...INITIAL_RENEWAL_STATE }, corrupt: false };
+export type RenewalStateStatus = "valid" | "missing" | "corrupt";
+
+export function parseRenewalState(raw: string | undefined): { state: RenewalState; corrupt: boolean; status: RenewalStateStatus; detail?: string } {
+  if (raw == null) return { state: { ...INITIAL_RENEWAL_STATE }, corrupt: false, status: "missing", detail: "renewal-state.json is absent; restore a coherent state backup or create a new mission identity" };
+  if (raw === "") return { state: { ...INITIAL_RENEWAL_STATE }, corrupt: true, status: "corrupt", detail: "renewal-state.json is empty; preserve it and restore a coherent state backup" };
   try {
     const p = JSON.parse(raw) as Record<string, unknown>;
-    if (!p || typeof p !== "object" || p.version !== 1) return { state: { ...INITIAL_RENEWAL_STATE }, corrupt: true };
+    if (!p || typeof p !== "object" || p.version !== 1) throw new Error("unsupported schema");
+    // v1 files predating durable stop are compatible, but the transaction fields
+    // that carry quota and idempotence must be present and well-formed.
+    if (typeof p.chainId !== "string" || !p.chainId.trim() ||
+        typeof p.renewalsDone !== "number" || !Number.isSafeInteger(p.renewalsDone) || p.renewalsDone < 0 ||
+        !(p.renewedFromCheckpointId === null || typeof p.renewedFromCheckpointId === "string") ||
+        !(p.lastSuccessorSessionId === null || typeof p.lastSuccessorSessionId === "string") ||
+        !(typeof p.updatedAt === "number" && Number.isFinite(p.updatedAt)) ||
+        (p.stopped !== undefined && typeof p.stopped !== "boolean") ||
+        (p.renewalsDone === 0 && (p.renewedFromCheckpointId !== null || p.lastSuccessorSessionId !== null)) ||
+        (p.renewalsDone > 0 && (typeof p.renewedFromCheckpointId !== "string" || !p.renewedFromCheckpointId))) throw new Error("required transaction fields are missing, invalid, or inconsistent");
     return {
       state: {
         version: 1,
-        chainId: typeof p.chainId === "string" ? p.chainId : "",
-        renewalsDone: typeof p.renewalsDone === "number" && Number.isFinite(p.renewalsDone) && p.renewalsDone >= 0 ? Math.floor(p.renewalsDone) : 0,
-        renewedFromCheckpointId: typeof p.renewedFromCheckpointId === "string" ? p.renewedFromCheckpointId : null,
-        lastSuccessorSessionId: typeof p.lastSuccessorSessionId === "string" ? p.lastSuccessorSessionId : null,
+        chainId: p.chainId,
+        renewalsDone: p.renewalsDone,
+        renewedFromCheckpointId: p.renewedFromCheckpointId as string | null,
+        lastSuccessorSessionId: p.lastSuccessorSessionId as string | null,
         // absent in files written before the stop field existed: not stopped
         stopped: p.stopped === true,
-        updatedAt: typeof p.updatedAt === "number" && Number.isFinite(p.updatedAt) ? p.updatedAt : null,
+        updatedAt: p.updatedAt as number | null,
       },
       corrupt: false,
+      status: "valid",
     };
-  } catch {
-    return { state: { ...INITIAL_RENEWAL_STATE }, corrupt: true };
+  } catch (err) {
+    return { state: { ...INITIAL_RENEWAL_STATE }, corrupt: true, status: "corrupt", detail: `renewal-state.json is corrupt (${err instanceof Error ? err.message : String(err)}); preserve it and restore a coherent state backup` };
   }
 }
 
@@ -189,7 +203,7 @@ export type RenewalTrigger = "operator" | "model" | "auto";
 
 export type RenewalDecision =
   | { renew: true; reason: string }
-  | { renew: false; why: "disabled" | "auto-disabled" | "stopped" | "read-only" | "not-authorized" | "capped" | "already-renewed" | "pending"; detail: string };
+  | { renew: false; why: "disabled" | "auto-disabled" | "stopped" | "read-only" | "not-authorized" | "capped" | "already-renewed" | "pending" | "state-unavailable"; detail: string };
 
 /**
  * The renewal gate. Pure: (config, authorization, chain state, checkpoint identity,
@@ -213,15 +227,25 @@ export function decideRenewal(input: {
     if (!input.renewal.autoRenew) return { renew: false, why: "auto-disabled", detail: `${input.trigger}-initiated renewal requires renewal.autoRenew: true` };
   }
   if (input.pendingInFlight) return { renew: false, why: "pending", detail: "a renewal is already pending/running in this process" };
+  if (!input.state.chainId.trim()) {
+    return { renew: false, why: "state-unavailable", detail: "renewal chain state is absent or unusable; restore the complete stateDir backup, or create a new mission identity through the operator instance-create workflow" };
+  }
   if (input.renewal.maxRenewals <= 0 || input.state.renewalsDone >= input.renewal.maxRenewals) {
     return {
       renew: false,
       why: "capped",
-      detail: `renewal cap reached (${input.state.renewalsDone}/${input.renewal.maxRenewals}); increase renewal.maxRenewals or reset <stateDir>/renewal-state.json`,
+      detail: `renewal cap reached (${input.state.renewalsDone}/${input.renewal.maxRenewals}); raising the configured cap is an operator decision, or complete the supervised documentation-cycle workflow to start a separately archived chain; never reset renewal-state.json directly`,
     };
   }
   if (input.checkpointId == null) return { renew: false, why: "not-authorized", detail: "no current transactional checkpoint id (checkpoint missing/corrupt/stale)" };
   if (!input.auth.authorized) return { renew: false, why: "not-authorized", detail: `renewAuthorization: ${input.auth.reason}` };
+  if (input.state.renewedFromCheckpointId) {
+    const consumedGeneration = /^g(\d+)-/.exec(input.state.renewedFromCheckpointId)?.[1];
+    const currentGeneration = /^g(\d+)-/.exec(input.checkpointId)?.[1];
+    if (consumedGeneration !== undefined && currentGeneration !== undefined && Number(consumedGeneration) >= Number(currentGeneration) && input.state.renewedFromCheckpointId !== input.checkpointId) {
+      return { renew: false, why: "state-unavailable", detail: `current checkpoint ${input.checkpointId} is not newer than the checkpoint already consumed by this chain (${input.state.renewedFromCheckpointId}); restore a coherent documents+stateDir backup` };
+    }
+  }
   if (input.state.renewedFromCheckpointId === input.checkpointId) {
     return { renew: false, why: "already-renewed", detail: `checkpoint ${input.checkpointId} already seeded a successor (idempotence guard)` };
   }

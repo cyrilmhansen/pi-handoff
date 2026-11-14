@@ -143,7 +143,7 @@ test("RC5: config — recovery.lean defaults false; merge is strict; env overrid
 });
 
 test("RC6: adapter — lean renewal reaches the successor message (exact bytes) and cost meter appears in status/verify/finalize", async () => {
-  const memFs = createMemoryFs({ ...DEFAULT_FILES, "/project/handoff.config.json": JSON.stringify({ stateDir: ".pi-guard", recovery: { lean: true }, renewal: { enabled: true, autoRenew: false, maxRenewals: 8 } }) });
+  const memFs = createMemoryFs({ ...DEFAULT_FILES, "/project/handoff.config.json": JSON.stringify({ stateDir: ".pi-guard", recovery: { lean: true }, renewal: { enabled: true, autoRenew: false, maxRenewals: 8 } }), "/project/.pi-guard/renewal-state.json": JSON.stringify({ version: 1, chainId: "chain:session-C", renewalsDone: 0, renewedFromCheckpointId: null, lastSuccessorSessionId: null, stopped: false, updatedAt: 1 }) });
   const pi = createMockPi();
   const mc = createMockCtx({ cwd: "/project", sessionId: "session-C", usage: { tokens: 1000, contextWindow: 220000 } });
   contextGuard(pi.pi as never, { fs: memFs, env: {} });

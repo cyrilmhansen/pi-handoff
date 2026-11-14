@@ -28,7 +28,7 @@ import {
   type RenewalState,
 } from "../.pi/extensions/context-guard/renewal.ts";
 import { DEFAULT_CONFIG, loadConfig, mergeConfig } from "../.pi/extensions/context-guard/config.ts";
-import { loadRenewalState, renewalStatePath, saveRenewalState } from "../.pi/extensions/context-guard/checkpoint.ts";
+import { initializeRenewalState, loadRenewalState, renewalStatePath, saveRenewalState } from "../.pi/extensions/context-guard/checkpoint.ts";
 import { createMemoryFs, DEFAULT_FILES } from "./helpers.ts";
 
 const AUTH_OK = { authorized: true, reason: "current, identity g1-abc, attested" };
@@ -44,7 +44,7 @@ function input(over: Partial<Parameters<typeof decideRenewal>[0]> = {}): Paramet
     trigger: "operator",
     auth: AUTH_OK,
     checkpointId: "g7-111122223333",
-    state: { ...INITIAL_RENEWAL_STATE },
+    state: { ...INITIAL_RENEWAL_STATE, chainId: "chain:unit-test", updatedAt: 1 },
     operatorStop: false,
     pendingInFlight: false,
     readOnly: false,
@@ -153,7 +153,7 @@ test("RN8: gate precedence — stop beats read-only beats disabled beats pending
       renewal: { ...DEFAULT_RENEWAL },
       auth: { authorized: false, reason: "nope" },
       checkpointId: null,
-      state: { ...INITIAL_RENEWAL_STATE, renewalsDone: 99 },
+      state: { ...INITIAL_RENEWAL_STATE, chainId: "chain:precedence", updatedAt: 1, renewalsDone: 99 },
       operatorStop: true,
       pendingInFlight: true,
       readOnly: true,
@@ -175,6 +175,7 @@ test("RN9: durable chain state survives session replacement AND process restart 
   const fresh = loadRenewalState(memfs, stateDir);
   assert.equal(fresh.corrupt, false);
   assert.deepEqual(fresh.state, INITIAL_RENEWAL_STATE);
+  assert.equal(fresh.status, "missing");
 
   // initiator (session A) records a renewal BEFORE the switch, then dies
   const afterA: RenewalState = {
@@ -186,6 +187,8 @@ test("RN9: durable chain state survives session replacement AND process restart 
     stopped: false,
     updatedAt: 111,
   };
+  assert.equal(saveRenewalState(memfs, stateDir, afterA).ok, false, "ordinary save cannot initialize missing state");
+  assert.equal(initializeRenewalState(memfs, stateDir, { ...INITIAL_RENEWAL_STATE, chainId: afterA.chainId, updatedAt: 1 }).ok, true);
   assert.equal(saveRenewalState(memfs, stateDir, afterA).ok, true);
   assert.ok(memfs.files.has(renewalStatePath(stateDir)));
 
@@ -201,19 +204,22 @@ test("RN9: durable chain state survives session replacement AND process restart 
   memfs.writeFile(renewalStatePath(stateDir), '{"version":1,"renew');
   const bad = loadRenewalState(memfs, stateDir);
   assert.equal(bad.corrupt, true);
+  assert.equal(bad.status, "corrupt");
   assert.deepEqual(bad.state, INITIAL_RENEWAL_STATE);
 
   // schema-tolerant: pre-stop-field v1 files parse as not-stopped
-  const legacy = parseRenewalState(JSON.stringify({ version: 1, chainId: "chain:x", renewalsDone: 2, renewedFromCheckpointId: null, lastSuccessorSessionId: null, updatedAt: 5 }));
+  const legacy = parseRenewalState(JSON.stringify({ version: 1, chainId: "chain:x", renewalsDone: 2, renewedFromCheckpointId: "g6-old", lastSuccessorSessionId: null, updatedAt: 5 }));
   assert.equal(legacy.corrupt, false);
   assert.equal(legacy.state.stopped, false);
   assert.equal(legacy.state.renewalsDone, 2);
 
   // wrong version => corrupt classification (fail safe: treat as unusable)
   assert.equal(parseRenewalState(JSON.stringify({ version: 2 })).corrupt, true);
+  assert.equal(parseRenewalState(JSON.stringify({ version: 1, chainId: "chain:x", renewalsDone: "zero", renewedFromCheckpointId: null, lastSuccessorSessionId: null, updatedAt: 5 })).status, "corrupt", "transaction fields are validated rather than defaulted");
 
   // stop is durable: a stopped chain loaded in a "new process" still refuses renewals
   const stopped: RenewalState = { ...afterA, stopped: true };
+  memfs.writeFile(renewalStatePath(stateDir), serializeRenewalState(afterA)); // model restoring the valid backup after the corruption check
   saveRenewalState(memfs, stateDir, stopped);
   assert.equal(loadRenewalState(memfs, stateDir).state.stopped, true);
   assert.equal((decideRenewal(input({ state: loadRenewalState(memfs, stateDir).state, operatorStop: true })) as Extract<RenewalDecision, { renew: false }>).why, "stopped");
@@ -236,6 +242,7 @@ test("RN15: raising the cap never resets the chain and never permits a duplicate
     stopped: false,
     updatedAt: 222,
   };
+  assert.equal(initializeRenewalState(memfs, stateDir, { ...INITIAL_RENEWAL_STATE, chainId: hitCap.chainId, updatedAt: 1 }).ok, true);
   assert.equal(saveRenewalState(memfs, stateDir, hitCap).ok, true);
 
   // At the old cap the chain is exhausted.
@@ -275,6 +282,36 @@ test("RN15: raising the cap never resets the chain and never permits a duplicate
   assert.equal(cfg.renewal.maxRenewals, 8);
   assert.equal(cfg.renewal.enabled, true);
   assert.equal(cfg.renewal.autoRenew, false, "cap raise must not flip autoRenew");
+});
+
+test("RN16: missing, corrupt, and transaction-inconsistent renewal state never authorize or get recreated by save", () => {
+  const memfs = createMemoryFs();
+  const stateDir = "/project/.pi-guard";
+  const missing = loadRenewalState(memfs, stateDir);
+  assert.equal(missing.status, "missing");
+  for (const trigger of ["operator", "model"] as const) {
+    const decision = decideRenewal(input({ trigger, state: missing.state, renewal: renewal({ autoRenew: true }) }));
+    assert.equal(decision.renew, false);
+    assert.equal((decision as Extract<RenewalDecision, { renew: false }>).why, "state-unavailable");
+  }
+  const attempted = saveRenewalState(memfs, stateDir, { ...INITIAL_RENEWAL_STATE, chainId: "chain:unsafe", updatedAt: 2 });
+  assert.equal(attempted.ok, false, "normal update cannot create a missing chain");
+  assert.equal(memfs.files.has(renewalStatePath(stateDir)), false);
+
+  for (const raw of ["{broken", JSON.stringify({ version: 1, chainId: "chain:bad", renewalsDone: 4, renewedFromCheckpointId: null, lastSuccessorSessionId: null, stopped: false, updatedAt: 2 })]) {
+    memfs.writeFile(renewalStatePath(stateDir), raw);
+    const parsed = loadRenewalState(memfs, stateDir);
+    assert.equal(parsed.status, "corrupt");
+    assert.equal(decideRenewal(input({ state: parsed.state })).why, "state-unavailable");
+    assert.equal(saveRenewalState(memfs, stateDir, { ...INITIAL_RENEWAL_STATE, chainId: "chain:replacement", updatedAt: 3 }).ok, false);
+    assert.equal(memfs.files.get(renewalStatePath(stateDir)), raw, "corrupt evidence is preserved byte-for-byte");
+  }
+  const olderCheckpoint = decideRenewal(input({
+    checkpointId: "g3-current-aaaaaaaaaaaa",
+    state: { version: 1, chainId: "chain:restore", renewalsDone: 1, renewedFromCheckpointId: "g4-consumed-bbbbbbbbbbbb", lastSuccessorSessionId: null, stopped: false, updatedAt: 3 },
+  }));
+  assert.equal(olderCheckpoint.renew, false, "a checkpoint from before the consumed generation cannot seed another successor");
+  assert.equal((olderCheckpoint as Extract<RenewalDecision, { renew: false }>).why, "state-unavailable");
 });
 
 test("RN10: recovery prompt is deterministic, durable-files-only, no transcript replay, no compaction", () => {

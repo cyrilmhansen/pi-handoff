@@ -1,6 +1,8 @@
 /** Mission-instance identity and isolated storage layout. No migration or project writes. */
 import pathDefault from "node:path";
 import type { FsOps } from "./checkpoint.ts";
+import { initializeRenewalState, loadRenewalState } from "./checkpoint.ts";
+import { INITIAL_RENEWAL_STATE, type RenewalState } from "./renewal.ts";
 import type { GuardConfig, GuardFiles, WorkProfileRef } from "./config.ts";
 
 export const MISSION_INSTANCE_ROOT = ".pi-handoff/instances";
@@ -113,6 +115,7 @@ export function createMissionInstance(
   id: string,
   profile: WorkProfileRef | null,
   createdAt = new Date().toISOString(),
+  configuredStateDir?: string,
 ): CreateInstanceResult {
   if (!validMissionInstanceId(id)) return { ok: false, error: "invalid mission instance id" };
   if (!validWorkProfileRef(profile)) return { ok: false, error: "invalid work profile reference" };
@@ -156,6 +159,21 @@ export function createMissionInstance(
     } else {
       if (!fs.exists(file)) { fs.writeFile(file, content); created.push(name); }
     }
+  }
+  const stateDir = configuredStateDir ?? pathDefault.resolve(cwd, missionInstancePaths(id).stateDir);
+  const chain = loadRenewalState(fs, stateDir);
+  if (existing === undefined) {
+    const bootstrap: RenewalState = {
+      ...INITIAL_RENEWAL_STATE,
+      chainId: missionChainId(id, createdAt),
+      updatedAt: Date.parse(createdAt) || Date.now(),
+    };
+    const initialized = initializeRenewalState(fs, stateDir, bootstrap);
+    if (!initialized.ok) return { ok: false, error: `instance documents were created but initial renewal-chain state was not: ${initialized.error}; preserve this ID and use a new mission identity rather than retrying initialization` };
+  } else if (chain.status !== "valid") {
+    return { ok: false, error: `existing instance renewal-chain state is ${chain.status}: ${chain.detail}; restore a coherent backup or create a new mission identity` };
+  } else if (!chain.state.chainId.startsWith(`mission:${id}:`)) {
+    return { ok: false, error: `existing renewal-chain identity belongs to a different mission; preserve it and restore the matching stateDir backup` };
   }
   return { ok: true, created, resumed: existing !== undefined };
 }

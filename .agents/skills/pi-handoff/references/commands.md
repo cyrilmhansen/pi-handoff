@@ -5,10 +5,11 @@ Feature reference: Lots A–I are integrated on `main@8caee04`; the version rema
 changelog; Rune CI service files remain external to this extension.
 `renewal.successorTurn: "user"` and the documentation-cycle workflow remain explicitly
 opt-in; real Sushi A/B and real-inference document-cycle validation have not been
-performed. Q1 found that missing/corrupt renewal chain state can be treated as a new
-chain; pre-deployment status is **BLOCKED** pending fail-closed correction. Current
-installed Pi 1.5.2 passed the zero-inference RPC load; Pi 1.4.0 was unavailable for Q1.
-Behavior details live in `PROTOCOL.md` and the Q1 report.
+performed. Q1 found that missing/corrupt renewal state could reset authorization; Q2
+corrected this path with fail-closed state classification and explicit new-instance
+bootstrap. Current installed Pi 1.5.2 passed the zero-inference RPC load; Pi 1.4.0 was
+unavailable for Q1/Q2. The full A–I runtime qualification remains incomplete; see the
+Q2 report. Behavior details live in `PROTOCOL.md`.
 
 ## Commands (extension slash-commands; handled without a model turn)
 
@@ -27,7 +28,7 @@ should call registered tools instead: `handoff_inspect` is read-only,
 | `/guard events [n]` | Tail of `<stateDir>/diagnostics.jsonl` (dev.2 D5c): typed, bounded events — session_start/alert/revocation/renewal_request/renewal_result/finalize/tool_block/turn_aborted; never prompts/args/secrets; audit mode with in-tree stateDir reports "not persisted" |
 | `/handoff status` | Read-only checkpoint/readiness/renewal report; writes no files or state |
 | `/handoff instance status` | Show selected instance and resolved operational/state paths |
-| `/handoff instance create <id> [--profile <id@version>]` | Create an identity manifest and empty operational docs; no project docs are copied |
+| `/handoff instance create <id> [--profile <id@version>]` | Create an identity manifest, empty operational docs, and one exclusive mission-bound initial renewal state; no project docs are copied |
 | `/handoff instance select <id>` | Print explicit next-session selection instructions; current session does not switch |
 | `/handoff verify` | Freshness: missing / corrupt / stale / current (names changed sources); also prints the recovery-cost meter (dev.2 D4) |
 | `/handoff checkpoint [notes]` | Explicit checkpoint write (managed blocks only); bare `/handoff` remains the no-notes form |
@@ -37,7 +38,7 @@ should call registered tools instead: `handoff_inspect` is read-only,
 | `/handoff renew --task "..."` | Operator renewal with a short new mission for the first successor turn |
 | `/handoff renew --task-file <path>` | Read a Markdown mission inside the project (realpath-checked, 64 KiB UTF-8 maximum); content is not copied to checkpoint notes |
 | `/handoff renew go` | Bridge used by the `handoff_renew` tool (model trigger); do not call manually mid-turn |
-| `/handoff renew stop` \| `resume` | Durable operator stop flag in chain state (successors inherit) |
+| `/handoff renew stop` \| `resume` | Durable operator stop flag in an existing valid chain; refuses missing/corrupt state without writing |
 | `/handoff renew status` | Chain: enabled/autoRenew, renewalsDone/maxRenewals, stopped, pending authorization |
 | `/handoff cycle status` | Read-only documentary workflow state and any explicit recovery token |
 | `/handoff cycle plan` | Start one fresh read-only planning context at a capped, attested campaign boundary |
@@ -184,8 +185,12 @@ read; it is guidance, not an operator authorization channel.
   writes; `checkpointId`, `handoffReady`, `learningsHash` audit fields; corrupt files
   are quarantined per-session; legacy single `state.json` migrates newest-wins).
 - `<stateDir>/renewal-state.json` — durable chain state (`chainId`, `renewalsDone`,
-  `renewedFromCheckpointId`, `stopped`); survives session replacement and process
-  restart; carries the operator stop.
+  `renewedFromCheckpointId`, `stopped`); classification is valid/missing/corrupt. Missing,
+  malformed, incomplete, cross-instance or checkpoint-generation-incoherent state blocks
+  renewal and stop/resume. Ordinary saves cannot initialize or replace it. Explicit
+  `/handoff instance create` exclusively creates a zero-count state tied to that mission;
+  if creation is interrupted before the state file exists, preserve the partial instance
+  and use a new mission ID rather than retrying bootstrap.
 - `<stateDir>/diagnostics.jsonl` — dev.2 D5c structured event trail (JSONL, ISO+epoch;
   closed type vocabulary: session_start/alert/revocation/renewal_request/
   renewal_result/finalize/tool_block/turn_aborted; allowlisted fields only — never
