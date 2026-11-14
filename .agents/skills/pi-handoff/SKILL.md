@@ -1,13 +1,16 @@
 ---
 name: pi-handoff
 description: Operate a project equipped with the Pi context-guard extension and its durable handoff files (AGENTS.md, PROTOCOL.md, GOAL.md, HANDOFF.md, PROGRESS.md, LEARNINGS.md, handoff.config.json). Use when a session reports context pressure levels or checkpoint freshness, when writing or verifying a checkpoint (/handoff), when attesting handoff readiness, when closing a session down or renewing it into a fresh successor session, when running a read-only audit, when testing thresholds without spending tokens, or when installing context-guard into a new long-running project.
-compatibility: Pi >= 1.4.0; requires the context-guard extension loaded (pi -e <path>/.pi/extensions/context-guard/index.ts, or project trust) and the durable files at the project root.
+compatibility: Pi 1.5.2 RPC was validated without inference; Pi 1.4.0 remains unqualified. Requires the context-guard extension loaded (pi -e <path>/.pi/extensions/context-guard/index.ts, or project trust) and the durable files at the project root.
 ---
 
 # Pi Handoff — operating a context-guard project
 
-This skill describes Lots A–I integrated on `main@8caee04`; the version is still
-`v0.1.0-dev.4` because no release bump was made. The `"user"` successor turn and
+This skill describes Lots A–I and Q2 fail-closed restoration in the `v0.1.0-rc.1`
+candidate from `f4206dbc`. It is an experimental prerelease for a supervised pilot, not
+a production-ready claim. Pi 1.5.2 RPC was validated without inference; Pi 1.4.0, real
+renewals using the RC code, and the documentation cycle with inference remain unqualified.
+The `"user"` successor turn and
 documentation-cycle orchestration are opt-in; neither has real-model behavior validation.
 Q1 historically found a fail-open renewal after loss of `<stateDir>/renewal-state.json`.
 Q2 adds fail-closed handling and explicit, exclusive chain initialization on operator

@@ -26,6 +26,7 @@ const GUIDE = path.join(REPO, "docs/long-project-guide.md");
 const README = path.join(REPO, "README.md");
 const BOOTSTRAP = path.join(SKILL_DIR, "references/bootstrap.md");
 const COMMANDS = path.join(SKILL_DIR, "references/commands.md");
+const DEPLOYMENT = path.join(REPO, "docs/deployment.md");
 
 /** Strip line comments and JSDoc-ish lines so prose mentions never count as imports. */
 function codeOnly(src: string): string {
@@ -106,6 +107,17 @@ test("DC4: README Layout block lists EXACTLY the module closure", () => {
     sortedUnion(closure),
     `README Layout documents ${listed.join(" ")} but the runtime imports ${[...closure].sort().join(" ")}`,
   );
+});
+
+test("DC7: deployment guide lists exactly the local modules required by index.ts", () => {
+  const md = fs.readFileSync(DEPLOYMENT, "utf8");
+  const section = md.slice(md.indexOf("## Install the extension"));
+  const fence = section.match(/```text\n([\s\S]*?)```/);
+  assert.ok(fence, "deployment guide must contain a plain-text module manifest");
+  const listed = [...fence![1].matchAll(/^\.pi\/extensions\/context-guard\/([a-z][a-z-]*\.ts)$/gm)]
+    .map((m) => m[1]).sort();
+  assert.deepEqual(listed, [...closure].map((m) => path.basename(m)).sort());
+  assert.equal(new Set(listed).size, listed.length, "module manifest must not contain duplicates");
 });
 
 test("DC5: commands.md + README document every env override the extension actually reads", () => {
