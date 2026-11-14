@@ -367,6 +367,8 @@ try {
   const ownerTree = makeProject("instance-owner");
   prepareMissionInstance(ownerTree, "shared");
   prepareMissionInstance(ownerTree, "parallel");
+  const sharedLearningsPath = path.join(ownerTree, ".pi-handoff", "instances", "shared", "LEARNINGS.md");
+  fs.writeFileSync(sharedLearningsPath, "# LEARNINGS\n\n## Accepted\n\n- [E2E-KNOWLEDGE] A real Pi RPC closure workflow retained its source files byte-for-byte.\n\n## Proposed\n\n## Falsified or superseded\n\n");
   const ownerPath = path.join(ownerTree, ".pi-handoff", "instances", "shared", ".owner.lock");
   const sharedDocs = ["HANDOFF.md", "PROGRESS.md", "LEARNINGS.md"].map((name) => path.join(ownerTree, ".pi-handoff", "instances", "shared", name));
   const docsBefore = sharedDocs.map((p) => fs.readFileSync(p, "utf8"));
@@ -422,15 +424,59 @@ try {
   check("LOT H: normal process shutdown releases the owner lock but retains closure", !fs.existsSync(ownerPath) && fs.existsSync(closurePath));
   const sealedInstanceBeforeRead = manifest(sharedInstancePath);
   const sealedStateBeforeRead = manifest(sharedStatePath);
+  const evidenceDir = path.join(ownerTree, "docs");
+  fs.mkdirSync(evidenceDir, { recursive: true });
+  const evidencePath = path.join(evidenceDir, "knowledge-proof.txt");
+  const evidenceText = "zero-inference Pi RPC knowledge publication evidence\n";
+  fs.writeFileSync(evidencePath, evidenceText);
+  const knowledgeProposal = {
+    schema: 1,
+    id: "e2e-shared-knowledge",
+    missionId: "shared",
+    classification: "accepted",
+    statement: "The Pi RPC closure proof retained the sealed source files.",
+    rationale: "Observed from a real Pi 1.4.0 runtime without invoking inference.",
+    source: {
+      path: ".pi-handoff/instances/shared/LEARNINGS.md",
+      locator: "E2E-KNOWLEDGE",
+      sha256: createHash("sha256").update(fs.readFileSync(sharedLearningsPath)).digest("hex"),
+    },
+    evidence: [{ path: "docs/knowledge-proof.txt", sha256: createHash("sha256").update(fs.readFileSync(evidencePath)).digest("hex"), description: "RPC run output" }],
+  };
+  const proposalDir = path.join(ownerTree, ".pi-handoff", "knowledge", "proposals");
+  fs.mkdirSync(proposalDir, { recursive: true });
+  fs.writeFileSync(path.join(proposalDir, "rpc-proof.json"), JSON.stringify(knowledgeProposal, null, 2) + "\n");
   const closedRead = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-closed-read"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "shared" }, label: "INSTANCE-CLOSED-READ" });
   await awaitReady(closedRead);
   await closedRead.command({ id: "closed-status", type: "prompt", message: "/handoff instance close status" });
   await closedRead.command({ id: "closed-checkpoint", type: "prompt", message: "/handoff checkpoint must be refused" });
   await closedRead.command({ id: "closed-instance-status", type: "prompt", message: "/handoff instance status" });
+  const knowledgePlanStart = closedRead.uiTexts().length;
+  await closedRead.command({ id: "closed-knowledge-plan", type: "prompt", message: "/handoff knowledge plan rpc-proof" });
+  const knowledgePlanText = closedRead.uiTexts().slice(knowledgePlanStart).join("\n");
+  const knowledgeFingerprint = /approval fingerprint: ([a-f0-9]{64})/.exec(knowledgePlanText)?.[1];
+  check("LOT I: closed source mission can be planned read-only for shared publication", Boolean(knowledgeFingerprint) && /sealed close:/.test(knowledgePlanText), knowledgePlanText.slice(-220));
+  await closedRead.command({ id: "closed-knowledge-publish", type: "prompt", message: `/handoff knowledge publish rpc-proof --confirm ${knowledgeFingerprint}` });
+  const knowledgeRecordDir = path.join(ownerTree, ".pi-handoff", "knowledge", "records", "e2e-shared-knowledge");
+  const publishedFiles = fs.existsSync(knowledgeRecordDir) ? fs.readdirSync(knowledgeRecordDir) : [];
+  const publishedRecord = publishedFiles.length === 1 ? JSON.parse(fs.readFileSync(path.join(knowledgeRecordDir, publishedFiles[0]), "utf8")) : null;
+  check("LOT I: operator command publishes one self-fingerprinted immutable record", Boolean(publishedRecord?.publicationFingerprint) && publishedRecord?.decision?.actor === "operator" && publishedRecord?.sourceClosure === seal?.operationId, JSON.stringify(publishedRecord && { publicationId: publishedRecord.publicationId, sourceMissionId: publishedRecord.sourceMissionId }));
+  check("LOT I: publishing from a closed mission leaves its sealed documents and state unchanged", JSON.stringify(manifest(sharedInstancePath)) === JSON.stringify(sealedInstanceBeforeRead) && JSON.stringify(manifest(sharedStatePath)) === JSON.stringify(sealedStateBeforeRead));
   const closedTexts = closedRead.uiTexts().join("\n");
   check("LOT H: real Pi restart reads the seal and rejects checkpoint writes", /mission closure CLOSED/.test(closedTexts) && /CLOSED and immutable/.test(closedTexts), closedTexts.split("\n").filter((line) => /closure|refused/.test(line)).slice(-2).join(" | "));
   check("LOT H: closed-instance consultation leaves all instance/state bytes unchanged", JSON.stringify(manifest(sharedInstancePath)) === JSON.stringify(sealedInstanceBeforeRead) && JSON.stringify(manifest(sharedStatePath)) === JSON.stringify(sealedStateBeforeRead));
   await closedRead.shutdown();
+  const knowledgeReader = startRpc({ dir: ownerTree, agentDir: path.join(root, "agent-knowledge-reader"), env: { CONTEXT_GUARD_MISSION_INSTANCE: "parallel" }, label: "KNOWLEDGE-READER" });
+  await awaitReady(knowledgeReader);
+  const readerInstancePath = path.join(ownerTree, ".pi-handoff", "instances", "parallel");
+  const readerStatePath = path.join(ownerTree, ".pi-guard", "instances", "parallel");
+  const readerBefore = manifest(readerInstancePath).concat(manifest(readerStatePath).map((entry) => `state:${entry}`));
+  await knowledgeReader.command({ id: "knowledge-list", type: "prompt", message: "/handoff knowledge list --id e2e-shared-knowledge" });
+  const knowledgeReadText = knowledgeReader.uiTexts().join("\n");
+  check("LOT I: another real Pi mission can consult the provenance and classification", /e2e-shared-knowledge current \[accepted\]/.test(knowledgeReadText) && /E2E-KNOWLEDGE/.test(knowledgeReadText), knowledgeReadText.split("\n").filter((line) => /e2e-shared-knowledge|E2E-KNOWLEDGE/.test(line)).slice(-2).join(" | "));
+  const readerAfter = manifest(readerInstancePath).concat(manifest(readerStatePath).map((entry) => `state:${entry}`));
+  check("LOT I: cross-mission consultation does not change operational documents or state", JSON.stringify(readerAfter) === JSON.stringify(readerBefore));
+  await knowledgeReader.shutdown();
   }
 
   // ---- optional: ONE minimal real turn (spends inference; off by default) ----

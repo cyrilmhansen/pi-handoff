@@ -8,12 +8,13 @@ Do this from the context-guard source project (this repo), into the target proje
 ```
 <target>/.pi/extensions/context-guard/
   index.ts core.ts config.ts checkpoint.ts renewal.ts recovery.ts diagnostics.ts documentation-cycle.ts
-  mission-instance.ts mission-lock.ts mission-lifecycle.ts
+  mission-instance.ts mission-lock.ts mission-lifecycle.ts knowledge.ts
 ```
 
-Eleven modules (`mission-instance.ts` = explicit instance identity/storage; `mission-lock.ts`
+Twelve modules (`mission-instance.ts` = explicit instance identity/storage; `mission-lock.ts`
 = exclusive process ownership; `documentation-cycle.ts` = optional operator-supervised campaign-boundary
-workflow; `mission-lifecycle.ts` = in-place, fail-closed mission closure); the list is machine-checked against the runtime's
+workflow; `mission-lifecycle.ts` = in-place, fail-closed mission closure; `knowledge.ts`
+= immutable, operator-approved shared knowledge publications); the list is machine-checked against the runtime's
 local import closure by `test/docs.test.ts` DC2 — if a release adds a module, this file
 must be updated or the suite fails.
 

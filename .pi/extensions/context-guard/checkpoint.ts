@@ -16,7 +16,7 @@ import { parseRenewalState, serializeRenewalState, type RenewalState } from "./r
 export interface FsOps {
   readFile(path: string): string | undefined;
   /** Optional bounded text read for untrusted/operator-selected inputs. */
-  readFileLimited?(path: string, maxBytes: number): { content: string; tooLarge: boolean } | undefined;
+  readFileLimited?(path: string, maxBytes: number): { content: string; tooLarge: boolean; sha256?: string; size?: number } | undefined;
   writeFile(path: string, content: string): void; // must be atomic where durability matters
   /** Optional exclusive create, used as a crash-visible cross-process transition lock. */
   createExclusive?(path: string, content: string): boolean;
@@ -29,6 +29,8 @@ export interface FsOps {
   listFilesStrict?(dir: string): string[];
   /** Optional raw-byte content hash (preserves integrity for binary mission artifacts). */
   hashFile?(path: string): string | undefined;
+  /** File size in bytes, used to bound untrusted proposals and evidence hashing. */
+  fileSize?(path: string): number | undefined;
   remove(path: string): void;
   /** Canonical path with symlinks resolved; undefined when unsupported/unresolvable. */
   realpath?(path: string): string | undefined;
@@ -64,7 +66,8 @@ export function createLocalFs(): FsOps {
           length += count;
         }
         if (length > maxBytes) return { content: "", tooLarge: true };
-        return { content: bytes.subarray(0, length).toString("utf8"), tooLarge: false };
+        const data = bytes.subarray(0, length);
+        return { content: data.toString("utf8"), tooLarge: false, sha256: createHash("sha256").update(data).digest("hex"), size: data.length };
       } catch {
         return undefined;
       } finally {
@@ -145,6 +148,10 @@ export function createLocalFs(): FsOps {
     },
     hashFile(p) {
       try { return createHash("sha256").update(fs.readFileSync(p)).digest("hex"); }
+      catch { return undefined; }
+    },
+    fileSize(p) {
+      try { const stat = fs.statSync(p); return stat.isFile() ? stat.size : undefined; }
       catch { return undefined; }
     },
     remove(p) {

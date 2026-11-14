@@ -241,7 +241,7 @@ export function createMemoryFs(initial: Record<string, string> = {}): MemoryFs {
       const content = files.get(p);
       if (content === undefined) return undefined;
       if (Buffer.byteLength(content, "utf8") > maxBytes) return { content: "", tooLarge: true };
-      return { content, tooLarge: false };
+      return { content, tooLarge: false, sha256: createHash("sha256").update(content, "utf8").digest("hex"), size: Buffer.byteLength(content, "utf8") };
     },
     writeFile(p, content) {
       const fails = failNext.get(p) ?? 0;
@@ -288,6 +288,10 @@ export function createMemoryFs(initial: Record<string, string> = {}): MemoryFs {
     hashFile(p) {
       const content = files.get(p);
       return content === undefined ? undefined : createHash("sha256").update(content, "utf8").digest("hex");
+    },
+    fileSize(p) {
+      const content = files.get(p);
+      return content === undefined ? undefined : Buffer.byteLength(content, "utf8");
     },
     remove(p) {
       files.delete(p);
