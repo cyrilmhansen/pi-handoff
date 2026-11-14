@@ -215,7 +215,8 @@ export function prepareMissionClosure(options: MissionClosureOptions): MissionCl
   }
   const renewalPath = pathDefault.join(stateDir, "renewal-state.json");
   const renewalParsed = parseRenewalState(fs.readFile(renewalPath));
-  if (renewalParsed.corrupt) blockers.push("renewal chain state is corrupt");
+  if (renewalParsed.status !== "valid") blockers.push(`renewal chain state is ${renewalParsed.status}: ${renewalParsed.detail ?? "restore a coherent stateDir backup"}`);
+  else if (!renewalParsed.state.chainId.startsWith(`mission:${missionId}:`)) blockers.push("renewal chain identity does not belong to the selected mission instance");
   const cyclePath = pathDefault.join(stateDir, "documentation-cycle/state.json");
   const cycle = parseDocumentationCycleState(fs.readFile(cyclePath));
   const cyclePhase = cycle.corrupt ? "corrupt" : cycle.state?.phase ?? "idle";

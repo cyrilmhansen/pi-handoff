@@ -1,9 +1,10 @@
 # Procédure de sauvegarde, essai et retour arrière
 
-> **Statut Q1 : ne pas déployer sur DRPLi.** La chaîne de renouvellement peut être
-> réinitialisée silencieusement si `.pi-guard` ou le `stateDir` externe manque. Cette
-> procédure permet les répétitions dans une copie isolée et le retour exact à un état
-> pré-déploiement; elle ne lève pas ce blocage.
+> **Q2 : restauration fail-closed corrigée sur `qual/predeploy-a-i`.** Q1 avait démontré
+> qu’une perte de `.pi-guard`/`stateDir` pouvait réinitialiser l’autorisation. Q2 refuse
+> maintenant l’état absent/corrompu et initialise une chaîne seulement à la création
+> explicite d’une nouvelle instance. La qualification globale reste limitée par les
+> versions/runtime non testés; voir `predeploy-a-i.md`.
 
 ## 1. Sauvegarder un état actif
 
@@ -26,10 +27,11 @@
    rejoués.
 
 **Point critique :** ne pas faire confiance à Git seul. La perte de
-`<stateDir>/renewal-state.json` peut oublier le compteur, l’identité de checkpoint
-consommée et le stop opérateur. Pour l’instant, si ce fichier est absent ou corrompu pour
-une mission existante, arrêter les mutations et préserver l’état; ne pas continuer sur la
-base d’une chaîne supposée neuve.
+`<stateDir>/renewal-state.json` ne restaure pas le compteur, l’identité consommée ni le
+stop opérateur. Q2 classe ce cas `missing`/`corrupt` et refuse renouvellement, stop/resume
+et transitions documentaires sans réécrire le fichier. Restaurer la sauvegarde cohérente;
+ne pas remplacer ou supprimer l’artefact corrompu. Une attestation de checkpoint ne
+prouve pas qu’une chaîne est neuve.
 
 ## 2. Vérifier Handoff dans une copie de projet
 
@@ -40,9 +42,9 @@ base d’une chaîne supposée neuve.
    <copie>/.pi/extensions/context-guard/index.ts`. Vérifier `pi --version` : la campagne
    Q1 courante a utilisé Pi 1.5.2; Pi 1.4.0 reste à qualifier.
 3. Vérifier les fichiers attendus, `node --test test/`, skill discovery et
-   `node scripts/e2e-rpc-two-process.mjs`. Le script RPC est zéro inférence; le test
-   `Q1 BLOCKER REPRODUCED` doit actuellement reproduire le défaut et **ne signifie pas
-   que le déploiement est sûr**.
+   `node scripts/e2e-rpc-two-process.mjs`. Le script RPC est zéro inférence; Q2 vérifie
+   qu’un vrai processus Pi refuse l’état absent et qu’une instance explicitement créée
+   conserve sa chaîne après redémarrage. Pi 1.4.0 reste à qualifier.
 4. Essayer les restaurations uniquement dans des répertoires temporaires de la copie. Ne
    jamais pointer les variables d’environnement ou outils de test vers des preuves DRPLi.
 
@@ -65,10 +67,14 @@ Ne jamais réutiliser l’ID d’une instance clôturée ou restaurée de maniè
 copier le `Next action`, `LEARNINGS.md` ou les preuves automatiquement. Le nouveau travail
 est distinct d’une continuation de l’ancienne chaîne.
 
-Q1 reste **BLOCKED** : avant tout déploiement, un correctif doit refuser les états de
-chaîne missing/corrupt pour une mission existante et fournir une initialisation sûre,
-explicitement autorisée, pour une nouvelle chaîne vierge. Cette procédure n’invente pas
-un reset de chaîne.
+La création d’une nouvelle instance initialise exclusivement son état chaîne zéro dans
+le `stateDir` configuré, avec un `chainId` de forme `mission:<id>:...`. À chaque
+redémarrage, vérifier que l’état est `valid` et correspond à l’ID sélectionné. Si la
+création est interrompue après le manifest mais avant `renewal-state.json`, ne pas
+réessayer sur ce même ID : garder ses fichiers intacts, inspecter, puis utiliser un nouvel
+ID après décision opérateur. Une instance existante dont le state manque/corrompt doit
+être restaurée depuis la sauvegarde complète; une nouvelle instance n’hérite pas de son
+checkpoint ni de son `Next action`.
 
 ## 5. Retour arrière en cas de refus ou d’incident
 

@@ -1,6 +1,6 @@
-# Q1 — Préqualification de déploiement A–I
+# Q1/Q2 — Qualification de restauration A–I
 
-**Décision : BLOCKED.** La restauration d’un checkout qui perd l’état de chaîne de renouvellement peut réautoriser une session à partir d’un checkpoint déjà consommé et oublier le plafond ou l’arrêt opérateur. Le défaut est reproduit par le test Q1-B et dans le vrai RPC Pi sans inférence. Aucun déploiement DRPLi ne doit suivre cette qualification.
+**Historique Q1 : BLOCKED.** La restauration d’un checkout qui perdait l’état de chaîne réautorisait un checkpoint consommé et oubliait plafond/stop. Q2 conserve les reproducteurs Q1, corrige le défaut en fail-closed et le prouve sur le runtime Pi disponible. **Correction Q2 : PASS** pour les scénarios testés ci-dessous. La qualification globale avant déploiement reste **UNTESTED** tant que Pi 1.4.0 et les parcours nécessitant une vraie inférence ne sont pas observés; ce rapport ne constitue pas une approbation de déploiement ni une validation scientifique.
 
 ## Périmètre et environnement mesuré
 
@@ -12,7 +12,7 @@
 - Aucun stateDir externe n’est configuré dans ce workspace. Les tests Q1 créent un stateDir externe dans leur répertoire jetable pour vérifier qu’il doit être sauvegardé séparément.
 - Les transcripts Pi sont stockés par Pi hors des documents opérationnels; Handoff ne les lit pas et ne les rejoue pas. Le répertoire agent Pi effectif n’a pas été déterminé pendant cet audit. Les transcripts peuvent être conservés à des fins forensiques mais ne reconstituent ni compteurs ni autorisations.
 
-## Inventaire des états et conséquences d’une restauration
+## Inventaire des états et conséquences d’une restauration (état Q1, avant correction)
 
 | État | Nécessaire / reconstructible | Absent, ancien ou corrompu | Sauvegarde cohérente |
 |---|---|---|---|
@@ -31,7 +31,7 @@
 
 Les empreintes SHA valident l’intégrité octet pour octet, pas l’atomicité d’une transaction interrompue. Les locks/journaux/markers déterminent si une transaction a été menée à terme. Ni l’attestation Handoff ni une publication `accepted` ne valident une hypothèse ou un résultat scientifique.
 
-## Scénarios de restauration
+## Scénarios de restauration — preuves Q1 historiques
 
 | Scénario | Résultat | Preuve |
 |---|---|---|
@@ -48,7 +48,7 @@ Les empreintes SHA valident l’intégrité octet pour octet, pas l’atomicité
 
 Une nouvelle instance explicite vierge a ses documents propres et ne copie pas le Next action; elle est distincte d’une restauration de l’instance précédente. L’existence d’un nouveau checkpoint attesté sans `renewal-state.json` ne prouve cependant pas que cette instance est vierge: c’est précisément l’ambiguïté de sécurité à résoudre.
 
-## Parcours intégré A–I
+## Parcours intégré A–I — preuves Q1 historiques
 
 Le RPC zéro inférence couvre checkpoint/attestation, séparation des états d’instances, refus d’un second propriétaire, disponibilité simultanée d’un ID différent, plafond/finalize, clôture et relecture après redémarrage, publication depuis une mission scellée, consultation depuis une autre mission et détection d’une preuve modifiée. Le script observe le runtime Pi **1.5.2**, pas 1.4.0. La validation finale complète de ce candidat est dans la section suivante.
 
@@ -77,8 +77,47 @@ Campagnes lancées séquentiellement, après vérification qu’aucun build Rune
 - Inférence réelle Sushi/renouvellement et cycle documentaire — **NOT RUN** selon consigne; le premier tour des missions de cycle et le switch réel restent non observés.
 - Garantie de locks : testée sur Linux/Btrfs et tmpfs/local temps; **UNTESTED** macOS et fichiersystems réseau. Les docs Lots G/I excluent déjà réseau et autres checkouts.
 
-### Anomalie bloquante et décision
+### Anomalie initiale et décision Q1 (historique)
 
-Le state chain est l’unique persistance qui relie un checkpoint durable à son usage antérieur. `parseRenewalState(undefined)` retourne `INITIAL_RENEWAL_STATE` sans corruption; un JSON incorrect fait pareil avec `corrupt=true`. Le chemin réel renouvellement vérifie le stop/cap/idempotence de `.state`, mais n’arrête pas lorsque le fichier est missing/corrupt. Notre test Pi réel confirme l’état `ready-now` après perte du fichier. C’est une perte d’autorisation, pas une simple perte de diagnostic.
+Le state chain est l’unique persistance qui relie un checkpoint durable à son usage antérieur. Avant Q2, `parseRenewalState(undefined)` retournait `INITIAL_RENEWAL_STATE` sans corruption; un JSON incorrect faisait pareil avec `corrupt=true`. Le chemin réel renouvellement n’arrêtait pas sur missing/corrupt. Le test Pi Q1 confirmait `ready-now` après perte du fichier. C’était une perte d’autorisation, pas une simple perte de diagnostic.
 
-Je n’ai pas ajouté de reset automatique ni un état initial synthétique: avec les fichiers existants, Handoff ne sait pas distinguer une première chaîne d’une restauration partielle d’une chaîne consommée/arrêtée. Un correctif doit ajouter une règle fail-closed et un chemin d’initialisation explicitement autorisé pour les nouvelles instances, puis requalifier les anciennes instances schema v3. Ce changement dépasse une correction documentaire Q1 et aucune migration/autorisation opérateur ne permet de prétendre que l’état ancien est sûr. **Décision finale : BLOCKED.**
+Q1 n’avait pas ajouté de reset automatique ni d’état initial synthétique: avec les fichiers disponibles, Handoff ne pouvait distinguer une première chaîne d’une chaîne perdue. Q2 implémente depuis cette branche la règle fail-closed et l’initialisation exclusive d’une nouvelle instance explicitement créée. **La décision BLOCKED ci-dessus reste l’instantané historique de Q1, pas le résultat Q2.**
+
+## Q2 — Correction fail-closed et mesures
+
+### Règle mise en œuvre
+
+- `loadRenewalState()` retourne une classification `valid | missing | corrupt`; JSON vide, champs requis absents/invalides/incohérents et mauvais schéma v1 sont `corrupt`. Les anciens états v1 valides sans champ `stopped` restent acceptés.
+- `decideRenewal()` refuse un état sans identité de chaîne. L’état `missing/corrupt` est affiché avec la cause et demande la restauration de la sauvegarde complète. Aucune inspection ne répare ou réécrit l’état.
+- `saveRenewalState()` ne crée plus un fichier manquant, n’écrase pas un état corrompu, ne change pas la chaîne et ne baisse pas le compteur. Les remplacements de campagne passent uniquement par le journal et l’archive du cycle documentaire.
+- `/handoff renew`, le tool `handoff_renew`, les aperçus L3/L4, `/handoff renew stop|resume`, les cycles documentaires, et le scellement contrôlent l’état. Identité de chaîne d’instance étrangère et checkpoint courant d’une génération égale/antérieure au checkpoint consommé sont refusés.
+- `/handoff instance create <id>` crée les documents vides et un état initial de chaîne avec `createExclusive`, identifiant `mission:<id>:...`, compteur zéro. Le retry ne re-bootstrap pas un manifest existant dont le fichier chaîne manque; préserver les octets et utiliser un nouvel ID après décision opérateur.
+
+### Résultats sécurité Q2
+
+| Scénario | Résultat Q2 | Preuve |
+|---|---|---|
+| Consommé, plafonné ou stopped avec state absent | **PASS — refus** | `test/qualification-restore.test.ts` Q2-B; `decideRenewal` donne `state-unavailable`. |
+| JSON cassé, champs incomplets/incohérents | **PASS — refus, octets conservés** | Q2-C, RN16; `saveRenewalState` ne répare ni ne remplace. |
+| `stateDir` externe restauré/perdu | **PASS — refus si perdu; autorisation historique conservée si sauvegardé** | Q2-C. |
+| stop/resume et `handoff_renew` opérateur/modèle avec état manquant | **PASS — refus, aucun state/checkpoint/dispatch créé** | test Q2 dans `test/renew.test.ts`; vrai RPC Pi sans inférence. |
+| `cycle continue` missing/corrupt | **PASS — refus, state et documents conservés** | test Q2 dans `test/extension.test.ts`. |
+| Nouvelle instance explicite, répétition et interruption avant état | **PASS — bootstrap exclusif/idempotent; partial refuse au retry** | MI2d, Q2-B et vrai RPC Pi avec redémarrage. |
+| État v1 valide et quotas existants | **PASS** | RN9/RN15, Q1-A; consumed/capped/stopped restent bloqués après copie complète. |
+| State/checkpoint de générations incohérentes ou identité d’autre instance | **PASS — refus** | RN16, MI2d; chain identity prefix et génération consommée testées. |
+| Transition réelle avec inférence Sushi / comparaison `successorTurn` | **UNTESTED** | Aucune inférence autorisée. |
+
+### Validation Q2
+
+Campagnes exécutées séquentiellement après contrôle local de l’absence de build request Rune CI actif. Le runtime réel RPC était Pi **1.5.2** (`pi --version`); Pi 1.4.0 n’était pas installé.
+
+- `node --test test/` — **306 tests : 305 pass, 0 fail, 1 gated skip**.
+- `node scripts/check-skill-discovery.mjs` — **8/8**, zéro inférence.
+- `node scripts/e2e-rpc-two-process.mjs` — **60/60**, zéro inférence; reproduit le refus d’état absent et l’initialisation d’une mission qui survit à un redémarrage réel.
+- `git diff --check` — réussi après modifications.
+- Pi 1.4.0 — **UNTESTED**; aucune assertion de compatibilité runtime n’est inférée depuis 1.5.2.
+- Parcours documentaire complet, bascule de session avec premier tour successeur, et validation scientifique — **UNTESTED** (dépendent d’inférence ou d’une validation indépendante).
+
+### Décision Q2
+
+**Correction de restauration : PASS** pour les cas et plateformes mesurés. **Qualification globale A–I avant déploiement : UNTESTED** pour Pi 1.4.0 et les parcours live nécessitant une inférence; aucune décision READY n’est prononcée et cette correction seule n’autorise pas un déploiement DRPLi. Le blocage de sécurité Q1 est corrigé localement sur `qual/predeploy-a-i`. Les états scientifiques n’ont pas été migrés, réécrits ou nettoyés.

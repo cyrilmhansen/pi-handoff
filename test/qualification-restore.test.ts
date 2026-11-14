@@ -4,7 +4,7 @@ import fsDefault from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { createLocalFs, writeCheckpoint, attestHandoff, validateCheckpoint, renewAuthorization, saveRenewalState, loadRenewalState } from "../.pi/extensions/context-guard/checkpoint.ts";
+import { createLocalFs, writeCheckpoint, attestHandoff, validateCheckpoint, renewAuthorization, initializeRenewalState, saveRenewalState, loadRenewalState } from "../.pi/extensions/context-guard/checkpoint.ts";
 import { createMissionInstance, missionInstancePaths } from "../.pi/extensions/context-guard/mission-instance.ts";
 import { decideRenewal, DEFAULT_RENEWAL, INITIAL_RENEWAL_STATE, type RenewalState } from "../.pi/extensions/context-guard/renewal.ts";
 import { inspectMissionClosure, makeMissionClosureRecord, missionClosurePaths, prepareMissionClosure } from "../.pi/extensions/context-guard/mission-lifecycle.ts";
@@ -33,7 +33,8 @@ function fixture(project: string, id: string): { stateDir: string; files: Return
   fsDefault.writeFileSync(path.join(project, "PROTOCOL.md"), "# Protocol\nQualification fixture.\n");
   fsDefault.writeFileSync(path.join(project, "handoff.config.json"), JSON.stringify({ stateDir: ".pi-guard", missionInstance: { id } }));
   const fs = createLocalFs();
-  const created = createMissionInstance(fs, project, id, null);
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const created = createMissionInstance(fs, project, id, null, createdAt);
   assert.equal(created.ok, true, "explicit mission fixture is created without migration");
   const paths = missionInstancePaths(id);
   fsDefault.writeFileSync(path.join(project, paths.files.handoff), durable.handoff);
@@ -55,7 +56,7 @@ function fixture(project: string, id: string): { stateDir: string; files: Return
 
 function makeState(id: string, checkpointId: string, values: Partial<RenewalState> = {}): RenewalState {
   return {
-    version: 1, chainId: `mission:${id}:chain:qual`, renewalsDone: 1,
+    version: 1, chainId: `mission:${id}:chain:2026-01-01T00:00:00.000Z`, renewalsDone: 1,
     renewedFromCheckpointId: checkpointId, lastSuccessorSessionId: "successor-qual",
     stopped: false, updatedAt: 1_800_000_000_000, ...values,
   };
@@ -74,17 +75,19 @@ function decision(project: string, id: string, stateDir: string) {
 
 test("Q1-A: coherent full restore preserves checkpoint, consumed identity, cap and durable stop", async () => {
   await isolated("restore-a", (root) => {
-    const source = path.join(root, "source");
     const id = "restore-a";
-    const sourceFixture = fixture(source, id);
     const variants: Array<[string, Partial<RenewalState>, string]> = [
-      ["consumed", { renewalsDone: 1, renewedFromCheckpointId: sourceFixture.checkpointId }, "already-renewed"],
-      ["capped", { renewalsDone: 2, renewedFromCheckpointId: null }, "capped"],
-      ["stopped", { stopped: true, renewedFromCheckpointId: null }, "stopped"],
+      ["consumed", { renewalsDone: 1 }, "already-renewed"],
+      ["capped", { renewalsDone: 2, renewedFromCheckpointId: "g-prior-campaign" }, "capped"],
+      ["stopped", { stopped: true, renewedFromCheckpointId: "g-prior-campaign" }, "stopped"],
     ];
     for (const [name, changes, expected] of variants) {
+      const source = path.join(root, `source-${name}`);
+      const sourceFixture = fixture(source, id);
+      if (name === "consumed") changes.renewedFromCheckpointId = sourceFixture.checkpointId;
       const state = makeState(id, sourceFixture.checkpointId, changes);
-      assert.equal(saveRenewalState(createLocalFs(), sourceFixture.stateDir, state).ok, true);
+      const saved = saveRenewalState(createLocalFs(), sourceFixture.stateDir, state);
+      assert.equal(saved.ok, true, `${name}: ${saved.error ?? ""}`);
       const restored = path.join(root, `restored-${name}`);
       fsDefault.cpSync(source, restored, { recursive: true });
       const targetState = path.join(restored, missionInstancePaths(id).stateDir);
@@ -93,24 +96,25 @@ test("Q1-A: coherent full restore preserves checkpoint, consumed identity, cap a
       assert.equal(result.check.readiness.state, "attested");
       assert.deepEqual(result.state.state, state, `${name}: chain state bytes survive coherent restore`);
       assert.equal(result.decision.renew ? "ready" : result.decision.why, expected, `${name}: original gate remains in force`);
-      fsDefault.rmSync(path.join(sourceFixture.stateDir, "renewal-state.json"));
     }
   });
 });
 
-test("Q1-B REPRODUCER: Git-only restore omits renewal state and re-authorizes a consumed checkpoint", async () => {
+test("Q2-B: Git-only restore omits renewal state and refuses consumed/capped/stopped chains", async () => {
   await isolated("restore-b", (root) => {
     const id = "restore-b";
-    const source = path.join(root, "source");
-    const sourceFixture = fixture(source, id);
-    const sourceStateDir = sourceFixture.stateDir;
     const variants: Array<[string, Partial<RenewalState>]> = [
-      ["consumed checkpoint", { renewalsDone: 1, renewedFromCheckpointId: sourceFixture.checkpointId }],
-      ["exhausted cap", { renewalsDone: 2, renewedFromCheckpointId: null }],
-      ["operator stop", { stopped: true, renewedFromCheckpointId: null }],
+      ["consumed checkpoint", { renewalsDone: 1 }],
+      ["exhausted cap", { renewalsDone: 2, renewedFromCheckpointId: "g-prior-campaign" }],
+      ["operator stop", { stopped: true, renewedFromCheckpointId: "g-prior-campaign" }],
     ];
     for (const [name, changes] of variants) {
-      assert.equal(saveRenewalState(createLocalFs(), sourceStateDir, makeState(id, sourceFixture.checkpointId, changes)).ok, true);
+      const source = path.join(root, `source-${name.replaceAll(" ", "-")}`);
+      const sourceFixture = fixture(source, id);
+      if (name === "consumed checkpoint") changes.renewedFromCheckpointId = sourceFixture.checkpointId;
+      const sourceStateDir = sourceFixture.stateDir;
+      const saved = saveRenewalState(createLocalFs(), sourceStateDir, makeState(id, sourceFixture.checkpointId, changes));
+      assert.equal(saved.ok, true, saved.error);
       const checkout = path.join(root, `checkout-${name.replaceAll(" ", "-")}`);
       fsDefault.mkdirSync(checkout, { recursive: true });
       for (const file of ["GOAL.md", "AGENTS.md", "PROTOCOL.md", "handoff.config.json"]) fsDefault.copyFileSync(path.join(source, file), path.join(checkout, file));
@@ -118,23 +122,26 @@ test("Q1-B REPRODUCER: Git-only restore omits renewal state and re-authorizes a 
       const absent = decision(checkout, id, path.join(checkout, missionInstancePaths(id).stateDir));
       assert.equal(absent.check.kind, "current");
       assert.equal(absent.check.readiness.state, "attested");
-      assert.equal(absent.state.corrupt, false, "missing state is silently parsed as an initial chain");
-      assert.equal(absent.state.state.renewalsDone, 0);
-      assert.equal(absent.state.state.stopped, false);
-      assert.equal(absent.decision.renew, true, `${name}: unsafe renewal authorization reproduced after checkout-only restore`);
-      fsDefault.rmSync(path.join(sourceStateDir, "renewal-state.json"));
+      assert.equal(absent.state.status, "missing");
+      assert.equal(absent.decision.renew, false, `${name}: absent state cannot authorize renewal after checkout-only restore`);
+      assert.equal(absent.decision.why, "state-unavailable");
     }
 
     const fresh = path.join(root, "new-explicit-mission");
     fsDefault.mkdirSync(fresh, { recursive: true });
-    const freshFixture = fixture(fresh, "new-authorized-mission");
-    fsDefault.rmSync(path.join(freshFixture.stateDir, "renewal-state.json"), { force: true });
-    const freshCheck = validateCheckpoint(createLocalFs(), fresh, freshFixture.files);
-    assert.equal(freshCheck.kind, "current", "new explicitly created mission remains usable with a fresh checkpoint");
+    const paths = missionInstancePaths("new-authorized-mission");
+    const created = createMissionInstance(createLocalFs(), fresh, "new-authorized-mission", null);
+    assert.equal(created.ok, true);
+    const initialized = loadRenewalState(createLocalFs(), path.join(fresh, paths.stateDir));
+    assert.equal(initialized.status, "valid", "explicitly created mission has a durable initial chain");
+    assert.equal(initialized.state.renewalsDone, 0);
+    assert.match(initialized.state.chainId, /^mission:new-authorized-mission:/);
+    assert.equal(createMissionInstance(createLocalFs(), fresh, "new-authorized-mission", null).ok, true, "restart/retry preserves the same initialized chain");
+    assert.equal(loadRenewalState(createLocalFs(), path.join(fresh, paths.stateDir)).state.chainId, initialized.state.chainId);
   });
 });
 
-test("Q1-C: mismatched durable evidence and interrupted seals/locks are refused or surfaced", async () => {
+test("Q2-C: mismatched evidence and missing/corrupt transaction state are refused or surfaced", async () => {
   await isolated("restore-c", (root) => {
     const project = path.join(root, "project");
     const id = "restore-c";
@@ -161,10 +168,13 @@ test("Q1-C: mismatched durable evidence and interrupted seals/locks are refused 
     fsDefault.writeFileSync(corruptState, "{corrupt\n");
     const corrupted = decision(currentDocs, id, currentStateDir);
     assert.equal(corrupted.state.corrupt, true);
-    assert.equal(corrupted.decision.renew, true, "current renewal implementation also re-authorizes when corrupt state parses to initial state");
+    assert.equal(corrupted.decision.renew, false, "corrupt transaction state cannot authorize renewal");
+    assert.equal(corrupted.decision.why, "state-unavailable");
+    assert.equal(fsDefault.readFileSync(corruptState, "utf8"), "{corrupt\n", "inspection does not repair or overwrite corrupt evidence");
 
     const externalStateDir = path.join(root, "external-state-configured-outside-project");
     fsDefault.mkdirSync(externalStateDir, { recursive: true });
+    assert.equal(initializeRenewalState(createLocalFs(), externalStateDir, { ...INITIAL_RENEWAL_STATE, chainId: state.chainId, updatedAt: 1 }).ok, true);
     assert.equal(saveRenewalState(createLocalFs(), externalStateDir, { ...state, stopped: true }).ok, true);
     const externalState = decision(currentDocs, id, externalStateDir);
     assert.equal(path.relative(currentDocs, externalStateDir).startsWith(".."), true, "configured transaction state is outside the project tree");
@@ -172,7 +182,8 @@ test("Q1-C: mismatched durable evidence and interrupted seals/locks are refused 
     const externalBackup = path.join(root, "external-state-backup");
     fsDefault.cpSync(externalStateDir, externalBackup, { recursive: true });
     fsDefault.rmSync(externalStateDir, { recursive: true, force: true });
-    assert.equal(decision(currentDocs, id, externalStateDir).decision.renew, true, "losing external state has the same unsafe reset semantics");
+    assert.equal(decision(currentDocs, id, externalStateDir).decision.renew, false, "losing external state is fail-closed");
+    assert.equal(decision(currentDocs, id, externalStateDir).decision.why, "state-unavailable");
     assert.equal(decision(currentDocs, id, externalBackup).decision.why, "stopped", "restoring the external state snapshot retains the operator stop");
 
     const fs = createLocalFs();

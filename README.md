@@ -20,15 +20,14 @@ separate, operator-authorized action: this repository has deployed nothing anywh
 
 **Current main** (`8caee04`) integrates Lots A–I, including explicitly isolated/owned/
 closable mission instances and selective operator-approved shared knowledge publication.
-Q1 pre-deployment qualification reproduced a critical restore defect: if
-`<stateDir>/renewal-state.json` is missing or corrupt while a current attested checkpoint
-remains, the renewal gate treats the chain as new and may forget an exhausted cap, a
-consumed checkpoint or the operator stop. See `docs/qualification/predeploy-a-i.md`.
-Deployment is blocked until a fail-closed correction is designed and qualified. Current
-qualification also ran the RPC suite with installed Pi 1.5.2; this does not substitute for
-the requested Pi 1.4.0 validation.
+Q1 historically reproduced a fail-open restore defect. Q2 now refuses missing, corrupt,
+incomplete, cross-instance and generation-incoherent renewal state; explicit operator
+creation of a new mission exclusively initializes its mission-bound zero-count chain.
+See `docs/qualification/predeploy-a-i.md` for the historical reproducer, Q2 correction
+and remaining limits. The zero-inference RPC suite ran under installed Pi 1.5.2; Pi 1.4.0
+remains unqualified in this environment.
 
-Historical API-contract verification targeted Pi 1.4.0. Q1's current real-RPC runs used
+Historical API-contract verification targeted Pi 1.4.0. Q1/Q2 real-RPC runs used
 the installed Pi 1.5.2 at `/usr/lib/node_modules/@earendil-works/pi-coding-agent`; a Pi
 1.4.0 binary was not present, so that version remains unqualified here. Node v26.12.1.
 
@@ -135,8 +134,8 @@ sibling modules. Pi loads it through `jiti` (verified).
 ## Run tests
 
 Historical dev.4 counts at the time: 258 tests (257 pass + 1 gated skip), RPC 38 checks,
-skill discovery 8 checks. Current Q1 counts and runtime qualification are in
-`docs/qualification/predeploy-a-i.md`; Q1 currently classifies deployment as BLOCKED.
+skill discovery 8 checks. Q1/Q2 counts and qualification limits are in
+`docs/qualification/predeploy-a-i.md`.
 The scripts remain reproducible:
 
 ```bash
@@ -267,7 +266,9 @@ Instances are opt-in and selected explicitly for a Pi process. Create an empty i
 with `/handoff instance create <id> [--profile <id@version>]`; creation writes a small
 identity manifest and empty `HANDOFF.md`, `PROGRESS.md`, and `LEARNINGS.md` under
 `.pi-handoff/instances/<id>/`. It does not copy root documents, shared evidence, or
-`GOAL.md`. Select it at session start with `CONTEXT_GUARD_MISSION_INSTANCE=<id>` or
+`GOAL.md`. It also creates an exclusive, zero-count renewal state tied to that mission.
+If state creation is interrupted, the existing ID is not bootstrapped again; preserve it
+and choose a new identity after inspection. Select it at session start with `CONTEXT_GUARD_MISSION_INSTANCE=<id>` or
 `missionInstance.id` in `handoff.config.json`. `/handoff instance select <id>` prints
 the exact restart/config instruction and never changes the current session. The
 environment selector is useful when multiple Pi processes work in the same checkout.
@@ -297,7 +298,9 @@ command the successor prompt carries NONE — the dev.1 hardcoded `node --test t
 removed, LEARNINGS A-26), and `successorTurn` (`"custom"` by default; opt-in `"user"`
 uses one provenance-labelled user-role turn). Chain state persists at
 `<stateDir>/renewal-state.json` and survives session replacement and process restarts;
-`/handoff renew stop` writes a DURABLE stop flag that successor sessions inherit.
+`/handoff renew stop` writes a DURABLE stop flag that successor sessions inherit. Missing
+or corrupt chain state refuses all renewal/stop/resume mutations and must be restored
+from a coherent backup; no attestation or ordinary write initializes a chain.
 Since dev.2 D5c the guard also keeps a bounded structured trail at
 `<stateDir>/diagnostics.jsonl` (typed events, ISO+epoch, allowlisted fields ONLY — never
 prompts, tool arguments or secrets; rotation ~500; read-only audit mode records nothing

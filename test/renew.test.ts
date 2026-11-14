@@ -48,7 +48,12 @@ interface RH {
 }
 
 function harness(opts: { config?: string; env?: Record<string, string | undefined>; files?: Record<string, string>; mcOptions?: MockCtxOptions } = {}): RH {
-  const memFs = createMemoryFs({ ...DEFAULT_FILES, "/project/handoff.config.json": opts.config ?? renewConfig(), ...opts.files });
+  const config = opts.config ?? renewConfig();
+  const parsedConfig = JSON.parse(config) as { stateDir?: string; renewal?: { enabled?: boolean } };
+  const seeded = parsedConfig.renewal?.enabled === true && (parsedConfig.stateDir ?? ".pi-guard") === ".pi-guard"
+    ? { [STATE]: JSON.stringify({ version: 1, chainId: "chain:session-A", renewalsDone: 0, renewedFromCheckpointId: null, lastSuccessorSessionId: null, stopped: false, updatedAt: 1 }) + "\n" }
+    : {};
+  const memFs = createMemoryFs({ ...DEFAULT_FILES, "/project/handoff.config.json": config, ...seeded, ...opts.files });
   const pi = createMockPi();
   const mc = createMockCtx({ cwd: "/project", sessionId: "session-A", usage: { tokens: 1000, contextWindow: 220000 }, ...opts.mcOptions });
   contextGuard(pi.pi as never, { fs: memFs, env: opts.env ?? {} });
@@ -313,6 +318,26 @@ test("RB9: read-only audit mode — renewal refused, zero writes to the audited 
   assert.match(h.notes(), /renewal NOT performed \(read-only\)/);
   assert.equal(h.mc.newSessionCalls, 0);
   assert.ok(!h.memFs.writes.some((w) => w.startsWith("/project/")), "read-only mode performs zero writes inside the project tree");
+});
+
+test("Q2: missing chain state refuses operator, model, stop, and resume without checkpoint or state writes", async () => {
+  const h = harness({ config: renewConfig({ autoRenew: true }) });
+  await h.start();
+  h.memFs.files.delete(STATE);
+  const beforeFiles = new Map(h.memFs.files);
+  await h.command("renew");
+  assert.match(h.notes(), /state-unavailable/);
+  const tool = h.pi.tools.get("handoff_renew");
+  const model = await tool.execute("missing-state-model", {}, undefined, undefined, h.mc.ctx);
+  assert.match(model.content[0].text, /state-unavailable/);
+  await h.command("renew stop");
+  assert.match(h.notes(), /renewal stop refused/);
+  await h.command("renew resume");
+  assert.match(h.notes(), /renewal resume refused/);
+  assert.equal(h.memFs.files.has(STATE), false);
+  assert.equal(h.memFs.files.get("/project/HANDOFF.md"), beforeFiles.get("/project/HANDOFF.md"));
+  assert.equal(h.memFs.files.get("/project/PROGRESS.md"), beforeFiles.get("/project/PROGRESS.md"));
+  assert.equal(h.mc.newSessionCalls, 0);
 });
 
 test("RB10: status reports policy + durable chain; authorization text reflects the live gate", async () => {

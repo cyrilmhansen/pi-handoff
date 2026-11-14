@@ -67,7 +67,12 @@ interface DH {
 }
 
 function harness(opts: { config?: string; env?: Record<string, string | undefined>; files?: Record<string, string> } = {}): DH {
-  const memFs = createMemoryFs({ ...DEFAULT_FILES, "/project/handoff.config.json": opts.config ?? cfg(), ...opts.files });
+  const config = opts.config ?? cfg();
+  const parsed = JSON.parse(config) as { renewal?: { enabled?: boolean } };
+  const seeded = parsed.renewal?.enabled === true && !opts.files?.[STATE]
+    ? { [STATE]: stateSeed({ chainId: "chain:session-D5" }) }
+    : {};
+  const memFs = createMemoryFs({ ...DEFAULT_FILES, "/project/handoff.config.json": config, ...seeded, ...opts.files });
   const pi = createMockPi();
   const mc = createMockCtx({ cwd: "/project", sessionId: "session-D5", usage: { tokens: 1000, contextWindow: 220000 } });
   contextGuard(pi.pi as never, { fs: memFs, env: opts.env ?? {} });
@@ -188,7 +193,7 @@ test("D5b3: unattested/missing checkpoint => NOT AVAILABLE (not-authorized) with
 });
 
 test("D5b4: durable operator stop => NOT AVAILABLE (stopped) with resume + finalize instructions; preview still write-free", async () => {
-  const h = harness({ config: renewCfg(), env: { CONTEXT_GUARD_SYNTHETIC_REMAINING: "9000" }, files: { [STATE]: stateSeed({ stopped: true, renewalsDone: 1 }) } });
+  const h = harness({ config: renewCfg(), env: { CONTEXT_GUARD_SYNTHETIC_REMAINING: "9000" }, files: { [STATE]: stateSeed({ stopped: true, renewalsDone: 1, renewedFromCheckpointId: "g-stop-old" }) } });
   await h.start();
   await h.command("handoff", "finalize under stop");
   const before = h.memFs.files.get(STATE)!;

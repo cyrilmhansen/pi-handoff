@@ -60,7 +60,7 @@ function options(fixture: ReturnType<typeof readyFixture>, extra: Partial<Parame
 
 test("MH1: current attested closure hashes mission and state files without moving them", () => {
   const fixture = readyFixture();
-  fixture.fs.writeFile(`${fixture.stateDir}/renewal-state.json`, JSON.stringify({ version: 1, chainId: "mission:sealed:chain:x", renewalsDone: 2, renewedFromCheckpointId: null, lastSuccessorSessionId: null, stopped: false, updatedAt: 10 }));
+  fixture.fs.writeFile(`${fixture.stateDir}/renewal-state.json`, JSON.stringify({ version: 1, chainId: "mission:sealed:chain:x", renewalsDone: 2, renewedFromCheckpointId: "g1-sealed", lastSuccessorSessionId: null, stopped: false, updatedAt: 10 }));
   fixture.fs.writeFile(`${fixture.stateDir}/checkpoint-history/g1.json`, "checkpoint history");
   assert.ok(fixture.fs.files.has(`${fixture.stateDir}/checkpoint-history/g1.json`));
   assert.deepEqual(fixture.fs.listFilesStrict!(fixture.stateDir).sort(), ["checkpoint-history", "renewal-state.json"]);

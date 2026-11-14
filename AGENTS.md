@@ -7,15 +7,16 @@ and operator-approved shared knowledge publication. No version bump or publicati
 part of Q1. Do not tag, publish or push without separate explicit authorization. No
 scientific-state migration or cleanup is part of this work.
 
-**Pre-deployment restore blocker (Q1, 2026-11-14):** a Git-only restore that omits
-`<stateDir>/renewal-state.json` while retaining a current, attested checkpoint is treated
-as an initial renewal chain. The counter, consumed-checkpoint key and durable stop can
-therefore be forgotten; corrupt renewal state has the same fail-open effect in the
-renewal path. The reproducible test is `test/qualification-restore.test.ts` Q1-B/Q1-C,
-and the real-Pi zero-inference reproducer is in `scripts/e2e-rpc-two-process.mjs`. Treat
-deployment as **BLOCKED** until this is corrected and requalified. For now, preserve the
-whole state directory and do not continue a selected mission after discovering its
-renewal state is missing or corrupt.
+**Q1 restore defect and Q2 correction:** Q1 historically reproduced a fail-open renewal
+when `<stateDir>/renewal-state.json` was absent/corrupt. Q2 on `qual/predeploy-a-i`
+classifies state as valid/missing/corrupt; renewal, stop/resume, and document-cycle
+transitions now refuse absent, corrupt, incomplete, cross-instance, or generation-incoherent
+state. Updates cannot create or replace a missing/corrupt chain. Explicit operator
+creation of a new mission initializes its mission-bound zero-count chain exclusively.
+If creation is interrupted before that state is written, preserve the partial identity
+and use a new mission ID; never retry initialization over an existing identity. See Q2
+results in `docs/qualification/predeploy-a-i.md`. Pi 1.4.0 remains unqualified in this
+environment; Q2's real RPC proof uses the installed Pi version documented there.
 
 Renewal ships **disabled by default**: `renewal.enabled`/`renewal.autoRenew` defaults are
 false; this project sets `enabled: true, autoRenew: false, maxRenewals: 8` with
@@ -32,11 +33,12 @@ Every fresh session:
    Manual prose in HANDOFF/PROGRESS wins over managed checkpoint blocks (schema v3);
    freshness is reported at `session_start` and via `/handoff verify`. Never infer or
    change the active instance from document contents.
-2. Verify with `node --test test/` before touching code. Latest Q1 baseline:
-   **301 pass / 1 gated skip**. Zero-inference real-runtime gates:
-   `node scripts/e2e-rpc-two-process.mjs` (**58/58**, including a deliberately unsafe
-   missing-chain-state reproduction; current installed Pi is 1.5.2, so this is not a
-   Pi 1.4.0 qualification), `node scripts/check-skill-discovery.mjs` (8/8). The
+2. Verify with `node --test test/` before touching code. Latest Q2 baseline:
+   **305 pass / 1 gated skip (306 total)**. Zero-inference real-runtime gates:
+   `node scripts/e2e-rpc-two-process.mjs` (**60/60**, including fail-closed missing-chain
+   refusal and explicit mission bootstrap/restart; current installed Pi is 1.5.2, so
+   this is not a Pi 1.4.0 qualification), `node scripts/check-skill-discovery.mjs` (8/8).
+   The
    `node scripts/e2e-renew.mjs` (**24/24**, last live run on the pre-D7 candidate
    `b07e29b` — A-36) spends REAL inference — re-run only after renewal-wiring changes in
    `index.ts` (the D7 driver changes are lifecycle-only and covered by

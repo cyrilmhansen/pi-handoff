@@ -101,7 +101,7 @@ test("FZ2: finalize WORKS at the exhausted cap (8/8) and leaves chain state byte
 });
 
 test("FZ3: finalize WORKS on a durably stopped chain (stop flag survives untouched)", async () => {
-  const seed = stateSeed({ stopped: true, renewalsDone: 1, chainId: "chain:stopped" });
+  const seed = stateSeed({ stopped: true, renewalsDone: 1, renewedFromCheckpointId: "g-stopped-old", chainId: "chain:stopped" });
   const h = harness({ config: cfg({ renewal: { enabled: true, autoRenew: false, maxRenewals: 2 } }), files: { [STATE]: seed } });
   await h.start();
   const { f, out } = await finalized(h);
